@@ -2,6 +2,10 @@
 -- allowlist left out. The per-file cap was 512 MiB, which would reject a
 -- video the media API already accepted after the bytes were stored.
 -- Raise the platform default only when it is still that original value.
+--
+-- Was 20261008000003_blob_limits. It moved with video_blob and blob_photos
+-- so it still runs after them (the guard below reads file_store). Every
+-- statement here is safe to run again.
 
 create or replace function public.allowed_media_types()
 returns text[]

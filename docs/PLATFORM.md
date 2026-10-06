@@ -388,10 +388,15 @@ Production already has the `20261006` and `20261007` migrations. Apply the
 new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
-2. `backend/supabase/migrations/20261008000001_video_blob.sql`
-3. `backend/supabase/migrations/20261008000002_blob_photos.sql`
-4. `backend/supabase/migrations/20261008000002_media_storage.sql`
-5. `backend/supabase/migrations/20261008000003_blob_limits.sql`
+2. `backend/supabase/migrations/20261008000002_media_storage.sql`
+3. `backend/supabase/migrations/20261009000002_video_blob.sql`
+4. `backend/supabase/migrations/20261009000003_blob_photos.sql`
+5. `backend/supabase/migrations/20261009000004_blob_limits.sql`
+
+The three Blob migrations used to be 20261008000001-3, and two of those
+versions collided with media_platform and media_storage. They are safe to run
+again, so `supabase db push` works even if they were pasted into the SQL
+editor before.
 
 Then redeploy the `admin` and `pair-device` edge functions so the console can
 sign and delete media, revoke a display's auth user, and so pairing refuses

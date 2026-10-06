@@ -163,7 +163,7 @@ with no Supabase values, never the production project.
    `BLOB_READ_WRITE_TOKEN` is present. Don't commit either value.
 5. Deploy. Every route is dynamic, and `proxy.ts` runs on the Node.js runtime.
 6. Make sure the backend side is in place: migrations pushed
-   (`supabase db push`, including `20261008000001_video_blob.sql`) and the
+   (`supabase db push`, including `20261009000002_video_blob.sql`) and the
    function deployed (`supabase functions deploy admin`). Supabase gives the
    function its service role key automatically.
 7. Point the iOS app at this deployment (`MEDIA_API_URL` in
