@@ -1,0 +1,29 @@
+.usage {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.track {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.over {
+  background: var(--danger-strong);
+}
+
+.overText {
+  color: var(--danger);
+}

@@ -34,6 +34,12 @@
 - [ ] Assistant in the iOS app
 - [ ] Voice input (speech-to-text) and spoken replies
 
+## M2.6: Many families
+- [x] Per-family storage and item quotas, enforced in Postgres and Storage
+- [x] Admin console: media browser, family limits, display revoke, health tiles
+- [x] A paired display can't move itself into another family
+- [ ] Console control for albums and "on this day" once those exist
+
 ## M3: Polish and family features
 - [ ] Recurring chores generated nightly (edge function plus cron)
 - [ ] Google and iCloud calendar sync

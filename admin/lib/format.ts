@@ -19,6 +19,34 @@ const dateTimeFormat = new Intl.DateTimeFormat("en-US", {
 export const formatNumber = (n: number) => integer.format(n);
 export const formatCompact = (n: number) => (Math.abs(n) < 10_000 ? integer.format(n) : compactFormat.format(n));
 
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+/** Binary units (1 GB = 1024³), matching the quotas stored in bytes. */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return `${integer.format(Math.round(n))} B`;
+  let value = n;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${Number(value.toFixed(digits))} ${BYTE_UNITS[unit]}`;
+}
+
+export const GIB = 1024 ** 3;
+export const MIB = 1024 ** 2;
+
+/** A byte count as a GiB string the settings form can put back in an input. */
+export function bytesToGiB(bytes: number): string {
+  return String(Math.round((bytes / GIB) * 1000) / 1000);
+}
+
+export function bytesToMiB(bytes: number): string {
+  return String(Math.round((bytes / MIB) * 1000) / 1000);
+}
+
 // Timestamps come from family-writable rows, and Postgres also stores values
 // JavaScript can't read ('infinity', years past 9999). Those are shown as
 // they are instead of throwing, so one odd row can't take a page down.
@@ -84,6 +112,11 @@ const ACTIONS: Record<string, string> = {
   ban_user: "Banned user",
   unban_user: "Unbanned user",
   delete_user: "Deleted user",
+  delete_media: "Removed media",
+  delete_media_files: "Removed media files",
+  revoke_device: "Revoked display",
+  revoke_device_auth: "Removed display account",
+  set_family_limits: "Changed family limits",
 };
 
 export function describeAction(action: string, details: Record<string, unknown> = {}): string {

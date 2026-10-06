@@ -32,6 +32,14 @@ export const OverviewIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const MediaIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+    <circle cx="8.8" cy="10" r="1.5" />
+    <path d="m3.5 15.2 4.3-3.3a1.2 1.2 0 0 1 1.5 0L14 15.6l1.5-1.2a1.2 1.2 0 0 1 1.5 0l3.5 2.6" />
+  </Icon>
+);
+
 export const FamilyIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z" />

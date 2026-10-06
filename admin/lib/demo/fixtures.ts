@@ -5,6 +5,7 @@ import type {
   Device,
   Family,
   FamilyInvite,
+  MediaKind,
   Member,
   MemberRole,
   PlatformInvite,
@@ -16,10 +17,30 @@ import type {
 // and relative to when the server started, so screenshots always look fresh.
 // People use reserved example domains; nothing here is a real account.
 
+export type DemoMedia = {
+  id: string;
+  kind: MediaKind;
+  storage_path: string;
+  thumbnail_path: string | null;
+  content_type: string;
+  byte_size: number;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  caption: string | null;
+  taken_at: string;
+  created_at: string;
+  show_on_frame: boolean;
+  uploaded_by_name: string | null;
+  /** Hue for the placeholder poster. Not a real photo. */
+  hue: number;
+};
+
 export type DemoFamily = Family & {
   members: Member[];
   devices: Device[];
   invites: FamilyInvite[];
+  media: DemoMedia[];
   usage: UsageDay[]; // the last USAGE_DAYS days, oldest first
 };
 
@@ -47,6 +68,11 @@ export type DemoState = {
 export const USAGE_DAYS = 90;
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MEMBER_COLORS = ["#E9846F", "#5BAFA8", "#E9B44C", "#8E9CE6", "#D98CB3", "#7DB46C"];
+const CAPTIONS = [
+  "Saturday breakfast", "At the beach", "First day back", "Garden tomatoes",
+  "Birthday cake", "After soccer", "Snow day", "Sunday lunch",
+  "Grandma visiting", "The new bike", "Sunset from the deck", "School play",
+];
 
 // mulberry32: tiny seeded PRNG, good enough for fixtures.
 function rng(seed: number) {
@@ -68,6 +94,11 @@ type Spec = {
   lastActiveHours: number;
   suspended?: { daysAgo: number; reason: string };
   dailyLimit?: number;
+  /** How many media rows to invent. Omitted: a handful from the family's age. */
+  mediaCount?: number;
+  /** Bytes. Omitted: the platform default. */
+  storageLimitBytes?: number;
+  itemLimit?: number;
   members: [name: string, role: MemberRole, email?: string, fullName?: string][];
   devices: [name: string, lastSeenMinutes: number][];
   invites?: { role: MemberRole; email?: string; claim?: string; state: "active" | "accepted" | "expired" | "revoked"; daysAgo: number }[];
@@ -76,6 +107,7 @@ type Spec = {
 const SPECS: Spec[] = [
   {
     name: "The Parks", tz: "America/Los_Angeles", createdDaysAgo: 142, perDay: 34, lastActiveHours: 0.2,
+    mediaCount: 28,
     members: [["Maya", "parent", "maya.park@example.com", "Maya Park"], ["Daniel", "parent", "daniel.park@example.com", "Daniel Park"], ["Emma", "child"], ["Leo", "child"]],
     devices: [["Kitchen display", 1], ["Hallway display", 6]],
     invites: [
@@ -125,6 +157,7 @@ const SPECS: Spec[] = [
   {
     name: "The Bakers", tz: "Europe/London", createdDaysAgo: 57, perDay: 12, lastActiveHours: 98,
     suspended: { daysAgo: 4, reason: "Owner asked to pause the account while they move house." },
+    mediaCount: 10, storageLimitBytes: 32 * 1024 * 1024,
     members: [["Tom", "parent", "tom.baker@example.org", "Tom Baker"], ["Jess", "parent", "jess.baker@example.org", "Jess Baker"], ["Ollie", "child"]],
     devices: [["Kitchen", 5900]],
   },
@@ -136,7 +169,7 @@ const SPECS: Spec[] = [
   },
   {
     name: "Hartley Family", tz: "Australia/Sydney", createdDaysAgo: 35, perDay: 14, lastActiveHours: 2,
-    dailyLimit: 400,
+    dailyLimit: 400, mediaCount: 8, itemLimit: 4,
     members: [["Grace", "parent", "grace.hartley@example.com", "Grace Hartley"], ["Ben", "child"], ["Ruby", "child"]],
     devices: [["Kitchen", 4]],
   },
@@ -154,11 +187,21 @@ const SPECS: Spec[] = [
   },
   {
     name: "Fischer Family", tz: "Europe/Berlin", createdDaysAgo: 2, perDay: 3, lastActiveHours: 26,
+    mediaCount: 0,
     members: [["Jonas", "parent", "jonas.fischer@example.com", "Jonas Fischer"], ["Lena", "parent"]],
     devices: [],
     invites: [{ role: "parent", email: "lena.fischer@example.com", claim: "Lena", state: "active", daysAgo: 2 }],
   },
 ];
+
+/** A gradient poster for demo mode. No remote image, nothing from a real family. */
+export function demoMediaUrl(item: Pick<DemoMedia, "kind" | "hue" | "caption">): string {
+  const raw = item.caption ?? (item.kind === "video" ? "Video" : "Photo");
+  const label = raw.replace(/[<>&"]/g, "").slice(0, 28);
+  const h = ((item.hue % 360) + 360) % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h} 58% 58%)"/><stop offset="0.55" stop-color="hsl(${(h + 28) % 360} 64% 52%)"/><stop offset="1" stop-color="hsl(${(h + 72) % 360} 72% 64%)"/></linearGradient></defs><rect width="480" height="480" fill="url(#g)"/><circle cx="372" cy="96" r="42" fill="rgb(255 255 255 / 0.35)"/><text x="28" y="430" fill="white" font-family="Inter,sans-serif" font-size="26" font-weight="600">${label}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 export function buildDemoState(now = Date.now()): DemoState {
   const rand = rng(20261007);
@@ -251,14 +294,47 @@ export function buildDemoState(now = Date.now()): DemoState {
       input_tokens: Math.round(last.input_tokens * part), output_tokens: Math.round(last.output_tokens * part),
     };
 
+    const itemCount = spec.mediaCount ?? Math.min(16, Math.max(0, Math.round(spec.createdDaysAgo / 8)));
+    const media: DemoMedia[] = Array.from({ length: itemCount }, (_, i) => {
+      const kind: MediaKind = rand() < 0.2 ? "video" : "photo";
+      const mediaId = uuid();
+      const hasPoster = kind === "photo" || rand() < 0.75;
+      const bytes = Math.round((kind === "video" ? 18 + rand() * 70 : 0.6 + rand() * 3.2) * 1024 * 1024);
+      const uploader = members[Math.floor(rand() * members.length)];
+      const caption = rand() < 0.15 ? null : CAPTIONS[Math.floor(rand() * CAPTIONS.length)];
+      return {
+        id: mediaId,
+        kind,
+        storage_path: `${id}/${mediaId}.${kind === "video" ? "mov" : "jpg"}`,
+        thumbnail_path: hasPoster ? `${id}/${mediaId}-thumb.jpg` : null,
+        content_type: kind === "video" ? "video/quicktime" : "image/jpeg",
+        byte_size: bytes,
+        width: kind === "video" ? 1920 : 2560,
+        height: kind === "video" ? 1080 : 1700,
+        duration_seconds: kind === "video" ? Math.round((4 + rand() * 40) * 10) / 10 : null,
+        caption,
+        taken_at: days(Math.min(created, 1 + i * 3 + rand() * 4)),
+        created_at: days(Math.min(created, 0.2 + i * 2)),
+        show_on_frame: rand() < 0.85,
+        uploaded_by_name: uploader.display_name,
+        hue: Math.floor(rand() * 360),
+      };
+    });
+    if (spec.storageLimitBytes != null && media.length > 0) {
+      const used = media.reduce((n, m) => n + m.byte_size, 0);
+      if (used <= spec.storageLimitBytes) media[0].byte_size += spec.storageLimitBytes - used + 8 * 1024 * 1024;
+    }
+
     return {
       id, name: spec.name, timezone: spec.tz, created_at: days(created),
       status: spec.suspended ? "suspended" : "active",
       suspended_at: spec.suspended ? days(spec.suspended.daysAgo) : null,
       suspended_reason: spec.suspended?.reason ?? null,
       assistant_daily_limit: spec.dailyLimit ?? null,
+      storage_limit_bytes: spec.storageLimitBytes ?? null,
+      media_item_limit: spec.itemLimit ?? null,
       last_activity: hours(spec.lastActiveHours),
-      members, devices, invites, usage,
+      members, devices, invites, media, usage,
     };
   });
 
@@ -317,6 +393,7 @@ export function buildDemoState(now = Date.now()): DemoState {
     invites,
     settings: {
       invite_only: true, assistant_enabled: true, assistant_daily_limit: 200,
+      storage_limit_bytes: 5368709120, media_max_bytes: 536870912, media_item_limit: 5000,
       updated_at: hours(26), updated_by: users[1].id,
     },
     audit,

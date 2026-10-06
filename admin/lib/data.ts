@@ -13,13 +13,17 @@ import type {
   FamilyDetail,
   FamilyInvite,
   FamilyInviteStatus,
+  FamilyLimitsPatch,
   FamilyRow,
   FamilyStatus,
+  MediaItem,
+  MediaKind,
   NewInvite,
   Overview,
   Page,
   PlatformInvite,
   Settings,
+  SignedMedia,
   UsageDay,
   UserRow,
 } from "@/lib/types";
@@ -86,6 +90,13 @@ async function adminFunction<T>(db: SupabaseClient, body: Record<string, unknown
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0) || 0);
+// PostgREST sends bigint as a string. Quotas stay well inside Number's range.
+const big = (v: unknown): number => {
+  if (typeof v === "bigint") return Number(v);
+  if (typeof v === "string" && /^-?\d+$/.test(v)) return Number(v);
+  return num(v);
+};
+const optionalBig = (v: unknown): number | undefined => (v == null || v === "" ? undefined : big(v));
 const pageArgs = (page: number) => ({ lim: PAGE_SIZE + 1, off: Math.max(page - 1, 0) * PAGE_SIZE });
 function paged<T>(rows: T[], page: number): Page<T> {
   return { rows: rows.slice(0, PAGE_SIZE), page, hasMore: rows.length > PAGE_SIZE };
@@ -159,6 +170,11 @@ export async function getOverview(): Promise<Overview> {
     open_platform_invites: num(o.open_platform_invites),
     assistant_requests_7d: num(o.assistant_requests_7d),
     assistant_tokens_7d: num(o.assistant_tokens_7d),
+    devices_seen_24h: num(o.devices_seen_24h),
+    assistant_enabled: o.assistant_enabled !== false,
+    media_items: num(o.media_items),
+    storage_bytes: big(o.storage_bytes),
+    families_over_quota: num(o.families_over_quota),
   };
 }
 
@@ -189,6 +205,10 @@ export async function listFamilies(search: string | null, page: number): Promise
       parent_count: num(r.parent_count),
       device_count: num(r.device_count),
       assistant_requests_30d: num(r.assistant_requests_30d),
+      media_count: num(r.media_count),
+      storage_bytes: big(r.storage_bytes),
+      storage_limit_bytes: big(r.storage_limit_bytes),
+      media_item_limit: num(r.media_item_limit),
     })),
     page,
   );
@@ -214,8 +234,19 @@ export const getFamilyDetail = cache(async (id: string): Promise<FamilyDetail | 
     throw new DataError(error.message);
   }
   const d = data as FamilyDetail;
+  const f = d.family;
   return {
-    family: d.family,
+    family: {
+      ...f,
+      assistant_daily_limit: f.assistant_daily_limit == null ? null : num(f.assistant_daily_limit),
+      assistant_daily_limit_effective: f.assistant_daily_limit_effective == null ? null : num(f.assistant_daily_limit_effective),
+      storage_limit_bytes: f.storage_limit_bytes == null ? null : big(f.storage_limit_bytes),
+      media_item_limit: f.media_item_limit == null ? null : num(f.media_item_limit),
+      storage_bytes: optionalBig(f.storage_bytes),
+      storage_limit_effective: optionalBig(f.storage_limit_effective),
+      media_count: f.media_count == null ? undefined : num(f.media_count),
+      media_item_limit_effective: f.media_item_limit_effective == null ? undefined : num(f.media_item_limit_effective),
+    },
     members: d.members ?? [],
     devices: d.devices ?? [],
     invites: (d.invites ?? []).map((i) => ({ ...i, status: familyInviteStatus(i) })),
@@ -247,9 +278,47 @@ export async function getSettings(): Promise<Settings> {
     invite_only: s.invite_only,
     assistant_enabled: s.assistant_enabled,
     assistant_daily_limit: num(s.assistant_daily_limit),
+    // Defaults match the migration, so a form opened before those columns
+    // exist doesn't write zeros over the real settings.
+    storage_limit_bytes: s.storage_limit_bytes == null ? 5368709120 : big(s.storage_limit_bytes),
+    media_max_bytes: s.media_max_bytes == null ? 536870912 : big(s.media_max_bytes),
+    media_item_limit: s.media_item_limit == null ? 5000 : num(s.media_item_limit),
     updated_at: s.updated_at ?? null,
     updated_by: s.updated_by ?? null,
   };
+}
+
+const MEDIA_PAGE = 48;
+
+export async function listMedia(familyId: string, kind: MediaKind | null, page: number): Promise<Page<MediaItem>> {
+  const src = await source();
+  const lim = MEDIA_PAGE + 1;
+  const off = Math.max(page - 1, 0) * MEDIA_PAGE;
+  const rows = src.demo
+    ? demo.demoListMedia(familyId, kind, lim, off)
+    : await rpc<MediaItem[]>(src.db, "admin_list_media", { family: familyId, only_kind: kind, lim, off });
+  const list = (rows ?? []).map((m) => ({
+    ...m,
+    byte_size: m.byte_size == null ? null : big(m.byte_size),
+    duration_seconds: m.duration_seconds == null ? null : num(m.duration_seconds),
+    width: m.width == null ? null : num(m.width),
+    height: m.height == null ? null : num(m.height),
+  }));
+  return { rows: list.slice(0, MEDIA_PAGE), page, hasMore: list.length > MEDIA_PAGE };
+}
+
+// Short-lived thumbnail URLs from the admin function. An empty page doesn't
+// call it. Videos with no poster come back without a url.
+export async function signMedia(familyId: string, ids: string[]): Promise<SignedMedia[]> {
+  if (ids.length === 0) return [];
+  const src = await source();
+  if (src.demo) return demo.demoSignMedia(familyId, ids);
+  const result = await adminFunction<{ urls?: SignedMedia[] }>(src.db, {
+    action: "sign_media",
+    family_id: familyId,
+    media_ids: ids.slice(0, 60),
+  });
+  return result.urls ?? [];
 }
 
 export async function listAudit(page: number, pageSize = PAGE_SIZE): Promise<Page<AuditEntry>> {
@@ -315,8 +384,35 @@ export async function revokePlatformInvite(id: string): Promise<void> {
   await rpc(src.db, "admin_revoke_platform_invite", { invite: id });
 }
 
+export async function deleteMedia(id: string): Promise<void> {
+  const src = await source();
+  if (src.demo) return demo.demoDeleteMedia(id);
+  await adminFunction(src.db, { action: "delete_media", media_id: id });
+}
+
+export async function revokeDevice(id: string): Promise<void> {
+  const src = await source();
+  if (src.demo) return demo.demoRevokeDevice(id);
+  await adminFunction(src.db, { action: "revoke_device", device_id: id });
+}
+
+export async function setFamilyLimits(id: string, patch: FamilyLimitsPatch): Promise<void> {
+  const src = await source();
+  if (src.demo) return demo.demoSetFamilyLimits(id, patch);
+  const numberOrNull = (v: number | null | undefined) => (typeof v === "number" ? v : null);
+  await rpc(src.db, "admin_set_family_limits", {
+    family: id,
+    assistant_daily_limit: numberOrNull(patch.assistant_daily_limit),
+    storage_limit_bytes: numberOrNull(patch.storage_limit_bytes),
+    media_item_limit: numberOrNull(patch.media_item_limit),
+    use_platform_assistant_limit: patch.assistant_daily_limit === null,
+    use_platform_storage_limit: patch.storage_limit_bytes === null,
+    use_platform_media_item_limit: patch.media_item_limit === null,
+  });
+}
+
 export async function updateSettings(
-  patch: Partial<Pick<Settings, "invite_only" | "assistant_enabled" | "assistant_daily_limit">>,
+  patch: Partial<Pick<Settings, "invite_only" | "assistant_enabled" | "assistant_daily_limit" | "storage_limit_bytes" | "media_max_bytes" | "media_item_limit">>,
 ): Promise<void> {
   const src = await source();
   if (src.demo) {
@@ -327,6 +423,9 @@ export async function updateSettings(
     invite_only: patch.invite_only ?? null,
     assistant_enabled: patch.assistant_enabled ?? null,
     assistant_daily_limit: patch.assistant_daily_limit ?? null,
+    storage_limit_bytes: patch.storage_limit_bytes ?? null,
+    media_max_bytes: patch.media_max_bytes ?? null,
+    media_item_limit: patch.media_item_limit ?? null,
   });
 }
 

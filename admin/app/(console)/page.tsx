@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AuditTable } from "@/components/AuditTable";
-import { DisplayIcon, FamilyIcon, InviteIcon, SparkIcon, UsersIcon } from "@/components/icons";
+import { DisplayIcon, FamilyIcon, InviteIcon, MediaIcon, SparkIcon, UsersIcon } from "@/components/icons";
 import { StatTile } from "@/components/StatTile";
 import { Card, PageHeader } from "@/components/ui";
 import { UsageChart } from "@/components/UsageChart";
 import { getOverview, getUsageByDay, listAudit, requireAdmin } from "@/lib/data";
-import { formatCompact, formatDate, formatNumber, plural } from "@/lib/format";
+import { formatBytes, formatCompact, formatDate, formatNumber, plural } from "@/lib/format";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Overview" };
@@ -21,7 +21,7 @@ export default async function OverviewPage() {
       <PageHeader
         eyebrow={formatDate(new Date().toISOString())}
         title="Overview"
-        subtitle="Families, people and assistant use across homeOS."
+        subtitle="Families, storage and assistant use across homeOS."
       />
 
       <div className={styles.tiles}>
@@ -40,7 +40,26 @@ export default async function OverviewPage() {
         />
         <StatTile label="Users" value={formatNumber(o.users)} href="/users" icon={<UsersIcon size={18} />} context="People with an account" />
         <StatTile label="Family members" value={formatNumber(o.members)} context="Shown on family screens" />
-        <StatTile label="Displays" value={formatNumber(o.devices)} icon={<DisplayIcon size={18} />} context="Paired wall screens" />
+        <StatTile
+          label="Displays"
+          value={formatNumber(o.devices)}
+          icon={<DisplayIcon size={18} />}
+          context={`${formatNumber(o.devices_seen_24h)} seen in the last day`}
+        />
+        <StatTile
+          label="Storage"
+          value={formatBytes(o.storage_bytes)}
+          href="/media"
+          icon={<MediaIcon size={18} />}
+          context={plural(o.media_items, "photo and video", "photos and videos")}
+        />
+        <StatTile
+          label="Over quota"
+          value={formatNumber(o.families_over_quota)}
+          href="/media"
+          context={o.families_over_quota ? "Families past their storage or item cap" : "Every family is within its cap"}
+          tone={o.families_over_quota ? "warn" : undefined}
+        />
         <StatTile
           label="Open invites"
           value={formatNumber(o.open_platform_invites)}
@@ -52,7 +71,8 @@ export default async function OverviewPage() {
           label="Assistant requests"
           value={formatNumber(o.assistant_requests_7d)}
           icon={<SparkIcon size={18} />}
-          context="Last 7 days"
+          context={o.assistant_enabled ? "On · last 7 days" : "Turned off"}
+          tone={o.assistant_enabled ? undefined : "warn"}
         />
         <StatTile label="Assistant tokens" value={formatCompact(o.assistant_tokens_7d)} context="Last 7 days, input + output" />
       </div>
