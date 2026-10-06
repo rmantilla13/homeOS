@@ -11,6 +11,7 @@ qt_add_executable(homeos-display
     src/main.cpp
     src/backend/SupabaseClient.h   src/backend/SupabaseClient.cpp
     src/models/FamilyStore.h       src/models/FamilyStore.cpp
+    src/models/Assistant.h         src/models/Assistant.cpp
     src/hardware/DisplayController.h src/hardware/DisplayController.cpp
 )
 
@@ -30,6 +31,13 @@ qt_add_qml_module(homeos-display
         qml/components/MemberAvatar.qml
         qml/components/PillButton.qml
         qml/components/PhotoTile.qml
+        qml/components/Icon.qml
+        qml/components/IconButton.qml
+        qml/components/Glow.qml
+        qml/components/Tag.qml
+        qml/components/SegmentedControl.qml
+        qml/components/TimeGrid.qml
+        qml/components/MonthGrid.qml
         qml/screens/HomeScreen.qml
         qml/screens/CalendarScreen.qml
         qml/screens/TasksScreen.qml
@@ -38,6 +46,7 @@ qt_add_qml_module(homeos-display
         qml/screens/PlannerScreen.qml
         qml/screens/PhotoFrame.qml
         qml/screens/PairingScreen.qml
+        qml/screens/AssistantPanel.qml
     RESOURCES
         resources/demo/family.json
         qml/components/KeyboardPanel.qml

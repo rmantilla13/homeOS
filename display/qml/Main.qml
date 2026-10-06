@@ -16,6 +16,7 @@ ApplicationWindow {
     font.family: Theme.fontFamily
 
     property int currentScreen: 0
+    readonly property real keyboardHeight: keyboard.item ? keyboard.item.visibleHeight : 0
 
     // Leaving a screen or going idle closes the on-screen keyboard.
     function dismissKeyboard() {
@@ -29,7 +30,7 @@ ApplicationWindow {
     // Drop back to the home screen after the photo frame has been up.
     Connections {
         target: Device
-        function onIdleChanged() { if (Device.idle) { window.dismissKeyboard(); window.currentScreen = 0 } }
+        function onIdleChanged() { if (Device.idle) { window.dismissKeyboard(); assistant.open = false; window.currentScreen = 0 } }
     }
 
     RowLayout {
@@ -49,13 +50,28 @@ ApplicationWindow {
             Layout.fillHeight: true
             currentIndex: window.currentScreen
 
-            HomeScreen { onOpenScreen: index => window.currentScreen = index }
+            HomeScreen {
+                onOpenScreen: index => window.currentScreen = index
+                onOpenAssistant: question => {
+                    assistant.open = true
+                    if (question) AI.ask(question)
+                    else assistant.focusInput()
+                }
+            }
             CalendarScreen {}
             TasksScreen {}
             RewardsScreen {}
             PhotosScreen {}
             PlannerScreen {}
         }
+    }
+
+    AssistantPanel {
+        id: assistant
+        anchors.fill: parent
+        anchors.leftMargin: Theme.navWidth
+        keyboardHeight: window.keyboardHeight
+        onCloseRequested: { window.dismissKeyboard(); open = false }
     }
 
     PairingScreen {
@@ -101,6 +117,7 @@ ApplicationWindow {
 
     // On-screen keyboard (QT_IM_MODULE=qtvirtualkeyboard on the device).
     Loader {
+        id: keyboard
         anchors.fill: parent
         z: 1000
         active: Qt.application.arguments.indexOf("--no-keyboard") < 0

@@ -4,123 +4,92 @@ import QtQuick.Layouts
 import HomeOS
 import HomeOS.Core
 
-// Week at a glance: seven columns, events color-coded by family member.
+// Family calendar with Day / Week / Month views.
 Item {
     id: cal
-    property int weekOffset: 0
-    readonly property date today: new Date()
-    readonly property date weekStart: addDays(today, -((today.getDay() + 6) % 7) + weekOffset * 7)
+    property int view: 1                  // 0 day, 1 week, 2 month
+    property date focusDate: today()
 
+    function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()) }
     function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
-    function iso(d) { return Qt.formatDate(d, "yyyy-MM-dd") }
+    function weekStart(d) { return addDays(d, -((d.getDay() + 6) % 7)) }
+    function step(dir) {
+        if (view === 0) focusDate = addDays(focusDate, dir)
+        else if (view === 1) focusDate = addDays(focusDate, 7 * dir)
+        else focusDate = new Date(focusDate.getFullYear(), focusDate.getMonth() + dir, 1)
+    }
+    readonly property var visibleDays: {
+        if (view === 0) return [focusDate]
+        const s = weekStart(focusDate)
+        return [0, 1, 2, 3, 4, 5, 6].map(i => addDays(s, i))
+    }
+    readonly property string title: view === 0 ? Qt.formatDate(focusDate, "dddd, MMMM d")
+                                  : view === 1 ? Qt.formatDate(visibleDays[0], "MMM d") + " – " + Qt.formatDate(visibleDays[6], "MMM d")
+                                  : Qt.formatDate(focusDate, "MMMM yyyy")
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.pageMargin
-        spacing: Theme.spacing
+        spacing: Theme.spacing - 4
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 16
+            spacing: 12
             Label {
-                text: Qt.formatDate(cal.weekStart, "MMMM d") + " – " + Qt.formatDate(cal.addDays(cal.weekStart, 6), "MMMM d")
+                text: cal.title
                 color: Theme.text
-                font.pixelSize: Theme.fontXl
-                font.weight: Font.DemiBold
+                font.pixelSize: Theme.compact ? 34 : Theme.fontXl
+                font.weight: Font.Medium
                 Layout.fillWidth: true
+                elide: Text.ElideRight
             }
-            PillButton { text: "‹"; fill: Theme.surface; ink: Theme.text; implicitWidth: Theme.touchTarget; onClicked: cal.weekOffset-- }
-            PillButton { text: qsTr("This week"); fill: Theme.surface; ink: Theme.text; enabled: cal.weekOffset !== 0; onClicked: cal.weekOffset = 0 }
-            PillButton { text: "›"; fill: Theme.surface; ink: Theme.text; implicitWidth: Theme.touchTarget; onClicked: cal.weekOffset++ }
+            SegmentedControl {
+                options: [qsTr("Day"), qsTr("Week"), qsTr("Month")]
+                currentIndex: cal.view
+                onSelected: index => cal.view = index
+            }
+            IconButton { icon: "left"; onClicked: cal.step(-1) }
+            PillButton {
+                text: qsTr("Today")
+                fill: Theme.surface
+                ink: Theme.text
+                onClicked: cal.focusDate = cal.today()
+            }
+            IconButton { icon: "right"; onClicked: cal.step(1) }
         }
 
         // Member legend.
         Row {
-            spacing: 24
+            spacing: 10
             Repeater {
                 model: Store.members
-                delegate: Row {
+                delegate: Tag {
                     required property var modelData
-                    spacing: 8
-                    Rectangle { width: 20; height: 20; radius: 10; color: modelData.color; anchors.verticalCenter: parent.verticalCenter }
-                    Label { text: modelData.display_name; color: Theme.textMuted; font.pixelSize: Theme.fontSm }
+                    text: modelData.display_name
+                    tint: modelData.tintColor
+                    ink: modelData.inkColor
                 }
             }
         }
 
-        RowLayout {
+        Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 12
+            radius: Theme.radius
+            color: Theme.surface
 
-            Repeater {
-                model: 7
-                delegate: Rectangle {
-                    id: dayCol
-                    required property int index
-                    readonly property date day: cal.addDays(cal.weekStart, index)
-                    readonly property bool isToday: cal.iso(day) === cal.iso(cal.today)
-                    readonly property var dayEvents: Store.events.filter(e => e.day === cal.iso(day))
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: 1
-                    radius: Theme.radius
-                    color: Theme.surface
-                    border.width: isToday ? 3 : 0
-                    border.color: Theme.accent
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 10
-
-                        Column {
-                            Layout.alignment: Qt.AlignHCenter
-                            Label {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: Qt.formatDate(dayCol.day, "ddd").toUpperCase()
-                                color: dayCol.isToday ? Theme.accent : Theme.textMuted
-                                font.pixelSize: Theme.fontXs
-                                font.weight: Font.DemiBold
-                            }
-                            Rectangle {
-                                width: 56; height: 56; radius: 28
-                                color: dayCol.isToday ? Theme.accent : "transparent"
-                                Label {
-                                    anchors.centerIn: parent
-                                    text: dayCol.day.getDate()
-                                    color: dayCol.isToday ? "white" : Theme.text
-                                    font.pixelSize: Theme.fontLg
-                                    font.weight: Font.DemiBold
-                                }
-                            }
-                        }
-
-                        ListView {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
-                            spacing: 8
-                            model: dayCol.dayEvents
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: ListView.view.width
-                                height: eventCol.implicitHeight + 20
-                                radius: 14
-                                color: modelData.tintColor
-                                Rectangle { width: 6; radius: 3; color: modelData.displayColor; anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 8 } }
-                                Column {
-                                    id: eventCol
-                                    anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; leftMargin: 22; rightMargin: 8 }
-                                    spacing: 2
-                                    Label { text: modelData.title; color: Theme.text; font.pixelSize: Theme.fontXs + 2; font.weight: Font.DemiBold; wrapMode: Text.WordWrap; width: parent.width }
-                                    Label { text: modelData.all_day ? qsTr("All day") : modelData.timeLabel.split(" – ")[0]; color: Theme.textMuted; font.pixelSize: Theme.fontXs; width: parent.width }
-                                }
-                            }
-                        }
-                    }
-                }
+            TimeGrid {
+                anchors.fill: parent
+                anchors.margins: 16
+                visible: cal.view !== 2
+                days: cal.visibleDays
+            }
+            MonthGrid {
+                anchors.fill: parent
+                anchors.margins: 16
+                visible: cal.view === 2
+                anchorDate: cal.focusDate
+                onDaySelected: day => { cal.focusDate = day; cal.view = 0 }
             }
         }
     }

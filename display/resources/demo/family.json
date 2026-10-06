@@ -1,10 +1,10 @@
 {
   "family": { "name": "The Demo Family" },
   "members": [
-    { "id": "m1", "display_name": "Mom",  "role": "parent", "color": "#E86A92" },
-    { "id": "m2", "display_name": "Dad",  "role": "parent", "color": "#4F8EF7" },
-    { "id": "m3", "display_name": "Emma", "role": "child",  "color": "#F5A623" },
-    { "id": "m4", "display_name": "Leo",  "role": "child",  "color": "#3DBE7A" }
+    { "id": "m1", "display_name": "Mom",  "role": "parent", "color": "#EF8A6F" },
+    { "id": "m2", "display_name": "Dad",  "role": "parent", "color": "#5FB3B3" },
+    { "id": "m3", "display_name": "Emma", "role": "child",  "color": "#F2B84B" },
+    { "id": "m4", "display_name": "Leo",  "role": "child",  "color": "#8E9CE6" }
   ],
   "points": { "m3": 85, "m4": 40 },
   "events": [
@@ -59,8 +59,8 @@
   ],
   "photos": [
     { "caption": "Beach day",          "color": "#5AB0E8", "color2": "#F7D794" },
-    { "caption": "First day of school","color": "#F5A623", "color2": "#E86A92" },
-    { "caption": "Camping trip",       "color": "#3DBE7A", "color2": "#1E5E48" },
+    { "caption": "First day of school","color": "#F2B84B", "color2": "#EF8A6F" },
+    { "caption": "Camping trip",       "color": "#8E9CE6", "color2": "#1E5E48" },
     { "caption": "Birthday party",     "color": "#B07CF2", "color2": "#F2A7C3" },
     { "caption": "Snow day",           "color": "#A9C9E8", "color2": "#F4F7FB" },
     { "caption": "Sunday pancakes",    "color": "#F0B35A", "color2": "#8A4B2A" }

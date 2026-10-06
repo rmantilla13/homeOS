@@ -4,27 +4,27 @@ import QtQuick.Layouts
 import HomeOS
 import HomeOS.Core
 
-// Left-hand navigation. Icons are emoji for now; swap for an SVG icon set.
+// Left-hand navigation. The active screen is a blue pill with white icon and label.
 Rectangle {
     id: rail
     property int currentIndex: 0
     signal selected(int index)
 
     readonly property var items: [
-        { icon: "🏠", label: qsTr("Home") },
-        { icon: "📅", label: qsTr("Calendar") },
-        { icon: "✅", label: qsTr("Chores") },
-        { icon: "⭐", label: qsTr("Rewards") },
-        { icon: "🖼️", label: qsTr("Photos") },
-        { icon: "🍽️", label: qsTr("Planner") }
+        { icon: "home",     label: qsTr("Home") },
+        { icon: "calendar", label: qsTr("Calendar") },
+        { icon: "chores",   label: qsTr("Chores") },
+        { icon: "star",     label: qsTr("Rewards") },
+        { icon: "photo",    label: qsTr("Photos") },
+        { icon: "meals",    label: qsTr("Meals") }
     ]
 
     color: Theme.surface
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: Theme.compact ? 16 : 32
-        anchors.bottomMargin: Theme.compact ? 16 : 32
+        anchors.topMargin: Theme.compact ? 16 : 28
+        anchors.bottomMargin: Theme.compact ? 16 : 28
         spacing: Theme.compact ? 8 : 12
 
         Repeater {
@@ -35,26 +35,27 @@ Rectangle {
                 readonly property bool active: index === rail.currentIndex
 
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: Theme.compact ? 88 : 104
-                Layout.preferredHeight: Theme.compact ? 88 : 104
-                radius: 28
-                color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.15) : "transparent"
+                Layout.preferredWidth: Theme.compact ? 80 : 96
+                Layout.preferredHeight: Theme.compact ? 80 : 92
+                radius: 26
+                color: active ? Theme.accent : "transparent"
+                Behavior on color { ColorAnimation { duration: 180 } }
 
                 Column {
                     anchors.centerIn: parent
-                    spacing: 4
-                    Label {
+                    spacing: 6
+                    Icon {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: modelData.icon
-                        font.family: Theme.emojiFont
-                        font.pixelSize: Theme.compact ? 32 : 40
+                        name: modelData.icon
+                        size: Theme.compact ? 26 : 30
+                        color: active ? Theme.onAccent : Theme.textMuted
                     }
                     Label {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: modelData.label
-                        font.pixelSize: Theme.fontXs
-                        font.weight: active ? Font.DemiBold : Font.Normal
-                        color: active ? Theme.accent : Theme.textMuted
+                        font.pixelSize: 14
+                        font.weight: active ? Font.DemiBold : Font.Medium
+                        color: active ? Theme.onAccent : Theme.textMuted
                     }
                 }
                 TapHandler { onTapped: rail.selected(index) }
@@ -63,13 +64,13 @@ Rectangle {
 
         Item { Layout.fillHeight: true }
 
-        // Tap to show the photo frame right away.
-        Label {
+        // Show the photo frame right away.
+        IconButton {
             Layout.alignment: Qt.AlignHCenter
-            text: "🌙"
-            font.family: Theme.emojiFont
-            font.pixelSize: 36
-            TapHandler { onTapped: Device.sleepNow() }
+            icon: "moon"
+            fill: Theme.surfaceAlt
+            ink: Theme.textMuted
+            onClicked: Device.sleepNow()
         }
     }
 }

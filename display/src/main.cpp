@@ -6,6 +6,7 @@
 
 #include "backend/SupabaseClient.h"
 #include "hardware/DisplayController.h"
+#include "models/Assistant.h"
 #include "models/FamilyStore.h"
 
 // Environment variables win over the saved settings so a device can be
@@ -40,11 +41,13 @@ int main(int argc, char *argv[])
     client.setRefreshToken(setting(settings, "HOMEOS_DEVICE_REFRESH_TOKEN", "device/refreshToken"));
 
     FamilyStore store(&client, parser.isSet(demo));
+    Assistant assistant(&client, &store);
     DisplayController display;
     app.installEventFilter(&display);
 
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Store", &store);
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Device", &display);
+    qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "AI", &assistant);
 
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/"));

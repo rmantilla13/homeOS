@@ -20,6 +20,7 @@ as_pg "$PG_BIN/pg_ctl -D $tmp/data -o '-p $port -k $tmp' -l $tmp/pg.log -w start
 psql=(psql -h "$tmp" -p "$port" -U postgres -q -v ON_ERROR_STOP=1)
 "${psql[@]}" -d postgres -c 'create database homeos'
 "${psql[@]}" -d homeos -f "$here/stub_auth.sql" \
-  -f "$supa/migrations/20261006000001_core_schema.sql" -f "$supa/seed.sql"
+  -f "$supa/migrations/20261006000001_core_schema.sql" \
+  -f "$supa/migrations/20261006000003_family_memories.sql" -f "$supa/seed.sql"
 "${psql[@]}" -d homeos -f "$here/rls_test.sql"
 echo "RLS tests passed"

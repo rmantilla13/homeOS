@@ -4,16 +4,18 @@ import QtQuick.Layouts
 import HomeOS
 import HomeOS.Core
 
-// At-a-glance dashboard: clock, today's agenda, chore progress, dinner, a photo.
+// Home: who's done what today, the family assistant, and what's coming up.
 Item {
     id: home
     signal openScreen(int index)
+    signal openAssistant(string question)
 
     property date now: new Date()
     readonly property string todayIso: Qt.formatDate(now, "yyyy-MM-dd")
-    readonly property var todaysEvents: Store.events.filter(e => e.day === todayIso)
     readonly property var dinner: Store.meals.find(m => m.date === todayIso && m.meal === "dinner")
-    readonly property var kids: Store.members.filter(m => m.tasksTotal > 0)
+    readonly property var upcoming: Store.events
+        .filter(e => (e.all_day ? e.day >= todayIso : e.startMs >= now.getTime() - 30 * 60000))
+        .slice(0, 6)
 
     Timer { interval: 1000; running: true; repeat: true; onTriggered: home.now = new Date() }
 
@@ -21,34 +23,33 @@ Item {
         const h = now.getHours()
         return h < 12 ? qsTr("Good morning") : h < 18 ? qsTr("Good afternoon") : qsTr("Good evening")
     }
+    function whenLabel(e) {
+        const prefix = e.day === todayIso ? qsTr("Today")
+                     : Qt.formatDate(new Date(e.startMs), "dddd")
+        return prefix + " · " + (e.all_day ? qsTr("All day") : e.timeLabel.split(" – ")[0])
+    }
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.pageMargin
         spacing: Theme.spacing
 
-        // Header: clock and date.
+        // Header: family, time, date.
         RowLayout {
             Layout.fillWidth: true
-            spacing: 32
-            Label {
-                text: Qt.formatTime(home.now, "h:mm")
-                color: Theme.text
-                font.pixelSize: Theme.fontHuge
-                font.weight: Font.Light
-            }
+            spacing: 20
             ColumnLayout {
-                spacing: 4
+                spacing: 2
                 Label {
-                    text: Qt.formatDate(home.now, "dddd, MMMM d")
+                    text: Store.familyName || "homeOS"
                     color: Theme.text
                     font.pixelSize: Theme.fontLg
                     font.weight: Font.DemiBold
                 }
                 Label {
-                    text: home.greeting() + (Store.familyName ? ", " + Store.familyName : "")
+                    text: Qt.formatDate(home.now, "dddd, MMMM d")
                     color: Theme.textMuted
-                    font.pixelSize: Theme.fontMd
+                    font.pixelSize: Theme.fontSm
                 }
             }
             Item { Layout.fillWidth: true }
@@ -56,8 +57,65 @@ Item {
                 visible: Store.mode === "demo"
                 text: qsTr("DEMO")
                 color: Theme.accent
-                font.pixelSize: Theme.fontSm
+                font.pixelSize: Theme.fontXs
                 font.weight: Font.Bold
+                font.letterSpacing: 1
+            }
+            Label {
+                text: Qt.formatTime(home.now, "h:mm")
+                color: Theme.text
+                font.pixelSize: 56
+                font.weight: Font.Light
+            }
+            Label {
+                Layout.alignment: Qt.AlignBottom
+                Layout.bottomMargin: 10
+                text: Qt.formatTime(home.now, "AP")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSm
+            }
+        }
+
+        // Chore progress per person.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Repeater {
+                model: Store.members
+                delegate: Rectangle {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 72
+                    radius: Theme.radiusSm
+                    color: Theme.surface
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 16
+                        spacing: 12
+                        MemberAvatar { member: modelData; size: 42 }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            RowLayout {
+                                Label { text: modelData.display_name; color: Theme.text; font.pixelSize: Theme.fontSm; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                                Label { text: modelData.tasksDone + "/" + modelData.tasksTotal; color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 8; radius: 4
+                                color: Theme.sunken
+                                Rectangle {
+                                    height: parent.height; radius: 4
+                                    width: parent.width * (modelData.tasksTotal ? modelData.tasksDone / modelData.tasksTotal : 0)
+                                    color: modelData.color
+                                    Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+                                }
+                            }
+                        }
+                    }
+                    TapHandler { onTapped: home.openScreen(2) }
+                }
             }
         }
 
@@ -66,140 +124,206 @@ Item {
             Layout.fillHeight: true
             spacing: Theme.spacing
 
-            // Today's agenda.
-            Card {
+            // The family assistant.
+            Rectangle {
+                id: assistantCard
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.preferredWidth: 3
-                title: qsTr("Today")
-                actionText: qsTr("Calendar")
-                onActionClicked: home.openScreen(1)
+                Layout.preferredWidth: 5
+                radius: 36
+                color: Theme.surface
+                clip: true
 
-                ListView {
+                Glow { anchors.fill: parent; intensity: Theme.dark ? 0.6 : 1.0 }
+
+                ColumnLayout {
                     anchors.fill: parent
-                    clip: true
-                    spacing: 12
-                    model: home.todaysEvents
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: ListView.view.width
-                        height: Theme.compact ? 84 : 96
-                        radius: 18
-                        color: Theme.surfaceAlt
-                        Rectangle {
-                            width: 10; radius: 5
-                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 14 }
-                            color: modelData.displayColor
-                        }
-                        Column {
-                            anchors { left: parent.left; leftMargin: 40; verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 16 }
-                            spacing: 4
-                            Label { text: modelData.title; color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold; elide: Text.ElideRight; width: parent.width }
-                            Label {
-                                text: modelData.timeLabel + (modelData.memberNames ? "  ·  " + modelData.memberNames : "")
-                                color: Theme.textMuted; font.pixelSize: Theme.fontSm; elide: Text.ElideRight; width: parent.width
-                            }
-                        }
+                    anchors.margins: Theme.compact ? 24 : 36
+                    spacing: 14
+
+                    Item { Layout.fillHeight: true; Layout.maximumHeight: 24 }
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: (home.greeting() + "!").toUpperCase()
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontXs
+                        font.weight: Font.Medium
+                        font.letterSpacing: 1.2
                     }
                     Label {
-                        anchors.centerIn: parent
-                        visible: home.todaysEvents.length === 0
-                        text: qsTr("Nothing on the calendar today 🎉")
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontMd
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: qsTr("How can I help you today?")
+                        wrapMode: Text.WordWrap
+                        color: Theme.text
+                        font.pixelSize: Theme.compact ? 36 : Theme.fontXl
+                        font.weight: Font.Medium
                     }
-                }
-            }
-
-            // Chore progress per person.
-            Card {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.preferredWidth: 3
-                title: qsTr("Chores")
-                actionText: qsTr("All chores")
-                onActionClicked: home.openScreen(2)
-
-                Column {
-                    anchors.fill: parent
-                    spacing: 20
-                    Repeater {
-                        model: home.kids
-                        delegate: RowLayout {
-                            required property var modelData
-                            width: parent.width
-                            spacing: 20
-                            MemberAvatar { member: modelData; size: Theme.compact ? 56 : 72 }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-                                RowLayout {
-                                    Label { text: modelData.display_name; color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                                    Label { text: modelData.tasksDone + " / " + modelData.tasksTotal; color: Theme.textMuted; font.pixelSize: Theme.fontSm }
+                    Row {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 6
+                        spacing: 10
+                        Repeater {
+                            model: AI.suggestions.slice(0, Theme.compact ? 2 : 3)
+                            delegate: Rectangle {
+                                required property string modelData
+                                width: chipLabel.implicitWidth + 36
+                                height: 52
+                                radius: height / 2
+                                color: Theme.surface
+                                border.color: Theme.divider
+                                Label {
+                                    id: chipLabel
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: Theme.text
+                                    font.pixelSize: Theme.fontSm - 1
                                 }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 16; radius: 8
-                                    color: Theme.surfaceAlt
-                                    Rectangle {
-                                        height: parent.height; radius: 8
-                                        width: parent.width * (modelData.tasksTotal ? modelData.tasksDone / modelData.tasksTotal : 0)
-                                        color: modelData.color
-                                        Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
-                                    }
-                                }
-                            }
-                            Label {
-                                visible: modelData.role === "child"
-                                text: "★ " + modelData.points
-                                color: Theme.text
-                                font.pixelSize: Theme.fontMd
-                                font.weight: Font.DemiBold
+                                TapHandler { onTapped: home.openAssistant(modelData) }
                             }
                         }
+                    }
+                    Item { Layout.fillHeight: true }
+
+                    // "Ask homeOS anything" bar.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 76
+                        radius: height / 2
+                        color: Theme.surface
+                        border.color: Theme.divider
+                        Label {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 28
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("Ask homeOS anything")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontMd - 2
+                        }
+                        IconButton {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 60; height: 60
+                            icon: "mic"
+                            fill: Theme.accent
+                            ink: Theme.onAccent
+                            onClicked: home.openAssistant("")
+                        }
+                        TapHandler { onTapped: home.openAssistant("") }
                     }
                 }
             }
 
             ColumnLayout {
-                Layout.fillHeight: true
                 Layout.fillWidth: true
-                Layout.preferredWidth: 2
+                Layout.fillHeight: true
+                Layout.preferredWidth: 4
                 spacing: Theme.spacing
 
-                Card {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.compact ? 160 : 200
-                    title: qsTr("Dinner tonight")
-                    onActionClicked: home.openScreen(5)
-                    actionText: qsTr("Plan")
-                    Label {
-                        anchors.fill: parent
-                        text: home.dinner ? home.dinner.title : qsTr("Not planned yet")
-                        color: home.dinner ? Theme.text : Theme.textMuted
-                        font.pixelSize: Theme.fontLg
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                // Rotating photo.
-                PhotoTile {
-                    id: homePhoto
+                // Upcoming activities.
+                Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: Theme.radius
-                    property int photoIndex: 0
-                    photo: Store.photos.length ? Store.photos[photoIndex % Store.photos.length] : null
+                    color: Theme.surface
 
-                    Timer { interval: 8000; running: true; repeat: true; onTriggered: homePhoto.photoIndex++ }
-                    Label {
-                        anchors.centerIn: parent
-                        visible: !homePhoto.photo
-                        text: qsTr("Add photos from the iPhone app")
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSm
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 20
+                        spacing: 14
+                        RowLayout {
+                            Label { text: qsTr("Upcoming activities"); color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                            Label {
+                                text: qsTr("See all")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSm
+                                TapHandler { onTapped: home.openScreen(1) }
+                            }
+                        }
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 10
+                            model: home.upcoming
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: ListView.view.width
+                                height: 96
+                                radius: Theme.radiusSm
+                                color: Theme.surfaceAlt
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 14
+                                    spacing: 6
+                                    RowLayout {
+                                        spacing: 8
+                                        Tag {
+                                            text: modelData.memberNames ? modelData.memberNames.split(", ")[0] : qsTr("Family")
+                                            tint: modelData.tintColor
+                                            ink: modelData.inkColor
+                                        }
+                                        Label {
+                                            visible: modelData.memberNames && modelData.memberNames.indexOf(",") > 0
+                                            text: "+" + (modelData.memberNames ? modelData.memberNames.split(", ").length - 1 : 0)
+                                            color: Theme.textMuted
+                                            font.pixelSize: Theme.fontXs
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                        Label { text: home.whenLabel(modelData); color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.title
+                                        color: Theme.text
+                                        font.pixelSize: Theme.fontMd - 2
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: home.upcoming.length === 0
+                                text: qsTr("Nothing coming up")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSm
+                            }
+                        }
                     }
-                    TapHandler { onTapped: home.openScreen(4) }
+                }
+
+                // Dinner tonight.
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 88
+                    radius: Theme.radius
+                    color: Theme.surface
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 20
+                        anchors.rightMargin: 20
+                        spacing: 16
+                        Rectangle {
+                            width: 52; height: 52; radius: 26
+                            color: Qt.rgba(0.96, 0.73, 0.29, 0.25)
+                            Icon { anchors.centerIn: parent; name: "meals"; color: "#B77A12"; size: 26 }
+                        }
+                        Column {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Dinner tonight"); color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+                            Label {
+                                width: parent.width
+                                text: home.dinner ? home.dinner.title : qsTr("Not planned yet")
+                                color: Theme.text
+                                font.pixelSize: Theme.fontMd - 2
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                    TapHandler { onTapped: home.openScreen(5) }
                 }
             }
         }

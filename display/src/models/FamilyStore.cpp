@@ -482,6 +482,10 @@ void FamilyStore::rebuild()
         m.insert("tasksTotal", total.value(id));
         m.insert("tasksDone", done.value(id));
         m.insert("initial", m.value("display_name").toString().left(1).toUpper());
+        QColor c(m.value("color").toString());
+        m.insert("inkColor", c.darker(175).name());
+        c.setAlphaF(0.28);
+        m.insert("tintColor", c.name(QColor::HexArgb));
         m_members << m;
     }
 
@@ -505,7 +509,8 @@ void FamilyStore::rebuild()
                                   : QLocale().toString(start.time(), "h:mm ap") + " – " + QLocale().toString(end.time(), "h:mm ap"));
         QColor tint(color.isEmpty() ? QStringLiteral("#7C6CF2") : color);
         e.insert("displayColor", tint.name());
-        tint.setAlphaF(0.22);
+        e.insert("inkColor", tint.darker(175).name()); // readable text on the pastel block
+        tint.setAlphaF(0.28);
         e.insert("tintColor", tint.name(QColor::HexArgb));
         e.insert("memberNames", names.join(", "));
         m_events << e;

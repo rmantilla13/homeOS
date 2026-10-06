@@ -54,6 +54,14 @@ select review_completion(c.id, false) from task_completions c join tasks t on t.
 select m.display_name, p.balance from member_points p join members m on m.id = p.member_id where p.balance <> 0 order by 1;
 select reason, delta from points_ledger order by id;
 
+-- Family memories: device can add, stranger can't see, device can't delete
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+insert into family_memories (family_id, content) values ('00000000-0000-0000-0000-00000000f001', 'Leo is allergic to peanuts');
+delete from family_memories;  -- RLS: device is not a parent, so nothing is deleted
+select 'device sees memories' as t, count(*) from family_memories;
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+select 'stranger sees memories' as t, count(*) from family_memories;
+
 -- create_family by stranger
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 select count(*) as fams_before from families;
