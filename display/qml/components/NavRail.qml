@@ -32,7 +32,7 @@ Rectangle {
         height: target ? target.height : 0
         radius: 26
         color: Theme.accent
-        Behavior on y { SpringAnimation { spring: 9; damping: 0.78; epsilon: 0.4 } }
+        Behavior on y { SpringAnimation { spring: 5; damping: 0.36; epsilon: 0.4 } }
     }
 
     ColumnLayout {
