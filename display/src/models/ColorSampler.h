@@ -8,7 +8,8 @@
 
 // Finds a representative color for an image (local file, qrc or http) in the
 // background, for the "dynamic colors" that tint the media viewer and photo
-// frame to match the photo on screen. Results are cached per URL.
+// frame to match the photo on screen. Results are cached per key: a media
+// id, since signed URLs change each time they're renewed.
 class ColorSampler : public QObject
 {
     Q_OBJECT
@@ -16,20 +17,26 @@ public:
     explicit ColorSampler(QObject *parent = nullptr);
 
     // Cached color, or an invalid QColor if not sampled yet.
-    QColor cached(const QString &url) const { return m_cache.value(url); }
-    void sample(const QString &url);
+    QColor cached(const QString &key) const { return m_cache.value(key); }
+    // Samples the image at `url` once per key. A URL that failed isn't tried
+    // again; a new URL for the same key is.
+    void sample(const QString &key, const QString &url);
+    // Forgets every color (another family's photos after re-pairing).
+    void clear();
 
     // Average of the image, nudged toward a usable accent (more saturated,
     // mid lightness) so pale or very dark photos still give a visible tint.
     static QColor representative(const QImage &image);
 
 signals:
-    void sampled(const QString &url, const QColor &color);
+    void sampled(const QString &key, const QColor &color);
 
 private:
-    void finish(const QString &url, const QColor &color);
+    void finish(const QString &key, const QString &url, const QColor &color);
 
     QNetworkAccessManager m_nam;
     QHash<QString, QColor> m_cache;
-    QSet<QString> m_pending;
+    QHash<QString, QString> m_failed; // key -> URL that gave no color
+    QSet<QString> m_pending;           // keys being sampled
+    int m_generation = 0;              // bumped by clear(); late results are dropped
 };

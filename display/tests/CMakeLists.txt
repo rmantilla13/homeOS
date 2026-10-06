@@ -28,7 +28,8 @@ foreach(name tst_sseparser tst_streamfunction tst_voiceclient)
     set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endforeach()
 
-# The assistant and the family store in live mode, against a fake Supabase.
+# The assistant and the family store in live mode, against a fake Supabase
+# (and the store's day rollover in demo mode).
 qt_add_executable(tst_assistant tst_assistant.cpp
     ../src/models/Assistant.h    ../src/models/Assistant.cpp
     ../src/models/FamilyStore.h  ../src/models/FamilyStore.cpp
@@ -36,6 +37,11 @@ qt_add_executable(tst_assistant tst_assistant.cpp
 )
 target_compile_options(tst_assistant PRIVATE ${HOMEOS_WARNINGS})
 target_link_libraries(tst_assistant PRIVATE homeos-core Qt6::Gui Qt6::Concurrent Qt6::Test)
+# The demo data, at the path the app has it (demo mode's day rollover).
+qt_add_resources(tst_assistant "demo_data"
+    PREFIX /HomeOS
+    BASE ${PROJECT_SOURCE_DIR}
+    FILES ${PROJECT_SOURCE_DIR}/resources/demo/family.json)
 add_test(NAME tst_assistant COMMAND tst_assistant)
 set_tests_properties(tst_assistant PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

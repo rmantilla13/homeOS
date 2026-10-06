@@ -36,6 +36,8 @@ public:
     void select(const QString &table, const QUrlQuery &query, Callback cb);
     void insert(const QString &table, const QJsonObject &row, Callback cb);
     void update(const QString &table, const QUrlQuery &filter, const QJsonObject &patch, Callback cb);
+    // The result is what the function returns: an array of rows for a
+    // set-returning function (`returns setof` / `returns table`).
     void rpc(const QString &function, const QJsonObject &args, Callback cb);
     void callFunction(const QString &name, const QJsonObject &body, Callback cb);
 

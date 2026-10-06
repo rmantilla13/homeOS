@@ -6,6 +6,8 @@ import HomeOS.Core
 
 // Display settings, from the gear in the nav rail: screen saver, dark mode,
 // voice, Wi-Fi, speaker volume, restart, about this display, and re-pairing.
+// The pairing screen opens it on the Wi-Fi page; until the display is paired
+// the family and re-pairing parts stay hidden.
 Popup {
     id: sheet
     modal: true
@@ -44,6 +46,11 @@ Popup {
         else
             joinSsid = ""
     }
+    function openWifi() {
+        page = "wifi"
+        open()
+    }
+    readonly property bool paired: Store.mode !== "pairing"
 
     enter: Transition {
         ParallelAnimation {
@@ -372,7 +379,7 @@ Popup {
                             anchors.rightMargin: 20
                             spacing: 0
                             Fact { name: qsTr("Mode"); value: sheet.modeLabel }
-                            Fact { name: qsTr("Family"); value: Store.familyName || "—" }
+                            Fact { visible: sheet.paired; name: qsTr("Family"); value: Store.familyName || "—" }
                             Fact {
                                 name: qsTr("Wi-Fi")
                                 value: !System.wifiAvailable ? qsTr("Unavailable")
@@ -503,8 +510,9 @@ Popup {
                         }
                     }
 
-                    SectionLabel { Layout.topMargin: 12; text: qsTr("PAIRING") }
+                    SectionLabel { visible: sheet.paired; Layout.topMargin: 12; text: qsTr("PAIRING") }
                     Rectangle {
+                        visible: sheet.paired
                         Layout.fillWidth: true
                         Layout.preferredHeight: repair.implicitHeight + 36
                         radius: 24

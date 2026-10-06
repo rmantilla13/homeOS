@@ -199,6 +199,7 @@ ApplicationWindow {
     PairingScreen {
         anchors.fill: parent
         visible: Store.mode === "pairing"
+        onWifiRequested: { window.dismissKeyboard(); settings.openWifi() }
     }
 
     ScreenSaver {

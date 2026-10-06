@@ -17,7 +17,8 @@ Rectangle {
 
     property date now: new Date()
     readonly property var nextEvent: Store.events.find(e => e.startMs > now.getTime() && !e.all_day)
-    Timer { interval: 1000; running: saver.visible; repeat: true; onTriggered: saver.now = new Date() }
+    // Ticks from the moment it shows, so the clock never starts out stale.
+    Timer { interval: 1000; running: saver.visible; repeat: true; triggeredOnStart: true; onTriggered: saver.now = new Date() }
 
     // Background behind the collage takes the deep color of the main photo.
     property color shade: shown && shown.tintDeep ? shown.tintDeep : "#000000"

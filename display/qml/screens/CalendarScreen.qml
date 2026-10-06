@@ -9,8 +9,20 @@ Item {
     id: cal
     property int view: 1                  // 0 day, 1 week, 2 month
     property date focusDate: today()
+    // The day that was today when last checked. Past midnight the view moves
+    // on with it, unless someone had moved it to another day.
+    property string knownToday: ""
+    Component.onCompleted: knownToday = Store.today
+    Connections {
+        target: Store
+        function onTodayChanged() {
+            if (Qt.formatDate(cal.focusDate, "yyyy-MM-dd") === cal.knownToday)
+                cal.focusDate = cal.today()
+            cal.knownToday = Store.today
+        }
+    }
 
-    function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()) }
+    function today() { const p = Store.today.split("-"); return new Date(+p[0], p[1] - 1, +p[2]) }
     function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
     function weekStart(d) { return addDays(d, -((d.getDay() + 6) % 7)) }
     function step(dir) {

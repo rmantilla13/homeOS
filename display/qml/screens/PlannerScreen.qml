@@ -7,7 +7,8 @@ import HomeOS.Core
 // Weekly meal plan next to the shared shopping list.
 Item {
     id: planner
-    readonly property date today: new Date()
+    // Local midnight of Store.today, so the week moves on at midnight.
+    readonly property date today: { const p = Store.today.split("-"); return new Date(+p[0], p[1] - 1, +p[2]) }
     readonly property var list: Store.lists.length ? Store.lists[0] : null
     readonly property var items: list ? list.items || [] : []
 

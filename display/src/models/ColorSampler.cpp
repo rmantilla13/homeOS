@@ -43,24 +43,29 @@ QColor ColorSampler::representative(const QImage &image)
     return QColor::fromHslF(h < 0 ? 0 : h, qBound(0.35f, s * 1.7f, 0.85f), qBound(0.40f, l, 0.60f));
 }
 
-void ColorSampler::sample(const QString &url)
+void ColorSampler::sample(const QString &key, const QString &url)
 {
-    if (url.isEmpty() || m_cache.contains(url) || m_pending.contains(url))
+    if (key.isEmpty() || url.isEmpty() || m_cache.contains(key) || m_pending.contains(key)
+        || m_failed.value(key) == url)
         return;
-    m_pending.insert(url);
+    m_pending.insert(key);
+    const int generation = m_generation;
 
     const QUrl u(url);
     if (u.scheme() == "http" || u.scheme() == "https") {
         QNetworkReply *reply = m_nam.get(QNetworkRequest(u));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, key, url, generation]() {
             reply->deleteLater();
+            if (generation != m_generation)
+                return;
             if (reply->error() != QNetworkReply::NoError) {
-                finish(url, QColor());
+                finish(key, url, QColor());
                 return;
             }
             auto *watcher = new QFutureWatcher<QColor>(this);
-            connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, url]() {
-                finish(url, watcher->result());
+            connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, key, url, generation]() {
+                if (generation == m_generation)
+                    finish(key, url, watcher->result());
                 watcher->deleteLater();
             });
             watcher->setFuture(QtConcurrent::run(sampleBytes, reply->readAll()));
@@ -70,17 +75,30 @@ void ColorSampler::sample(const QString &url)
 
     const QString path = u.isLocalFile() ? u.toLocalFile() : (u.scheme() == "qrc" ? ":" + u.path() : url);
     auto *watcher = new QFutureWatcher<QColor>(this);
-    connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, url]() {
-        finish(url, watcher->result());
+    connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, key, url, generation]() {
+        if (generation == m_generation)
+            finish(key, url, watcher->result());
         watcher->deleteLater();
     });
     watcher->setFuture(QtConcurrent::run(sampleFile, path));
 }
 
-void ColorSampler::finish(const QString &url, const QColor &color)
+void ColorSampler::clear()
 {
-    m_pending.remove(url);
-    m_cache.insert(url, color);
-    if (color.isValid())
-        emit sampled(url, color);
+    ++m_generation;
+    m_cache.clear();
+    m_failed.clear();
+    m_pending.clear();
+}
+
+void ColorSampler::finish(const QString &key, const QString &url, const QColor &color)
+{
+    m_pending.remove(key);
+    if (!color.isValid()) {
+        m_failed.insert(key, url);
+        return;
+    }
+    m_failed.remove(key);
+    m_cache.insert(key, color);
+    emit sampled(key, color);
 }

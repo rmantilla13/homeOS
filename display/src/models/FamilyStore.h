@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDate>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
@@ -8,6 +9,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+#include <functional>
 
 #include "models/ColorSampler.h"
 
@@ -22,6 +24,9 @@ class SupabaseClient;
 //
 // Rows keep their database shape (snake_case) and are decorated with a few
 // display-ready fields (colors, "done today", points) in rebuild().
+//
+// `today` is the one local date the whole UI treats as today. It moves on at
+// local midnight (and when the clock jumps), and the day's data moves with it.
 class FamilyStore : public QObject
 {
     Q_OBJECT
@@ -29,6 +34,7 @@ class FamilyStore : public QObject
     Q_PROPERTY(bool online READ online NOTIFY statusChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY statusChanged)
     Q_PROPERTY(QString pairingCode READ pairingCode NOTIFY pairingChanged)
+    Q_PROPERTY(QString today READ today NOTIFY todayChanged)       // local date, yyyy-MM-dd
 
     Q_PROPERTY(QString familyName READ familyName NOTIFY dataChanged)
     Q_PROPERTY(QVariantList members READ members NOTIFY dataChanged)
@@ -52,6 +58,8 @@ public:
     bool online() const { return m_online; }
     QString lastError() const { return m_lastError; }
     QString pairingCode() const { return m_pairingCode; }
+    QString today() const { return m_today.toString(Qt::ISODate); }
+    QDate todayDate() const { return m_today; }
 
     QString familyName() const { return m_familyName; }
     QVariantList members() const { return m_members; }
@@ -63,6 +71,8 @@ public:
     QVariantList photos() const { return m_photos; }
     QVariantList media() const { return m_media; }
 
+    // Syncs now (live), or asks for a pairing code again now if the last try
+    // failed (e.g. Wi-Fi was just joined). Also re-checks the date.
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void completeTask(const QString &taskId, const QString &memberId);
     Q_INVOKABLE void redeemReward(const QString &rewardId, const QString &memberId);
@@ -72,13 +82,19 @@ public:
     // Forgets this display's session and shows a new pairing code (Settings → Re-pair).
     Q_INVOKABLE void unpair();
 
-    // Exposed for tests: does an RRULE (subset: DAILY, WEEKLY;BYDAY=..) occur on `day`?
+    // Does an RRULE (subset: DAILY, WEEKLY;BYDAY=..) occur on `day`? Demo data
+    // only, whose chores are all FREQ=DAILY: live mode asks the database
+    // (chores_due, event_occurrences), which knows the full rule set.
     static bool occursOn(const QString &rrule, const QDate &day);
+
+    // Tests: a stand-in for the wall clock (local time). Call before start().
+    void setClock(std::function<QDateTime()> now) { m_clock = std::move(now); }
 
 signals:
     void modeChanged();
     void statusChanged();
     void pairingChanged();
+    void todayChanged();
     void dataChanged();
     void notify(const QString &message);
 
@@ -94,6 +110,10 @@ private:
     void pollPairing();
     void rebuild();
     void scheduleRebuild();
+    QDateTime now() const { return m_clock ? m_clock() : QDateTime::currentDateTime(); }
+    bool updateToday();
+    bool rollDay();
+    void forgetMedia();
     static QString demoMediaDir();
 
     SupabaseClient *m_client;
@@ -106,13 +126,30 @@ private:
 
     QTimer m_syncTimer;
     QTimer m_pairTimer;
+    QTimer m_pairRetryTimer;
     QString m_pairingCode;
     QString m_pairingSecret;
+    // Bumped for each new code and once paired; answers to older pairing
+    // requests (a slow poll, a retry that crossed one) are ignored.
+    int m_pairAttempt = 0;
     // Bumped when the device's session is dropped (re-pair, lost session) so
     // answers to requests made before are ignored.
     int m_generation = 0;
     // When this display last set devices.last_seen_at (monotonic; invalid until it has).
     QElapsedTimer m_lastCheckIn;
+
+    std::function<QDateTime()> m_clock; // tests only; empty means the real clock
+    QDate m_today;
+    QTimer m_dayTimer; // fires just after local midnight
+
+    // Signed media URLs by "file_store|storage_path", reused until close to
+    // expiry so the URL strings (and with them image caches) stay the same.
+    struct SignedUrl
+    {
+        QString url;
+        QDateTime expires;
+    };
+    QHash<QString, SignedUrl> m_signedUrls;
 
     // Raw rows as loaded (demo JSON or Supabase).
     QVariantList m_rawMembers, m_rawEvents, m_rawTasks, m_rawRewards, m_rawMeals, m_rawLists, m_rawMedia;

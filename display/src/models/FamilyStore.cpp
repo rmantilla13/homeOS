@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRandomGenerator>
+#include <QSet>
 #include <QUuid>
 #include <algorithm>
 #include <memory>
@@ -22,10 +23,17 @@ namespace {
 
 constexpr int kSyncIntervalMs = 60 * 1000; // fallback until Realtime subscriptions land (M1)
 constexpr int kPairPollMs = 3000;
+constexpr int kPairRetryMs = 10 * 1000;
 constexpr qint64 kCheckInIntervalMs = 5 * 60 * 1000;
+// Re-check the date at least this often, so a jump of the clock (NTP setting
+// it at boot) is noticed between syncs and in demo mode too.
+constexpr qint64 kDayCheckMaxMs = 15 * 60 * 1000;
 const QString kMediaBucket = QStringLiteral("family-media");
-
-QString today() { return QDate::currentDate().toString(Qt::ISODate); }
+// Signed media URLs last 6 hours: Supabase signs for that long here, and the
+// admin's Blob URLs too (admin/lib/media/api.ts PLAYBACK_TTL_MS). They're
+// renewed only within an hour of running out.
+constexpr int kSignedUrlSecs = 6 * 3600;
+constexpr int kRenewUrlSecs = 3600;
 
 QString key(const QString &taskId, const QString &memberId) { return taskId + '|' + memberId; }
 
@@ -54,6 +62,13 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
 
     m_pairTimer.setInterval(kPairPollMs);
     connect(&m_pairTimer, &QTimer::timeout, this, &FamilyStore::pollPairing);
+    m_pairRetryTimer.setSingleShot(true);
+    m_pairRetryTimer.setInterval(kPairRetryMs);
+    connect(&m_pairRetryTimer, &QTimer::timeout, this, &FamilyStore::startPairing);
+
+    m_today = QDate::currentDate();
+    m_dayTimer.setSingleShot(true);
+    connect(&m_dayTimer, &QTimer::timeout, this, &FamilyStore::rollDay);
 
     connect(m_client, &SupabaseClient::sessionChanged, this, [this]() {
         if (m_client->refreshToken().isEmpty())
@@ -69,6 +84,7 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
         m_settings.remove("device/refreshToken");
         m_client->clearSession();
         m_syncTimer.stop();
+        forgetMedia();
         startPairing();
     });
 }
@@ -82,6 +98,7 @@ void FamilyStore::setMediaApiUrl(const QString &url)
 
 void FamilyStore::start()
 {
+    updateToday(); // the clock may have been swapped since construction (tests)
     if (m_forceDemo || !m_client->isConfigured()) {
         setMode("demo");
         loadDemo();
@@ -113,8 +130,44 @@ void FamilyStore::setOnline(bool online, const QString &error)
 
 void FamilyStore::refresh()
 {
+    // Each sync re-checks the date too, in case the clock jumped past midnight.
+    if (rollDay())
+        return; // already reloaded for the new day
     if (m_mode == "live")
         loadLive();
+    else if (m_mode == "pairing" && m_pairRetryTimer.isActive())
+        startPairing(); // the last try failed: don't wait for the next one
+}
+
+// Reads the clock: sets `today` and arms the timer for the next check, just
+// after local midnight. True if the date changed.
+bool FamilyStore::updateToday()
+{
+    const QDateTime current = now();
+    const bool changed = current.date() != m_today;
+    if (changed) {
+        m_today = current.date();
+        emit todayChanged();
+    }
+    const qint64 untilMidnight = current.msecsTo(m_today.addDays(1).startOfDay());
+    m_dayTimer.start(int(qBound<qint64>(1000, untilMidnight + 500, kDayCheckMaxMs)));
+    return changed;
+}
+
+// A new day: demo data is laid out around the new date again; live data is
+// fetched again, starting with no chores done. True if the date changed.
+bool FamilyStore::rollDay()
+{
+    if (!updateToday())
+        return false;
+    if (m_mode == "demo") {
+        loadDemo();
+    } else if (m_mode == "live") {
+        m_completedToday.clear();
+        rebuild();
+        loadLive();
+    }
+    return true;
 }
 
 // ───────────────────────────── Demo data ─────────────────────────────
@@ -127,7 +180,7 @@ void FamilyStore::loadDemo()
         return;
     }
     const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
-    const QDate base = QDate::currentDate();
+    const QDate base = m_today;
 
     m_familyName = root.value("family").toObject().value("name").toString();
     m_rawMembers = root.value("members").toArray().toVariantList();
@@ -137,7 +190,7 @@ void FamilyStore::loadDemo()
     // Demo media lives next to the binary (copied there at build/install time).
     m_rawMedia.clear();
     const QString mediaDir = demoMediaDir();
-    const QDateTime nowDt = QDateTime::currentDateTime();
+    const QDateTime nowDt = now();
     for (const QJsonValue &v : root.value("media").toArray()) {
         QJsonObject m = v.toObject();
         const QString file = QDir(mediaDir).filePath(m.value("file").toString());
@@ -209,52 +262,62 @@ void FamilyStore::loadLive()
             qWarning() << "load" << what << "failed:" << error;
             setOnline(false, error);
         };
-        auto load = [this, onError, generation](const QString &table, QUrlQuery q, std::function<void(const QJsonDocument &)> apply) {
-            m_client->select(table, q, [this, table, apply, onError, generation](const QJsonDocument &doc, const QString &error) {
+        using Apply = std::function<void(const QJsonDocument &)>;
+        auto handler = [this, onError, generation](const QString &what, Apply apply) {
+            return [this, what, apply, onError, generation](const QJsonDocument &doc, const QString &error) {
                 if (generation != m_generation)
                     return;
                 if (!error.isEmpty())
-                    return onError(table, error);
+                    return onError(what, error);
                 setOnline(true);
                 apply(doc);
                 rebuild();
-            });
+            };
+        };
+        auto load = [this, handler](const QString &table, QUrlQuery q, Apply apply) {
+            m_client->select(table, q, handler(table, apply));
+        };
+        auto call = [this, handler](const QString &function, const QJsonObject &args, Apply apply) {
+            m_client->rpc(function, args, handler(function, apply));
         };
 
         checkIn();
 
-        const QDate base = QDate::currentDate();
+        const QDate base = m_today;
         const QDate weekStart = base.addDays(1 - base.dayOfWeek());
 
-        load("families", QUrlQuery("select=name&limit=1"), [this](const QJsonDocument &d) {
-            m_familyName = d.array().first().toObject().value("name").toString();
+        // The database works out repeats (PLATFORM_SPEC): one row per event
+        // occurrence in the window, and the chores due today.
+        const QJsonObject window{
+            {"range_start", QDateTime(weekStart.addDays(-7), QTime(0, 0)).toUTC().toString(Qt::ISODate)},
+            {"range_end", QDateTime(weekStart.addDays(35), QTime(0, 0)).toUTC().toString(Qt::ISODate)}};
+        auto loadRepeats = [this, call, window, base](const QString &familyId) {
+            QJsonObject events = window;
+            events.insert("fid", familyId);
+            call("event_occurrences", events, [this](const QJsonDocument &d) { m_rawEvents = toList(d); });
+            call("chores_due", {{"fid", familyId}, {"day", base.toString(Qt::ISODate)}},
+                 [this](const QJsonDocument &d) { m_rawTasks = toList(d); });
+        };
+        // Pairing saves the family id; a display paired before that learns it here.
+        const QString familyId = m_settings.value("device/familyId").toString();
+        load("families", QUrlQuery("select=id,name&limit=1"), [this, familyId, loadRepeats](const QJsonDocument &d) {
+            const QJsonObject family = d.array().first().toObject();
+            m_familyName = family.value("name").toString();
+            const QString id = family.value("id").toString();
+            if (familyId.isEmpty() && !id.isEmpty()) {
+                m_settings.setValue("device/familyId", id);
+                loadRepeats(id);
+            }
         });
+        if (!familyId.isEmpty())
+            loadRepeats(familyId);
+
         load("members", QUrlQuery("select=*&order=sort_order"), [this](const QJsonDocument &d) { m_rawMembers = toList(d); });
         load("member_points", QUrlQuery("select=member_id,balance"), [this](const QJsonDocument &d) {
             m_points.clear();
             for (const QJsonValue &v : d.array())
                 m_points.insert(v["member_id"].toString(), v["balance"].toInt());
         });
-
-        // TODO(M1): expand recurring events (rrule) that started before the window.
-        QUrlQuery events;
-        events.addQueryItem("select", "*,event_members(member_id)");
-        events.addQueryItem("starts_at", "gte." + QDateTime(weekStart.addDays(-7), QTime(0, 0)).toUTC().toString(Qt::ISODate));
-        events.addQueryItem("and", "(starts_at.lt." + QDateTime(weekStart.addDays(35), QTime(0, 0)).toUTC().toString(Qt::ISODate) + ")");
-        events.addQueryItem("order", "starts_at");
-        load("events", events, [this](const QJsonDocument &d) {
-            m_rawEvents.clear();
-            for (const QJsonValue &v : d.array()) {
-                QVariantMap e = v.toObject().toVariantMap();
-                QStringList ids;
-                for (const QJsonValue &em : v["event_members"].toArray())
-                    ids << em["member_id"].toString();
-                e.insert("member_ids", ids);
-                m_rawEvents << e;
-            }
-        });
-
-        load("tasks", QUrlQuery("select=*&archived=eq.false&order=created_at"), [this](const QJsonDocument &d) { m_rawTasks = toList(d); });
         load("task_completions", QUrlQuery("select=task_id,member_id,status&for_date=eq." + today()), [this](const QJsonDocument &d) {
             m_completedToday.clear();
             for (const QJsonValue &v : d.array())
@@ -281,19 +344,31 @@ void FamilyStore::loadLive()
 }
 
 // Signs Supabase paths and Blob paths separately, then keeps the row order.
-// A missing media URL leaves Blob photos and videos with an empty url.
-// Rows still in Supabase play.
+// A URL signed earlier is reused until it's within an hour of expiring: a new
+// URL string for the same file would make every image (and its color) load
+// again on each sync. A missing media URL leaves Blob photos and videos with
+// an empty url. Rows still in Supabase play.
 void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
 {
     if (generation != m_generation)
         return;
 
+    const QDateTime signedAt = now();
+    QStringList keys;
+    QSet<QString> listed;
     QList<int> storageAt, blobAt;
     QStringList storagePaths, blobPaths;
     for (int i = 0; i < rows.size(); ++i) {
         const QVariantMap row = rows.at(i).toMap();
+        const QString store = row.value(QStringLiteral("file_store")).toString();
         const QString path = row.value(QStringLiteral("storage_path")).toString();
-        if (row.value(QStringLiteral("file_store")).toString() == QLatin1String("blob")) {
+        const QString urlKey = store + QLatin1Char('|') + path;
+        keys << urlKey;
+        listed.insert(urlKey);
+        const auto cached = m_signedUrls.constFind(urlKey);
+        if (cached != m_signedUrls.cend() && cached->expires > signedAt.addSecs(kRenewUrlSecs))
+            continue;
+        if (store == QLatin1String("blob")) {
             blobAt << i;
             blobPaths << path;
         } else {
@@ -301,6 +376,9 @@ void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
             storagePaths << path;
         }
     }
+    // Forget the URLs of media that's gone.
+    for (auto it = m_signedUrls.begin(); it != m_signedUrls.end();)
+        it = listed.contains(it.key()) ? std::next(it) : m_signedUrls.erase(it);
 
     struct Pending {
         QList<QString> urls;
@@ -309,19 +387,29 @@ void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
     const auto pending = std::make_shared<Pending>();
     pending->urls = QList<QString>(rows.size());
 
-    const auto finish = [this, rows, generation, pending]() {
+    const auto finish = [this, rows, keys, signedAt, generation, pending]() {
         if (--pending->remaining > 0 || generation != m_generation)
             return;
+        const QDateTime current = now();
         m_rawMedia.clear();
         for (int i = 0; i < rows.size(); ++i) {
+            QString url = pending->urls.at(i);
+            const auto cached = m_signedUrls.constFind(keys.at(i));
+            // Keep a URL that's still good: one not due for renewal (another
+            // sync may have just signed it), or any unexpired one if signing failed.
+            if (cached != m_signedUrls.cend()
+                && cached->expires > (url.isEmpty() ? current : current.addSecs(kRenewUrlSecs)))
+                url = cached->url;
+            else if (!url.isEmpty())
+                m_signedUrls.insert(keys.at(i), {url, signedAt.addSecs(kSignedUrlSecs)});
             QVariantMap item = rows.at(i).toMap();
-            item.insert(QStringLiteral("url"), pending->urls.at(i));
+            item.insert(QStringLiteral("url"), url);
             m_rawMedia << item;
         }
         rebuild();
     };
 
-    m_client->signUrls(kMediaBucket, storagePaths, 6 * 3600, [pending, storageAt, finish](const QStringList &urls) {
+    m_client->signUrls(kMediaBucket, storagePaths, kSignedUrlSecs, [pending, storageAt, finish](const QStringList &urls) {
         for (int i = 0; i < storageAt.size() && i < urls.size(); ++i)
             pending->urls[storageAt.at(i)] = urls.at(i);
         finish();
@@ -352,6 +440,13 @@ void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
                            });
 }
 
+// Signed URLs and photo colors belong to the family this display was paired with.
+void FamilyStore::forgetMedia()
+{
+    m_signedUrls.clear();
+    m_colors.clear();
+}
+
 // Tells the family's phones and the admin console this display is alive:
 // devices.last_seen_at on its own row (RLS devices_touch), at most every few
 // minutes.
@@ -373,6 +468,11 @@ void FamilyStore::checkIn()
 void FamilyStore::completeTask(const QString &taskId, const QString &memberId)
 {
     const QString k = key(taskId, memberId);
+    // Only a parent can clear a try they turned down (the phone says the same).
+    if (m_completedToday.value(k) == QLatin1String("rejected")) {
+        emit notify(tr("A parent turned this one down today. Ask them to undo it, then try again."));
+        return;
+    }
     if (m_completedToday.contains(k))
         return;
 
@@ -491,6 +591,8 @@ void FamilyStore::startPairing()
 {
     setMode("pairing");
     m_pairTimer.stop();
+    m_pairRetryTimer.stop();
+    const int attempt = ++m_pairAttempt;
 
     QByteArray secret(32, Qt::Uninitialized);
     QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(secret.data()), secret.size() / 4);
@@ -499,10 +601,12 @@ void FamilyStore::startPairing()
         QCryptographicHash::hash(m_pairingSecret.toUtf8(), QCryptographicHash::Sha256).toHex());
 
     m_client->callFunction("pair-device", {{"action", "start"}, {"secretHash", hash}},
-                           [this](const QJsonDocument &doc, const QString &error) {
+                           [this, attempt](const QJsonDocument &doc, const QString &error) {
+                               if (attempt != m_pairAttempt)
+                                   return;
                                if (!error.isEmpty()) {
                                    setOnline(false, error);
-                                   QTimer::singleShot(10000, this, &FamilyStore::startPairing);
+                                   m_pairRetryTimer.start(); // offline: try again soon
                                    return;
                                }
                                setOnline(true);
@@ -536,6 +640,7 @@ void FamilyStore::unpair()
     m_rawMedia.clear();
     m_completedToday.clear();
     m_points.clear();
+    forgetMedia();
     rebuild();
 
     startPairing();
@@ -543,9 +648,14 @@ void FamilyStore::unpair()
 
 void FamilyStore::pollPairing()
 {
+    const int attempt = m_pairAttempt;
     m_client->callFunction(
         "pair-device", {{"action", "redeem"}, {"code", m_pairingCode}, {"secret", m_pairingSecret}},
-        [this](const QJsonDocument &doc, const QString &error) {
+        [this, attempt](const QJsonDocument &doc, const QString &error) {
+            // A poll that overlapped the one that paired gets "invalid code"
+            // (the code is gone): it must not start pairing over.
+            if (attempt != m_pairAttempt || m_mode != "pairing")
+                return;
             if (!error.isEmpty()) {
                 // Expired or unknown code: show a fresh one.
                 if (error.contains("HTTP 410") || error.contains("HTTP 404"))
@@ -557,6 +667,7 @@ void FamilyStore::pollPairing()
                 return;
 
             m_pairTimer.stop();
+            ++m_pairAttempt;
             const QJsonObject session = o.value("session").toObject();
             m_client->setSession(session.value("accessToken").toString(), session.value("refreshToken").toString());
             m_settings.setValue("device/familyId", o.value("familyId").toString());
@@ -591,13 +702,13 @@ bool FamilyStore::occursOn(const QString &rrule, const QDate &day)
     }
     if (freq == "MONTHLY" && parts.contains("BYMONTHDAY"))
         return parts.value("BYMONTHDAY").split(',').contains(QString::number(day.day()));
-    // TODO: INTERVAL, DTSTART anchoring and the rest of RFC 5545.
+    // Anything else counts as daily. Fine for the demo; live data never gets here.
     return true;
 }
 
 void FamilyStore::rebuild()
 {
-    const QDate now = QDate::currentDate();
+    const QDate today = m_today;
     QHash<QString, QVariantMap> memberById;
     for (const QVariant &m : std::as_const(m_rawMembers))
         memberById.insert(m.toMap().value("id").toString(), m.toMap());
@@ -609,11 +720,14 @@ void FamilyStore::rebuild()
         QVariantMap t = v.toMap();
         if (t.value("archived").toBool())
             continue;
-        const QString rrule = t.value("rrule").toString();
-        const QDate due = QDate::fromString(t.value("due_date").toString(), Qt::ISODate);
-        const bool dueToday = rrule.isEmpty() ? (!due.isValid() || due <= now) : occursOn(rrule, now);
-        if (!dueToday)
-            continue;
+        // Live rows are already the day's chores (chores_due on the server).
+        if (m_mode != "live") {
+            const QString rrule = t.value("rrule").toString();
+            const QDate due = QDate::fromString(t.value("due_date").toString(), Qt::ISODate);
+            const bool dueToday = rrule.isEmpty() ? (!due.isValid() || due <= today) : occursOn(rrule, today);
+            if (!dueToday)
+                continue;
+        }
 
         const QString assignee = t.value("assignee_id").toString();
         const QString status = m_completedToday.value(key(t.value("id").toString(), assignee), "todo");
@@ -687,25 +801,25 @@ void FamilyStore::rebuild()
         nameById.insert(v.toMap().value("id").toString(), v.toMap().value("display_name").toString());
     for (const QVariant &v : std::as_const(m_rawMedia)) {
         QVariantMap m = v.toMap();
-        const QString url = m.value("url").toString();
         const bool isVideo = m.value("kind").toString() == "video";
         const QDateTime taken = parseTimestamp(m.value("taken_at", m.value("created_at")).toString());
         m.insert("takenMs", taken.toMSecsSinceEpoch());
-        m.insert("monthLabel", taken.date().year() == now.year() ? QLocale().toString(taken.date(), "MMMM")
-                                                                  : QLocale().toString(taken.date(), "MMMM yyyy"));
-        m.insert("dateLabel", taken.date() == now ? tr("Today")
-                              : taken.date() == now.addDays(-1) ? tr("Yesterday")
-                                                                : QLocale().toString(taken.date(), "dddd, MMMM d"));
+        m.insert("monthLabel", taken.date().year() == today.year() ? QLocale().toString(taken.date(), "MMMM")
+                                                                    : QLocale().toString(taken.date(), "MMMM yyyy"));
+        m.insert("dateLabel", taken.date() == today ? tr("Today")
+                              : taken.date() == today.addDays(-1) ? tr("Yesterday")
+                                                                  : QLocale().toString(taken.date(), "dddd, MMMM d"));
         const int secs = qRound(m.value("duration_seconds").toDouble());
         m.insert("durationLabel", secs > 0 ? QStringLiteral("%1:%2").arg(secs / 60).arg(secs % 60, 2, 10, QChar('0')) : QString());
         m.insert("uploaderName", nameById.value(m.value("uploaded_by").toString()));
 
-        QColor tint = m_colors.cached(url);
-        const QString imageUrl = isVideo ? m.value("posterUrl").toString() : url;
+        const QString imageUrl = isVideo ? m.value("posterUrl").toString() : m.value("url").toString();
+        // By id, not URL: a renewed signed URL is still the same photo. (Demo
+        // media has no id; its file URLs never change.)
+        const QString colorKey = m.value("id").toString().isEmpty() ? imageUrl : m.value("id").toString();
+        QColor tint = m_colors.cached(colorKey);
         if (!tint.isValid())
-            tint = m_colors.cached(imageUrl);
-        if (!tint.isValid() && !imageUrl.isEmpty())
-            m_colors.sample(imageUrl);
+            m_colors.sample(colorKey, imageUrl);
         m.insert("imageUrl", imageUrl);
         if (!tint.isValid())
             tint = QColor(m.value("color").toString());
