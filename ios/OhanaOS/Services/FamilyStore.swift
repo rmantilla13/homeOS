@@ -299,8 +299,13 @@ final class FamilyStore {
     func refreshMedia() async {
         guard let family else { return }
         do {
-            media = try await supabase.from("media_items").select().eq("family_id", value: family.id.uuidString)
+            let rows: [MediaItem] = try await supabase.from("media_items").select()
+                .eq("family_id", value: family.id.uuidString)
                 .order("created_at", ascending: false).limit(300).execute().value
+            // One signing request for the page instead of one per grid tile.
+            await prefetchSignedURLs(for: rows)
+            guard self.family?.id == family.id else { return }
+            media = rows
         } catch {
             report(error)
         }
@@ -950,6 +955,9 @@ final class FamilyStore {
         let message: String
     }
 
+    /// Where photos and videos go, for messages ("ohanaos.co").
+    private static var mediaHost: String { Config.mediaAPIURL.host ?? "the media service" }
+
     /// Uploads a photo or video and records it. Both go to the private Blob
     /// store through the admin app. Returns false on failure. Call
     /// `refreshMedia()` after a batch. Photos are small JPEGs. Videos stream
@@ -1002,22 +1010,33 @@ final class FamilyStore {
             guard let idString = ticket["id"] as? String, let id = UUID(uuidString: idString),
                   let path = ticket["pathname"] as? String,
                   let uploadString = ticket["upload_url"] as? String, let uploadURL = URL(string: uploadString) else {
-                throw MediaAPIError(message: "The media service sent an unexpected response.")
+                throw MediaAPIError(message: "The media service at \(Self.mediaHost) sent an unexpected reply. Try again later.")
             }
+            // The type the upload was signed for. Blob checks the PUT's header
+            // against it, and the row records the same one.
+            let signedType = (ticket["content_type"] as? String) ?? contentType
             uploadedPath = path
             var request = URLRequest(url: uploadURL)
             request.httpMethod = "PUT"
-            request.setValue((ticket["content_type"] as? String) ?? contentType, forHTTPHeaderField: "Content-Type")
-            let (_, response) = try await put(request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            request.setValue(signedType, forHTTPHeaderField: "Content-Type")
+            // After the last byte of a long video, Blob can take a while to
+            // answer. The default 60 s idle limit would call that a failure.
+            request.timeoutInterval = 300
+            let reply: (Data, URLResponse)
+            do {
+                reply = try await put(request)
+            } catch {
+                throw Self.transferError(error, to: "media storage")
+            }
+            let status = (reply.1 as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
-                throw MediaAPIError(message: "The file didn't upload.")
+                throw MediaAPIError(message: Self.storageRefusal(status: status, body: reply.0))
             }
             // byte_size is what the family quota counts. Blob objects are not in Storage.
             let row = NewMediaItem(id: id, familyId: familyId, storagePath: path, kind: kind,
                                    width: metadata.width, height: metadata.height,
                                    durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt,
-                                   uploadedBy: me?.id, byteSize: bytes, contentType: contentType, fileStore: "blob")
+                                   uploadedBy: me?.id, byteSize: bytes, contentType: signedType, fileStore: "blob")
             try await supabase.from("media_items").insert(row).execute()
             return true
         } catch {
@@ -1057,16 +1076,21 @@ final class FamilyStore {
         }
     }
 
+    /// `/api/media/<name>` on the media service's origin. A path in the
+    /// configured URL is dropped, so it can't turn into `/x/api/media/...`.
     private func mediaEndpoint(_ name: String) -> URL? {
-        guard let base = Config.mediaAPIURL else { return nil }
-        var root = base.absoluteString
-        while root.hasSuffix("/") { root.removeLast() }
-        return URL(string: root + "/api/media/" + name)
+        let base = Config.mediaAPIURL
+        var components = URLComponents()
+        components.scheme = base.scheme
+        components.host = base.host
+        components.port = base.port
+        components.path = "/api/media/" + name
+        return components.url
     }
 
     private func mediaJSON(_ name: String, _ body: [String: Any]) async throws -> [String: Any] {
         guard let url = mediaEndpoint(name) else {
-            throw MediaAPIError(message: "Photos and videos need the media service URL (Config.mediaAPIURL).")
+            throw MediaAPIError(message: "This build has no valid media service address (MEDIA_API_URL).")
         }
         let token = try await supabase.auth.session.accessToken
         var request = URLRequest(url: url)
@@ -1074,13 +1098,52 @@ final class FamilyStore {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let reply: (Data, URLResponse)
+        do {
+            reply = try await URLSession.shared.data(for: request)
+        } catch {
+            throw Self.transferError(error, to: "the media service at \(Self.mediaHost)")
+        }
+        let json = (try? JSONSerialization.jsonObject(with: reply.0) as? [String: Any]) ?? [:]
+        let status = (reply.1 as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw MediaAPIError(message: (json["error"] as? String) ?? "The media service returned an error.")
+            if status == 401 {
+                // Signed in here, refused there: an expired session, or a build
+                // whose media service belongs to another Supabase project.
+                throw MediaAPIError(message: "The media service at \(Self.mediaHost) didn't accept your sign-in. Sign out and back in, then try again.")
+            }
+            if let message = json["error"] as? String, !message.isEmpty {
+                throw MediaAPIError(message: message)
+            }
+            // Not the admin app's JSON: a wrong address, a missing route or a proxy page.
+            throw MediaAPIError(message: "The media service at \(Self.mediaHost) answered HTTP \(status). Check that the app points at the Ohana admin app, then try again.")
         }
         return json
+    }
+
+    /// A request that never got an HTTP answer, in words people can act on.
+    /// Cancellation passes through unchanged so `report` stays quiet about it.
+    private static func transferError(_ error: Error, to service: String) -> Error {
+        guard let urlError = error as? URLError, urlError.code != .cancelled else { return error }
+        switch urlError.code {
+        case .notConnectedToInternet, .dataNotAllowed:
+            return MediaAPIError(message: "You're offline. Connect to the internet and try again.")
+        case .networkConnectionLost, .timedOut:
+            // Also what a transfer reports after iOS suspends the app mid-upload.
+            return MediaAPIError(message: "The connection to \(service) dropped before it finished. Keep Ohana open and the phone unlocked while photos and videos upload, then try again.")
+        default:
+            return MediaAPIError(message: "Couldn't reach \(service). \(urlError.localizedDescription)")
+        }
+    }
+
+    /// Blob refuses an upload with {"error": {"code", "message"}}.
+    private static func storageRefusal(status: Int, body: Data) -> String {
+        let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+        let detail = ((json["error"] as? [String: Any])?["message"] as? String) ?? (json["error"] as? String)
+        if let detail, !detail.isEmpty {
+            return "Media storage refused the file (HTTP \(status)): \(detail)"
+        }
+        return "Media storage refused the file (HTTP \(status)). Try again in a moment."
     }
 
     func setShowOnFrame(_ item: MediaItem, _ show: Bool) async {
@@ -1174,6 +1237,37 @@ final class FamilyStore {
             .createSignedURL(path: item.storagePath, expiresIn: 3600) else { return nil }
         signedURLs[item.storagePath] = (url: url, expires: Date.now.addingTimeInterval(3600))
         return url
+    }
+
+    /// Fills the URL cache for Blob rows, up to 200 paths per request (the
+    /// media service's limit), so opening Media doesn't sign once per tile.
+    /// A failure is only logged: each tile then asks on its own and reports.
+    private func prefetchSignedURLs(for items: [MediaItem]) async {
+        let soon = Date.now.addingTimeInterval(300)
+        var paths: [String] = []
+        var seen = Set<String>()
+        for item in items where item.inBlob {
+            guard seen.insert(item.storagePath).inserted else { continue }
+            if let cached = signedURLs[item.storagePath], cached.expires > soon { continue }
+            paths.append(item.storagePath)
+        }
+        var start = 0
+        while start < paths.count {
+            let end = min(start + 200, paths.count)
+            let chunk = Array(paths[start..<end])
+            start = end
+            do {
+                let json = try await mediaJSON("urls", ["paths": chunk])
+                let urls = (json["urls"] as? [String]) ?? []
+                for (path, string) in zip(chunk, urls) {
+                    guard !string.isEmpty, let url = URL(string: string) else { continue }
+                    signedURLs[path] = (url: url, expires: Date.now.addingTimeInterval(3600))
+                }
+            } catch {
+                print("OhanaOS media URLs:", error)
+                return
+            }
+        }
     }
 
     // MARK: Assistant

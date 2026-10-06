@@ -12,11 +12,21 @@ enum Config {
     static let supabaseAnonKey: String = string(forInfoKey: "SupabaseAnonKey") ?? "YOUR-ANON-KEY"
     static let mediaBucket = "family-media"
     static let avatarBucket = "avatars"
+    /// The production admin app, which signs photo and video uploads.
+    static let defaultMediaAPIURL = URL(string: "https://ohanaos.co")!
     /// Origin of the admin app that signs private photo and video uploads
-    /// (Vercel Blob). The deployment URL, with no path. Nil means an upload
-    /// fails instead of landing in Supabase Storage. Profile avatars still
-    /// use `avatarBucket`.
-    static let mediaAPIURL: URL? = url(forInfoKey: "MediaAPIURL")
+    /// (Vercel Blob). Info.plist's MediaAPIURL (MEDIA_API_URL) when it names a
+    /// real host, otherwise `defaultMediaAPIURL`: an empty value or the
+    /// Local.xcconfig.example placeholder would send every upload nowhere.
+    /// Only the origin is used. Profile avatars still use `avatarBucket`.
+    static let mediaAPIURL: URL = {
+        guard let configured = Config.url(forInfoKey: "MediaAPIURL"),
+              let host = configured.host?.lowercased(),
+              !host.contains("your-admin-app"), !host.contains("your-project") else {
+            return Config.defaultMediaAPIURL
+        }
+        return configured
+    }()
     /// Where email confirmations and admin email invites send people back to
     /// the app. Add it under Supabase → Authentication → URL Configuration →
     /// Redirect URLs.

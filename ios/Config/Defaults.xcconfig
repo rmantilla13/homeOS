@@ -1,9 +1,14 @@
-// Simulator defaults. ios/Config/Local.xcconfig overrides these for a device
-// or TestFlight archive. A URL must be written https:/$()/host because
-// xcconfig treats // as a comment.
+// Defaults for every build. ios/Config/Local.xcconfig (gitignored) overrides
+// any of these. A URL must be written https:/$()/host because xcconfig treats
+// // as a comment.
 
 OHANAOS_TEAM_ID = 92X9CP6C6D
 OHANAOS_BUNDLE_ID = com.ohanaos.ohana
+
+// Your Supabase project. Set both in Local.xcconfig.
 SUPABASE_URL =
 SUPABASE_ANON_KEY =
-MEDIA_API_URL =
+
+// The production admin app (Vercel project homeos-admin). It signs photo and
+// video uploads at /api/media/*. Origin only, no path.
+MEDIA_API_URL = https:/$()/ohanaos.co
