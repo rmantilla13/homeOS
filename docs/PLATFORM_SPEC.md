@@ -643,7 +643,17 @@ and the admin console show it.
 - screen saver style (reuse the picker content)
 - wake word on/off (`Voice.setWakewordEnabled`, disabled when the service is unavailable)
 - spoken replies on/off (QSettings `voice/speakReplies`, default on)
-- about: mode, family name, app version, voice service status, wake word name
+- speaker volume, when PipeWire (`wpctl`) is available
+- Wi-Fi: current network, scan, join (saved, open, or a password), radio on/off.
+  Joining and the radio go through `/usr/local/libexec/homeos-system` as root
+  (`display/deploy/install-pi.sh` installs it and a NOPASSWD sudoers rule).
+  The password is written to a root-only file for `nmcli`, not put on the
+  command line. Without that helper, listing networks still uses `nmcli`
+  directly when the signed-in user is allowed to change Wi-Fi
+- about: mode, family name, app version, voice service status, wake word name,
+  current Wi-Fi name, IPv4 address
+- Restart (quit; systemd starts the app again) and Reboot (the helper;
+  confirmation first). Reboot stays disabled when the helper isn't installed
 - "Re-pair this display": confirmation, then clears the session
 
 **Build and install**

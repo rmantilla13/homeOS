@@ -6,6 +6,7 @@
 
 #include "backend/SupabaseClient.h"
 #include "hardware/DisplayController.h"
+#include "hardware/SystemController.h"
 #include "models/Assistant.h"
 #include "models/FamilyStore.h"
 #include "voice/VoiceClient.h"
@@ -54,9 +55,12 @@ int main(int argc, char *argv[])
     Assistant assistant(&client, &store, &voice);
     DisplayController display;
     app.installEventFilter(&display);
+    SystemController system;
+    system.start();
 
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Store", &store);
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Device", &display);
+    qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "System", &system);
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "AI", &assistant);
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Voice", &voice);
     qmlRegisterUncreatableType<ChatModel>("HomeOS.Core", 1, 0, "ChatModel", "Owned by AI");

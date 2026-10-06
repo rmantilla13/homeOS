@@ -1,4 +1,15 @@
 # Unit tests: `ctest --test-dir build/display` (or run the binaries directly).
+qt_add_executable(tst_system tst_system.cpp
+    ../src/hardware/SystemController.h
+    ../src/hardware/SystemController.cpp)
+target_include_directories(tst_system PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_compile_options(tst_system PRIVATE ${HOMEOS_WARNINGS})
+target_link_libraries(tst_system PRIVATE Qt6::Network Qt6::Test)
+add_test(NAME tst_system COMMAND tst_system)
+set_tests_properties(tst_system PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_test(NAME system_helper COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/system_helper_test.sh)
+
 foreach(name tst_sseparser tst_streamfunction tst_voiceclient)
     qt_add_executable(${name} ${name}.cpp)
     target_compile_options(${name} PRIVATE ${HOMEOS_WARNINGS})

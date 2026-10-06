@@ -78,6 +78,17 @@ for group in video render input audio; do
     getent group "$group" >/dev/null && sudo usermod -aG "$group" "$user"
 done
 
+step "Letting this display change Wi-Fi and reboot"
+# The app has no password prompt, so a root-owned helper is the only thing
+# sudo will run without asking. It changes Wi-Fi and reboots, and nothing else.
+sudo install -D -m 755 "$repo/display/deploy/homeos-system" /usr/local/libexec/homeos-system
+sudo tee /etc/sudoers.d/homeos-system >/dev/null <<EOF
+# homeOS display: Wi-Fi and reboot only.
+$user ALL=(root) NOPASSWD: /usr/local/libexec/homeos-system
+EOF
+sudo chmod 440 /etc/sudoers.d/homeos-system
+sudo visudo -cf /etc/sudoers.d/homeos-system
+
 step "Configuring the display"
 # On the Pi 5 the GPU (render only) and the display controller are separate DRM
 # devices, and their card numbers can swap between boots. Qt has to open the
@@ -255,6 +266,7 @@ if [[ "$throttled" =~ ^0x[0-9a-fA-F]+$ ]] && (( throttled & 0x10001 )); then
     echo "Use the official 27 W USB-C supply, and power the panel from its own adapter." >&2
 fi
 echo "Reboot to start homeOS:  sudo reboot"
+echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."
 echo "Logs:                    journalctl -u homeos-display -f"
 if [ "$with_voice" = "1" ]; then
     echo "Voice logs:              journalctl -u homeos-voice -f"

@@ -4,20 +4,46 @@ import QtQuick.Layouts
 import HomeOS
 import HomeOS.Core
 
-// Display settings, from the gear in the nav rail: screen saver style, voice
-// (wake word, spoken replies), animated tiles, about this display, and
-// re-pairing.
+// Display settings, from the gear in the nav rail: screen saver, voice,
+// Wi-Fi, speaker volume, restart, about this display, and re-pairing.
 Popup {
     id: sheet
     modal: true
-    anchors.centerIn: Overlay.overlay
+    // Lift the sheet while the Wi-Fi password keyboard is open.
+    x: parent ? Math.round((parent.width - width) / 2) : 0
+    y: {
+        if (!parent)
+            return 0
+        var top = (parent.height - height) / 2
+        if (passwordFocused)
+            top -= parent.height * 0.22
+        return Math.max(16, Math.round(top))
+    }
     width: Math.min(parent ? parent.width - 64 : 1100, 1100)
     height: Math.min(parent ? parent.height - 48 : 760, content.implicitHeight + topPadding + bottomPadding)
     padding: Theme.compact ? 28 : 36
     closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
 
+    property string page: "main"          // main | wifi
     property bool confirmingRepair: false
-    onClosed: confirmingRepair = false
+    property string confirmingPower: ""   // "" | restart | reboot
+    property string joinSsid: ""
+    property bool passwordFocused: false
+    onOpened: System.refresh()
+    onClosed: {
+        confirmingRepair = false
+        confirmingPower = ""
+        joinSsid = ""
+        passwordFocused = false
+        page = "main"
+        Qt.inputMethod.hide()
+    }
+    onPageChanged: {
+        if (page === "wifi")
+            System.scanWifi()
+        else
+            joinSsid = ""
+    }
 
     enter: Transition {
         ParallelAnimation {
@@ -120,15 +146,40 @@ Popup {
 
             RowLayout {
                 Layout.fillWidth: true
+                IconButton {
+                    visible: sheet.page === "wifi"
+                    icon: "left"
+                    fill: Theme.surfaceAlt
+                    onClicked: sheet.page = "main"
+                }
                 Column {
                     Layout.fillWidth: true
-                    Label { text: qsTr("Settings"); color: Theme.text; font.pixelSize: Theme.fontLg; font.weight: Font.DemiBold }
-                    Label { text: qsTr("This display"); color: Theme.textMuted; font.pixelSize: Theme.fontSm }
+                    Label {
+                        text: sheet.page === "wifi" ? qsTr("Wi-Fi") : qsTr("Settings")
+                        color: Theme.text
+                        font.pixelSize: Theme.fontLg
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        text: sheet.page === "wifi"
+                              ? (System.busy ? qsTr("Looking for networks…") : qsTr("Choose a network"))
+                              : qsTr("This display")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSm
+                    }
+                }
+                IconButton {
+                    visible: sheet.page === "wifi"
+                    icon: "refresh"
+                    fill: Theme.surfaceAlt
+                    enabled: !System.busy && System.canManageWifi
+                    onClicked: System.scanWifi()
                 }
                 IconButton { icon: "close"; fill: Theme.surfaceAlt; onClicked: sheet.close() }
             }
 
             RowLayout {
+                visible: sheet.page === "main"
                 Layout.fillWidth: true
                 spacing: Theme.compact ? 24 : 32
 
@@ -206,6 +257,56 @@ Popup {
                                     onToggled: on => Device.animatedTiles = on
                                 }
                             }
+                            Rectangle { visible: System.volumeAvailable; Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                visible: System.volumeAvailable
+                                icon: "speaker"
+                                title: qsTr("Speaker volume")
+                                detail: qsTr("The screen's speakers. Its own buttons still work.")
+                                RowLayout {
+                                    spacing: 8
+                                    Label {
+                                        text: Math.round(volume.value) + "%"
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontXs
+                                        Layout.preferredWidth: 48
+                                    }
+                                    Slider {
+                                        id: volume
+                                        from: 0
+                                        to: 100
+                                        stepSize: 1
+                                        value: System.volume
+                                        implicitWidth: Theme.compact ? 160 : 200
+                                        implicitHeight: 44
+                                        onPressedChanged: if (!pressed) System.setVolume(Math.round(value))
+                                        background: Rectangle {
+                                            x: volume.leftPadding
+                                            y: volume.topPadding + volume.availableHeight / 2 - 3
+                                            implicitWidth: 160
+                                            width: volume.availableWidth
+                                            height: 6
+                                            radius: 3
+                                            color: Theme.divider
+                                            Rectangle {
+                                                width: volume.visualPosition * parent.width
+                                                height: parent.height
+                                                radius: 3
+                                                color: Theme.accent
+                                            }
+                                        }
+                                        handle: Rectangle {
+                                            x: volume.leftPadding + volume.visualPosition * (volume.availableWidth - width)
+                                            y: volume.topPadding + volume.availableHeight / 2 - height / 2
+                                            width: 28
+                                            height: 28
+                                            radius: 14
+                                            color: Theme.surface
+                                            border.color: Theme.divider
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -232,6 +333,13 @@ Popup {
                             spacing: 0
                             Fact { name: qsTr("Mode"); value: sheet.modeLabel }
                             Fact { name: qsTr("Family"); value: Store.familyName || "—" }
+                            Fact {
+                                name: qsTr("Wi-Fi")
+                                value: !System.wifiAvailable ? qsTr("Unavailable")
+                                     : !System.wifiEnabled ? qsTr("Off")
+                                     : (System.wifiSsid || qsTr("Not connected"))
+                            }
+                            Fact { name: qsTr("Address"); value: System.ipAddress || "—" }
                             Fact { name: qsTr("Version"); value: "homeOS " + Qt.application.version }
                             Fact {
                                 name: qsTr("Voice service")
@@ -242,6 +350,115 @@ Popup {
                                 name: qsTr("Wake word")
                                 value: !Voice.available ? "—"
                                      : (Voice.wakewordLabel || qsTr("None")) + (Voice.wakewordEnabled ? "" : qsTr(" · off"))
+                            }
+                        }
+                    }
+
+                    SectionLabel { Layout.topMargin: 12; text: qsTr("WI-FI") }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: wifiCard.implicitHeight + 36
+                        radius: 24
+                        color: Theme.surfaceAlt
+                        ColumnLayout {
+                            id: wifiCard
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 20
+                            anchors.rightMargin: 20
+                            spacing: 14
+                            Label {
+                                Layout.fillWidth: true
+                                text: !System.wifiAvailable
+                                      ? qsTr("This computer has no Wi-Fi controls.")
+                                      : System.wifiSsid
+                                      ? qsTr("Joined %1%2").arg(System.wifiSsid).arg(System.wifiSignal >= 0 ? qsTr(" · %1%").arg(System.wifiSignal) : "")
+                                      : System.wifiEnabled ? qsTr("Not joined to a network.") : qsTr("Wi-Fi is off.")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontXs + 1
+                                wrapMode: Text.WordWrap
+                            }
+                            PillButton {
+                                Layout.fillWidth: true
+                                text: qsTr("Choose network")
+                                fill: Theme.surface
+                                ink: Theme.text
+                                enabled: System.wifiAvailable
+                                onClicked: sheet.page = "wifi"
+                            }
+                        }
+                    }
+
+                    SectionLabel { Layout.topMargin: 12; text: qsTr("POWER") }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: power.implicitHeight + 36
+                        radius: 24
+                        color: sheet.confirmingPower === "" ? Theme.surfaceAlt : Qt.rgba(0.94, 0.5, 0.35, 0.14)
+                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        ColumnLayout {
+                            id: power
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 20
+                            anchors.rightMargin: 20
+                            spacing: 14
+                            Label {
+                                Layout.fillWidth: true
+                                text: sheet.confirmingPower === "reboot"
+                                      ? qsTr("Reboot the Pi? The screen stays dark for about a minute.")
+                                      : sheet.confirmingPower === "restart"
+                                      ? qsTr("Restart homeOS? The screen goes blank for a few seconds.")
+                                      : qsTr("Restart the app, or reboot the Pi, without unplugging it.")
+                                color: sheet.confirmingPower === "" ? Theme.textMuted : Theme.text
+                                font.pixelSize: Theme.fontXs + 1
+                                wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+                                PillButton {
+                                    visible: sheet.confirmingPower === ""
+                                    Layout.fillWidth: true
+                                    text: qsTr("Restart")
+                                    fill: Theme.surface
+                                    ink: Theme.text
+                                    onClicked: sheet.confirmingPower = "restart"
+                                }
+                                PillButton {
+                                    visible: sheet.confirmingPower === ""
+                                    Layout.fillWidth: true
+                                    text: qsTr("Reboot")
+                                    fill: Theme.surface
+                                    ink: Theme.text
+                                    enabled: System.canReboot
+                                    onClicked: sheet.confirmingPower = "reboot"
+                                }
+                                PillButton {
+                                    visible: sheet.confirmingPower !== ""
+                                    Layout.fillWidth: true
+                                    text: qsTr("Cancel")
+                                    fill: Theme.surface
+                                    ink: Theme.text
+                                    onClicked: sheet.confirmingPower = ""
+                                }
+                                PillButton {
+                                    visible: sheet.confirmingPower !== ""
+                                    Layout.fillWidth: true
+                                    text: sheet.confirmingPower === "reboot" ? qsTr("Reboot") : qsTr("Restart")
+                                    fill: "#E2604A"
+                                    ink: "white"
+                                    onClicked: {
+                                        var which = sheet.confirmingPower
+                                        sheet.close()
+                                        if (which === "reboot")
+                                            System.reboot()
+                                        else
+                                            System.restartApp()
+                                    }
+                                }
                             }
                         }
                     }
@@ -303,6 +520,189 @@ Popup {
                                     onClicked: { sheet.close(); Store.unpair() }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                visible: sheet.page === "wifi"
+                Layout.fillWidth: true
+                spacing: 12
+
+                Rectangle {
+                    visible: System.wifiAvailable
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: radioRow.implicitHeight
+                    radius: 24
+                    color: Theme.surfaceAlt
+                    ColumnLayout {
+                        id: radioRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 20
+                        SettingRow {
+                            icon: "wifi"
+                            title: qsTr("Wi-Fi")
+                            detail: System.wifiEnabled ? qsTr("On") : qsTr("Off")
+                            Toggle {
+                                enabled: System.canManageWifi && !System.busy
+                                checked: System.wifiEnabled
+                                onToggled: function (on) { System.setWifiEnabled(on) }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: sheet.joinSsid.length > 0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: joinBox.implicitHeight + 28
+                    radius: 24
+                    color: Theme.surfaceAlt
+                    ColumnLayout {
+                        id: joinBox
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 16
+                        spacing: 12
+                        Label {
+                            text: qsTr("Join %1").arg(sheet.joinSsid)
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSm
+                            font.weight: Font.DemiBold
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 64
+                            radius: 32
+                            color: Theme.surface
+                            border.color: wifiPassword.activeFocus ? Theme.accent : Theme.divider
+                            border.width: wifiPassword.activeFocus ? 2 : 1
+                            TextField {
+                                id: wifiPassword
+                                anchors.fill: parent
+                                anchors.leftMargin: 22
+                                anchors.rightMargin: 22
+                                placeholderText: qsTr("Password, usually 8 or more characters")
+                                font.pixelSize: Theme.fontSm
+                                color: Theme.text
+                                placeholderTextColor: Theme.textMuted
+                                background: null
+                                echoMode: TextInput.Password
+                                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
+                                onActiveFocusChanged: sheet.passwordFocused = activeFocus
+                                onAccepted: System.connectWifi(sheet.joinSsid, text, false)
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+                            PillButton {
+                                Layout.fillWidth: true
+                                text: qsTr("Cancel")
+                                fill: Theme.surface
+                                ink: Theme.text
+                                onClicked: sheet.joinSsid = ""
+                            }
+                            PillButton {
+                                Layout.fillWidth: true
+                                text: System.busy ? qsTr("Joining…") : qsTr("Join")
+                                enabled: !System.busy && wifiPassword.text.length > 0
+                                onClicked: System.connectWifi(sheet.joinSsid, wifiPassword.text, false)
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    visible: System.message.length > 0
+                    Layout.fillWidth: true
+                    text: System.message
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSm
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    visible: !System.wifiAvailable
+                    Layout.fillWidth: true
+                    text: qsTr("Wi-Fi controls are on the Pi. Run the display install again, then open this page.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSm
+                    wrapMode: Text.WordWrap
+                }
+
+                Rectangle {
+                    visible: System.wifiAvailable
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(72, netCol.implicitHeight)
+                    radius: 24
+                    color: Theme.surfaceAlt
+                    ColumnLayout {
+                        id: netCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        spacing: 0
+                        Repeater {
+                            model: System.networks
+                            delegate: Rectangle {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 76
+                                color: modelData.inUse ? Theme.accentSoft : "transparent"
+                                radius: 18
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 18
+                                    anchors.rightMargin: 18
+                                    spacing: 14
+                                    Icon { name: "wifi"; size: 22; color: Theme.text }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Label {
+                                            text: modelData.ssid
+                                            color: Theme.text
+                                            font.pixelSize: Theme.fontSm
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: modelData.signal + "%"
+                                                  + (modelData.secure ? (modelData.saved ? qsTr(" · Saved") : qsTr(" · Password")) : qsTr(" · Open"))
+                                                  + (modelData.inUse ? qsTr(" · Connected") : "")
+                                            color: Theme.textMuted
+                                            font.pixelSize: Theme.fontXs
+                                        }
+                                    }
+                                }
+                                TapHandler {
+                                    enabled: !modelData.inUse && !System.busy
+                                    onTapped: {
+                                        if (modelData.secure && !modelData.saved) {
+                                            sheet.joinSsid = modelData.ssid
+                                            wifiPassword.text = ""
+                                            wifiPassword.forceActiveFocus()
+                                        } else {
+                                            sheet.joinSsid = ""
+                                            System.connectWifi(modelData.ssid, "", modelData.saved)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Label {
+                            visible: System.networks.length === 0 && !System.busy
+                            Layout.fillWidth: true
+                            Layout.margins: 18
+                            text: System.wifiEnabled ? qsTr("No networks found. Try refresh.") : qsTr("Turn Wi-Fi on to look for networks.")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }

@@ -35,6 +35,7 @@ qt_add_executable(homeos-display
     src/models/Assistant.h         src/models/Assistant.cpp
     src/models/ColorSampler.h      src/models/ColorSampler.cpp
     src/hardware/DisplayController.h src/hardware/DisplayController.cpp
+    src/hardware/SystemController.h src/hardware/SystemController.cpp
 )
 
 target_include_directories(homeos-display PRIVATE src)
@@ -107,6 +108,7 @@ add_custom_command(TARGET homeos-display POST_BUILD
 install(DIRECTORY resources/demo/media/ DESTINATION share/homeos/demo-media)
 
 install(TARGETS homeos-display RUNTIME DESTINATION bin)
+install(PROGRAMS deploy/homeos-system DESTINATION libexec)
 
 if(HOMEOS_BUILD_TESTS)
     find_package(Qt6 6.4 QUIET COMPONENTS Test)

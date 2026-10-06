@@ -141,7 +141,8 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 |---|---|
 | Watch the logs | `journalctl -u homeos-display -f` |
 | Restart the app | `sudo systemctl restart homeos-display` |
-| Change settings | `sudo nano /etc/homeos/display.env`, then restart the app |
+| Change Wi-Fi, volume, restart or reboot | On the screen, tap the gear. Wi-Fi and reboot need the helper from the install script |
+| Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
 | Update to the latest code | `cd ~/homeOS && git pull && ./display/deploy/install-pi.sh` (updates the voice service too, if installed) |
 | Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl start getty@tty1` |
 | Check power and temperature | `vcgencmd get_throttled` (`0x0` is good) and `vcgencmd measure_temp` |
@@ -153,6 +154,7 @@ Start with the logs: `journalctl -u homeos-display -b`.
 | Symptom | Fix |
 |---|---|
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
+| The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |
 | No sound, or too quiet | Check the screen's own volume and mute. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. `wpctl get-volume @DEFAULT_AUDIO_SINK@` should say `1.00`; set it with `wpctl set-volume @DEFAULT_AUDIO_SINK@ 100%`. |

@@ -1,0 +1,93 @@
+#!/bin/sh
+# Privileged actions for the homeOS wall display. Installed root-owned at
+# /usr/local/libexec/homeos-system and allowed with NOPASSWD in sudoers.
+# The display user can run this and nothing else as root.
+#
+#   homeos-system wifi-status
+#   homeos-system wifi-scan
+#   homeos-system wifi-connect <ssid> psk|saved|open     (psk reads the password on stdin)
+#   homeos-system wifi-radio on|off
+#   homeos-system reboot
+#
+# Arguments are passed to nmcli as themselves. They are never handed to a shell.
+set -eu
+
+die() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+
+# An SSID is at most 32 bytes and has no control characters. A leading "-"
+# would look like an nmcli flag.
+valid_ssid() {
+    [ -n "$1" ] || return 1
+    case "$1" in
+        -*) return 1 ;;
+    esac
+    # Newlines never reach grep (they break the line), so drop every control
+    # byte and see whether the name changed.
+    cleaned=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177')
+    [ "$cleaned" = "$1" ] || return 1
+    bytes=$(printf '%s' "$1" | wc -c | tr -d ' ')
+    [ "$bytes" -le 32 ] || return 1
+    return 0
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    wifi-status)
+        nmcli -t -f WIFI radio
+        echo "---"
+        nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status
+        ;;
+    wifi-scan)
+        nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan yes
+        echo "---"
+        nmcli -t -f NAME,TYPE connection show
+        ;;
+    wifi-connect)
+        [ "$#" -eq 2 ] || die "need an SSID and a mode"
+        ssid=$1
+        mode=$2
+        valid_ssid "$ssid" || die "that network name isn't usable"
+        case "$mode" in
+            psk)
+                IFS= read -r pw || true
+                pwbytes=$(printf '%s' "$pw" | wc -c | tr -d ' ')
+                [ "$pwbytes" -ge 1 ] && [ "$pwbytes" -le 64 ] || die "that password isn't usable"
+                cleaned=$(printf '%s' "$pw" | LC_ALL=C tr -d '\000-\037\177')
+                [ "$cleaned" = "$pw" ] || die "that password isn't usable"
+                pwfile=$(mktemp) || die "could not store the password"
+                trap 'rm -f "$pwfile"' EXIT
+                printf '%s' "$pw" > "$pwfile"
+                chmod 600 "$pwfile"
+                nmcli --wait 25 device wifi connect "$ssid" password-file "$pwfile"
+                ;;
+            saved)
+                nmcli --wait 25 connection up id "$ssid"
+                ;;
+            open)
+                nmcli --wait 25 device wifi connect "$ssid"
+                ;;
+            *)
+                die "need a mode of psk, saved or open"
+                ;;
+        esac
+        ;;
+    wifi-radio)
+        [ "$#" -eq 1 ] || die "need on or off"
+        case "$1" in
+            on|off) nmcli radio wifi "$1" ;;
+            *) die "need on or off" ;;
+        esac
+        ;;
+    reboot)
+        [ "$#" -eq 0 ] || die "reboot takes no arguments"
+        exec systemctl reboot
+        ;;
+    *)
+        die "unknown command"
+        ;;
+esac
