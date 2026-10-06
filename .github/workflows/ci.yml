@@ -138,7 +138,7 @@ jobs:
       - name: Prepare a Pi-like system (sudo user, no systemd)
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends sudo ca-certificates git
+          apt-get install -y --no-install-recommends sudo ca-certificates git curl
           useradd -m -s /bin/bash pi
           echo 'pi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/pi
       - uses: actions/checkout@v4
@@ -165,6 +165,23 @@ jobs:
         run: |
           /opt/homeos-voice/bin/python -c "import sounddevice, webrtcvad, faster_whisper, piper, openwakeword, onnxruntime; print('voice imports ok')"
           ls -la /home/pi/.local/share/homeos-voice || true
+      - name: Preview mode (virtual screen in a browser)
+        run: |
+          sudo -u pi -H bash -c 'cd ~/homeOS && ./display/deploy/preview.sh on'
+          sudo -u pi -H setsid /usr/local/bin/homeos-preview > preview.log 2>&1 &
+          for _ in $(seq 30); do curl -sf -o /dev/null http://127.0.0.1:6080/vnc.html && break; sleep 1; done
+          curl -sf -o /dev/null http://127.0.0.1:6080/vnc.html || { cat preview.log; exit 1; }
+          # Grab the screen through VNC, the same path a browser takes.
+          sleep 5
+          python3 -m venv /tmp/vnc && /tmp/vnc/bin/pip install -q vncdotool
+          /tmp/vnc/bin/vncdo -s 127.0.0.1::5900 capture preview.png
+          cat preview.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pi-preview
+          path: preview.png
+          if-no-files-found: ignore
 
   admin:
     needs: changes
