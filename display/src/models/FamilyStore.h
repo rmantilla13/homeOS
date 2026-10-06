@@ -8,6 +8,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "models/ColorSampler.h"
+
 class SupabaseClient;
 
 // Single source of family data for the QML UI.
@@ -34,7 +36,8 @@ class FamilyStore : public QObject
     Q_PROPERTY(QVariantList rewards READ rewards NOTIFY dataChanged)
     Q_PROPERTY(QVariantList meals READ meals NOTIFY dataChanged)
     Q_PROPERTY(QVariantList lists READ lists NOTIFY dataChanged)
-    Q_PROPERTY(QVariantList photos READ photos NOTIFY dataChanged)
+    Q_PROPERTY(QVariantList photos READ photos NOTIFY dataChanged)   // photos shown in the frame
+    Q_PROPERTY(QVariantList media READ media NOTIFY dataChanged)     // all photos and videos, newest first
 
 public:
     FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent = nullptr);
@@ -54,6 +57,7 @@ public:
     QVariantList meals() const { return m_meals; }
     QVariantList lists() const { return m_lists; }
     QVariantList photos() const { return m_photos; }
+    QVariantList media() const { return m_media; }
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void completeTask(const QString &taskId, const QString &memberId);
@@ -81,6 +85,8 @@ private:
     void startPairing();
     void pollPairing();
     void rebuild();
+    void scheduleRebuild();
+    static QString demoMediaDir();
 
     SupabaseClient *m_client;
     QSettings m_settings;
@@ -95,11 +101,13 @@ private:
     QString m_pairingSecret;
 
     // Raw rows as loaded (demo JSON or Supabase).
-    QVariantList m_rawMembers, m_rawEvents, m_rawTasks, m_rawRewards, m_rawMeals, m_rawLists, m_rawPhotos;
+    QVariantList m_rawMembers, m_rawEvents, m_rawTasks, m_rawRewards, m_rawMeals, m_rawLists, m_rawMedia;
     QHash<QString, QString> m_completedToday; // "taskId|memberId" -> status
     QHash<QString, int> m_points;              // memberId -> balance
+    ColorSampler m_colors;
+    bool m_rebuildQueued = false;
 
     // Decorated rows for QML.
     QString m_familyName;
-    QVariantList m_members, m_events, m_tasks, m_rewards, m_meals, m_lists, m_photos;
+    QVariantList m_members, m_events, m_tasks, m_rewards, m_meals, m_lists, m_photos, m_media;
 };

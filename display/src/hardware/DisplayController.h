@@ -14,6 +14,8 @@ class DisplayController : public QObject
     Q_OBJECT
     Q_PROPERTY(bool idle READ idle NOTIFY idleChanged)
     Q_PROPERTY(bool nightMode READ nightMode NOTIFY nightModeChanged)
+    // Time-of-day mood that drives the dynamic palette: morning | day | evening | night.
+    Q_PROPERTY(QString mood READ mood NOTIFY moodChanged)
     Q_PROPERTY(int idleTimeoutSec READ idleTimeoutSec WRITE setIdleTimeoutSec NOTIFY idleTimeoutChanged)
     Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness NOTIFY brightnessChanged)
     Q_PROPERTY(bool hasBacklight READ hasBacklight CONSTANT)
@@ -23,6 +25,7 @@ public:
 
     bool idle() const { return m_idle; }
     bool nightMode() const { return m_nightMode; }
+    QString mood() const { return m_mood; }
     int idleTimeoutSec() const { return m_idleTimer.interval() / 1000; }
     void setIdleTimeoutSec(int seconds);
     qreal brightness() const { return m_brightness; }
@@ -38,6 +41,7 @@ public:
 signals:
     void idleChanged();
     void nightModeChanged();
+    void moodChanged();
     void idleTimeoutChanged();
     void brightnessChanged();
 
@@ -51,8 +55,11 @@ private:
 
     QTimer m_idleTimer;
     QTimer m_clockTimer;
+    QTimer m_moodCycle;     // HOMEOS_MOOD=cycle: rotate moods for demos
+    int m_cycleIndex = 0;
     bool m_idle = false;
     bool m_nightMode = false;
+    QString m_mood = QStringLiteral("day");
     qreal m_brightness = 1.0;
     QString m_backlightPath; // /sys/class/backlight/<dev>
     int m_maxBacklight = 0;

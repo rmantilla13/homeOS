@@ -3,6 +3,9 @@
 #include "backend/SupabaseClient.h"
 
 #include <QColor>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QFile>
@@ -42,6 +45,9 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
 {
     m_syncTimer.setInterval(kSyncIntervalMs);
     connect(&m_syncTimer, &QTimer::timeout, this, &FamilyStore::refresh);
+
+    // Photo colors arrive asynchronously; fold them in with one rebuild.
+    connect(&m_colors, &ColorSampler::sampled, this, &FamilyStore::scheduleRebuild);
 
     m_pairTimer.setInterval(kPairPollMs);
     connect(&m_pairTimer, &QTimer::timeout, this, &FamilyStore::pollPairing);
@@ -112,7 +118,22 @@ void FamilyStore::loadDemo()
     m_rawTasks = root.value("tasks").toArray().toVariantList();
     m_rawRewards = root.value("rewards").toArray().toVariantList();
     m_rawLists = root.value("lists").toArray().toVariantList();
-    m_rawPhotos = root.value("photos").toArray().toVariantList();
+    // Demo media lives next to the binary (copied there at build/install time).
+    m_rawMedia.clear();
+    const QString mediaDir = demoMediaDir();
+    const QDateTime nowDt = QDateTime::currentDateTime();
+    for (const QJsonValue &v : root.value("media").toArray()) {
+        QJsonObject m = v.toObject();
+        const QString file = QDir(mediaDir).filePath(m.value("file").toString());
+        if (!mediaDir.isEmpty() && QFileInfo::exists(file))
+            m.insert("url", QUrl::fromLocalFile(file).toString());
+        const QString poster = QDir(mediaDir).filePath(m.value("poster").toString());
+        if (m.contains("poster") && QFileInfo::exists(poster))
+            m.insert("posterUrl", QUrl::fromLocalFile(poster).toString());
+        m.insert("taken_at", nowDt.addSecs(-qint64(m.value("hoursAgo").toDouble() * 3600)).toString(Qt::ISODate));
+        m.insert("show_on_frame", m.value("kind").toString() == "photo");
+        m_rawMedia << m.toVariantMap();
+    }
 
     // Events and meals are stored relative to today so the demo always looks current.
     m_rawEvents.clear();
@@ -223,7 +244,7 @@ void FamilyStore::loadLive()
         load("lists", QUrlQuery("select=*,items:list_items(*)&order=sort_order&items.order=created_at.desc"), [this](const QJsonDocument &d) { m_rawLists = toList(d); });
 
         m_client->select("media_items",
-                         QUrlQuery("select=*&kind=eq.photo&show_on_frame=eq.true&order=taken_at.desc.nullslast&limit=100"),
+                         QUrlQuery("select=*&order=taken_at.desc.nullslast,created_at.desc&limit=200"),
                          [this](const QJsonDocument &d, const QString &error) {
                              if (!error.isEmpty())
                                  return;
@@ -232,11 +253,11 @@ void FamilyStore::loadLive()
                              for (const QVariant &r : rows)
                                  paths << r.toMap().value("storage_path").toString();
                              m_client->signUrls(kMediaBucket, paths, 6 * 3600, [this, rows](const QStringList &urls) {
-                                 m_rawPhotos.clear();
+                                 m_rawMedia.clear();
                                  for (int i = 0; i < rows.size() && i < urls.size(); ++i) {
                                      QVariantMap p = rows[i].toMap();
                                      p.insert("url", urls[i]);
-                                     m_rawPhotos << p;
+                                     m_rawMedia << p;
                                  }
                                  rebuild();
                              });
@@ -525,6 +546,70 @@ void FamilyStore::rebuild()
     m_rewards = m_rawRewards;
     m_meals = m_rawMeals;
     m_lists = m_rawLists;
-    m_photos = m_rawPhotos;
+    // Media: newest first, with display labels and a color for dynamic tints.
+    m_media.clear();
+    m_photos.clear();
+    QHash<QString, QString> nameById;
+    for (const QVariant &v : std::as_const(m_rawMembers))
+        nameById.insert(v.toMap().value("id").toString(), v.toMap().value("display_name").toString());
+    for (const QVariant &v : std::as_const(m_rawMedia)) {
+        QVariantMap m = v.toMap();
+        const QString url = m.value("url").toString();
+        const bool isVideo = m.value("kind").toString() == "video";
+        const QDateTime taken = parseTimestamp(m.value("taken_at", m.value("created_at")).toString());
+        m.insert("takenMs", taken.toMSecsSinceEpoch());
+        m.insert("monthLabel", taken.date().year() == now.year() ? QLocale().toString(taken.date(), "MMMM")
+                                                                  : QLocale().toString(taken.date(), "MMMM yyyy"));
+        m.insert("dateLabel", taken.date() == now ? tr("Today")
+                              : taken.date() == now.addDays(-1) ? tr("Yesterday")
+                                                                : QLocale().toString(taken.date(), "dddd, MMMM d"));
+        const int secs = qRound(m.value("duration_seconds").toDouble());
+        m.insert("durationLabel", secs > 0 ? QStringLiteral("%1:%2").arg(secs / 60).arg(secs % 60, 2, 10, QChar('0')) : QString());
+        m.insert("uploaderName", nameById.value(m.value("uploaded_by").toString()));
+
+        QColor tint = m_colors.cached(url);
+        const QString imageUrl = isVideo ? m.value("posterUrl").toString() : url;
+        if (!tint.isValid())
+            tint = m_colors.cached(imageUrl);
+        if (!tint.isValid() && !imageUrl.isEmpty())
+            m_colors.sample(imageUrl);
+        m.insert("imageUrl", imageUrl);
+        if (!tint.isValid())
+            tint = QColor(m.value("color").toString());
+        if (!tint.isValid())
+            tint = QColor("#5B7CF5");
+        m.insert("tint", tint.name());
+        m.insert("tintDeep", tint.darker(260).name());
+        m_media << m;
+        if (!isVideo && m.value("show_on_frame", true).toBool())
+            m_photos << m;
+    }
+    std::stable_sort(m_media.begin(), m_media.end(), [](const QVariant &a, const QVariant &b) {
+        return a.toMap().value("takenMs").toLongLong() > b.toMap().value("takenMs").toLongLong();
+    });
     emit dataChanged();
+}
+
+void FamilyStore::scheduleRebuild()
+{
+    if (m_rebuildQueued)
+        return;
+    m_rebuildQueued = true;
+    QTimer::singleShot(50, this, [this]() {
+        m_rebuildQueued = false;
+        rebuild();
+    });
+}
+
+QString FamilyStore::demoMediaDir()
+{
+    const QString fromEnv = qEnvironmentVariable("HOMEOS_DEMO_MEDIA");
+    if (!fromEnv.isEmpty())
+        return fromEnv;
+    const QDir app(QCoreApplication::applicationDirPath());
+    for (const QString &candidate : {app.filePath("demo-media"), app.filePath("../share/homeos/demo-media")}) {
+        if (QFileInfo(candidate).isDir())
+            return QDir(candidate).absolutePath();
+    }
+    return {};
 }

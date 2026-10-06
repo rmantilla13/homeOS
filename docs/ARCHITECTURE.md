@@ -45,6 +45,29 @@
 Points are never edited directly. They are written only by database
 functions (`approve_completion`, `redeem_reward`), so balances can't drift.
 
+## Design system: dynamic color and motion
+
+- **Time-of-day moods.** `DisplayController` publishes a `mood` (morning,
+  day, evening or night). `Theme.qml` maps it to a palette (background,
+  surfaces, text, accent, glow) and animates every token over about 2
+  seconds, so the screen drifts warm → blue → violet → dark through the day.
+- **Photo-driven color.** `ColorSampler` computes a representative color for
+  each photo or video poster, off the UI thread and cached. The media page's
+  featured card, the full-screen viewer background and the photo frame's
+  shade take on the colors of what's showing.
+- **Motion.** Pages cross-fade and settle when you switch, the navigation
+  highlight springs between items, the assistant slides up, chat messages pop
+  in, chores celebrate when ticked, and point totals count up or down.
+
+## Media
+
+The Media page shows photos and videos newest first: a featured photo, then a
+grid grouped by month, filtered by All, Photos or Videos. The full-screen
+viewer swipes between items and plays video with QtMultimedia. On the Pi that
+runs through GStreamer, which uses hardware HEVC decode. In demo mode, sample
+media is copied next to the binary (`demo-media/`) or installed to
+`share/homeos/demo-media`.
+
 ## Family assistant
 
 The "Ask homeOS" card on the home screen opens a chat with Claude (Opus 5.5),

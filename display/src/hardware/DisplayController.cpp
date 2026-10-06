@@ -24,6 +24,15 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
     connect(&m_clockTimer, &QTimer::timeout, this, &DisplayController::updateNightMode);
     m_clockTimer.start();
 
+    if (qEnvironmentVariable("HOMEOS_MOOD") == "cycle") {
+        m_moodCycle.setInterval(6000);
+        connect(&m_moodCycle, &QTimer::timeout, this, [this]() {
+            m_cycleIndex = (m_cycleIndex + 1) % 4;
+            updateNightMode();
+        });
+        m_moodCycle.start();
+    }
+
     const QDir backlights(QStringLiteral("/sys/class/backlight"));
     const QStringList devices = backlights.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     if (!devices.isEmpty()) {
@@ -100,6 +109,18 @@ void DisplayController::updateNightMode()
     const QString forced = qEnvironmentVariable("HOMEOS_NIGHT_MODE");
     const QTime now = QTime::currentTime();
     const bool night = forced == "on" || (forced != "off" && (now >= kNightStart || now < kNightEnd));
+
+    // HOMEOS_MOOD=morning|day|evening|night pins the palette (development, demos).
+    QString mood = qEnvironmentVariable("HOMEOS_MOOD");
+    if (mood == "cycle")
+        mood = QStringList{"day", "evening", "night", "morning"}.at(m_cycleIndex);
+    if (mood.isEmpty())
+        mood = night ? "night" : now.hour() < 11 ? "morning" : now.hour() < 17 ? "day" : "evening";
+    if (mood != m_mood) {
+        m_mood = mood;
+        emit moodChanged();
+    }
+
     if (night == m_nightMode)
         return;
     m_nightMode = night;

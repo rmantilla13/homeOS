@@ -13,7 +13,13 @@ plus an iOS app that family members use to feed it.
 
 ![Home screen](docs/screenshots/home.png)
 
+Dynamic colors: the palette follows the time of day (morning, day, evening, night).
+
+![Moods](docs/screenshots/moods.png)
+
 <p>
+  <img src="docs/screenshots/media.png" width="32%" alt="Media">
+  <img src="docs/screenshots/media-viewer.png" width="32%" alt="Media viewer">
   <img src="docs/screenshots/assistant.png" width="32%" alt="Assistant">
   <img src="docs/screenshots/calendar.png" width="32%" alt="Calendar">
 
@@ -52,6 +58,7 @@ Useful flags and variables:
 | `HOMEOS_IDLE_SECONDS=30` | Seconds before the photo frame starts (default 120) |
 | `HOMEOS_NIGHT_MODE=on\|off` | Force the night theme on or off |
 | `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
+| `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |
 
 To connect it to the backend, set:
 

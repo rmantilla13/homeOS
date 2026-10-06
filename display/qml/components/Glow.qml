@@ -7,6 +7,9 @@ Canvas {
     id: glow
     property real intensity: 1.0
     renderStrategy: Canvas.Cooperative
+    // Repaint as the mood palette animates.
+    readonly property var colors: [Theme.glowBlue, Theme.glowCoral, Theme.glowAmber, Theme.glowCream]
+    onColorsChanged: requestPaint()
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
 
@@ -19,10 +22,10 @@ Canvas {
         // Arch centred low and to the right, sweeping up from the bottom-left.
         const cx = w * 0.62, cy = h * 1.18, r = Math.max(w, h) * 0.78
         const grad = ctx.createLinearGradient(0, 0, w, 0)
-        grad.addColorStop(0.00, Theme.glowBlue)
-        grad.addColorStop(0.40, Theme.glowCoral)
-        grad.addColorStop(0.72, Theme.glowAmber)
-        grad.addColorStop(1.00, Theme.glowCream)
+        grad.addColorStop(0.00, glow.colors[0])
+        grad.addColorStop(0.40, glow.colors[1])
+        grad.addColorStop(0.72, glow.colors[2])
+        grad.addColorStop(1.00, glow.colors[3])
         ctx.strokeStyle = grad
         ctx.lineCap = "round"
 

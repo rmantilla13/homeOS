@@ -57,12 +57,18 @@
       { "id": "i6", "text": "Dog food",      "done": false }
     ]}
   ],
-  "photos": [
-    { "caption": "Beach day",          "color": "#5AB0E8", "color2": "#F7D794" },
-    { "caption": "First day of school","color": "#F2B84B", "color2": "#EF8A6F" },
-    { "caption": "Camping trip",       "color": "#8E9CE6", "color2": "#1E5E48" },
-    { "caption": "Birthday party",     "color": "#B07CF2", "color2": "#F2A7C3" },
-    { "caption": "Snow day",           "color": "#A9C9E8", "color2": "#F4F7FB" },
-    { "caption": "Sunday pancakes",    "color": "#F0B35A", "color2": "#8A4B2A" }
+  "media": [
+    { "file": "photo01.jpg", "kind": "photo", "caption": "Beach day",           "hoursAgo": 5,   "uploaded_by": "m1", "color": "#5AB0E8", "color2": "#F7D794" },
+    { "file": "video01.mp4", "poster": "video01.jpg", "kind": "video", "caption": "Sunset at the lake",  "hoursAgo": 9,   "uploaded_by": "m2", "duration_seconds": 8, "color": "#F07F5A" },
+    { "file": "photo02.jpg", "kind": "photo", "caption": "First day of school", "hoursAgo": 30,  "uploaded_by": "m1", "color": "#F2B84B", "color2": "#EF8A6F" },
+    { "file": "photo03.jpg", "kind": "photo", "caption": "Camping trip",        "hoursAgo": 70,  "uploaded_by": "m2", "color": "#3DBE7A", "color2": "#1E5E48" },
+    { "file": "photo04.jpg", "kind": "photo", "caption": "Birthday party",      "hoursAgo": 120, "uploaded_by": "m1", "color": "#B07CF2", "color2": "#F2A7C3" },
+    { "file": "video02.mp4", "poster": "video02.jpg", "kind": "video", "caption": "Emma's soccer goal",  "hoursAgo": 160, "uploaded_by": "m2", "duration_seconds": 6, "color": "#3DBE7A" },
+    { "file": "photo05.jpg", "kind": "photo", "caption": "Snow day",            "hoursAgo": 400, "uploaded_by": "m1", "color": "#A9C9E8", "color2": "#F4F7FB" },
+    { "file": "photo06.jpg", "kind": "photo", "caption": "Sunday pancakes",     "hoursAgo": 520, "uploaded_by": "m2", "color": "#F0B35A", "color2": "#8A4B2A" },
+    { "file": "photo07.jpg", "kind": "photo", "caption": "Grandma's garden",    "hoursAgo": 700, "uploaded_by": "m1", "color": "#5B7CF5", "color2": "#F07F5A" },
+    { "file": "photo08.jpg", "kind": "photo", "caption": "Fireworks",           "hoursAgo": 900, "uploaded_by": "m2", "color": "#2E3A59", "color2": "#F6B94A" },
+    { "file": "photo09.jpg", "kind": "photo", "caption": "Aquarium",            "hoursAgo": 1100,"uploaded_by": "m1", "color": "#7FD1C7", "color2": "#FBE6B0" },
+    { "file": "photo10.jpg", "kind": "photo", "caption": "Pumpkin patch",       "hoursAgo": 1500,"uploaded_by": "m2", "color": "#E9775B", "color2": "#FFE3C2" }
   ]
 }

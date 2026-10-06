@@ -17,7 +17,8 @@ Rectangle {
         id: label
         anchors.centerIn: parent
         text: parent.text.toUpperCase()
-        color: parent.ink
+        // Member inks are dark shades; lift them so they read on the night palette.
+        color: Theme.dark ? Qt.lighter(parent.ink, 2.6) : parent.ink
         font.pixelSize: 13
         font.weight: Font.DemiBold
         font.letterSpacing: 0.8

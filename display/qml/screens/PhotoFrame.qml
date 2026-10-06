@@ -48,13 +48,17 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: 1500 } }
     }
 
-    // Soft shade so the clock stays legible on bright photos.
+    // Shade in the photo's own deep color so the clock stays legible and the
+    // overlay feels part of the picture.
+    readonly property var shown: showA ? a.photo : b.photo
+    property color shade: shown && shown.tintDeep ? shown.tintDeep : "#000000"
+    Behavior on shade { ColorAnimation { duration: 1500 } }
     Rectangle {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        height: 360
+        height: 420
         gradient: Gradient {
             GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 1; color: "#B0000000" }
+            GradientStop { position: 1; color: Qt.rgba(frame.shade.r, frame.shade.g, frame.shade.b, 0.85) }
         }
     }
 

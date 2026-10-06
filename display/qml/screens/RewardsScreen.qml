@@ -62,8 +62,9 @@ Item {
                     font.pixelSize: Theme.fontLg
                     Layout.fillWidth: true
                 }
-                Label {
-                    text: "★ " + (rewardsScreen.selected ? rewardsScreen.selected.points : 0)
+                AnimatedNumber {
+                    value: rewardsScreen.selected ? rewardsScreen.selected.points : 0
+                    prefix: "★ "
                     color: "white"
                     font.pixelSize: Theme.compact ? 60 : 80
                     font.weight: Font.Bold

@@ -8,6 +8,7 @@ struct HomeOSApp: App {
         WindowGroup {
             RootView()
                 .environment(store)
+                .providesMood()
                 .task { await store.start() }
         }
     }
@@ -18,28 +19,43 @@ struct RootView: View {
     @Environment(FamilyStore.self) private var store
 
     var body: some View {
-        switch store.phase {
-        case .loading:
-            ProgressView()
-        case .signedOut:
-            SignInView()
-        case .needsFamily:
-            CreateFamilyView()
-        case .ready:
-            MainTabView()
+        Group {
+            switch store.phase {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .screenBackground()
+            case .signedOut:
+                SignInView()
+            case .needsFamily:
+                CreateFamilyView()
+            case .ready:
+                MainTabView()
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: store.phase)
     }
 }
 
+/// Five screens behind a floating tab bar.
 struct MainTabView: View {
+    @State private var tab: AppTab = .home
+
     var body: some View {
-        TabView {
-            TodayView().tabItem { Label("Today", systemImage: "sun.max") }
-            CalendarView().tabItem { Label("Calendar", systemImage: "calendar") }
-            ChoresView().tabItem { Label("Chores", systemImage: "checklist") }
-            RewardsView().tabItem { Label("Rewards", systemImage: "star") }
-            PhotosView().tabItem { Label("Photos", systemImage: "photo.on.rectangle") }
-            SettingsView().tabItem { Label("Family", systemImage: "person.3") }
+        ZStack {
+            switch tab {
+            case .home: HomeView(selectedTab: $tab).transition(.opacity)
+            case .calendar: CalendarView().transition(.opacity)
+            case .chores: ChoresView().transition(.opacity)
+            case .media: MediaView().transition(.opacity)
+            case .family: FamilyView().transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .screenBackground()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            FloatingTabBar(selection: $tab)
+                .padding(.bottom, 2)
         }
     }
 }

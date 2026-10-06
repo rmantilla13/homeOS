@@ -30,7 +30,7 @@ ApplicationWindow {
     // Drop back to the home screen after the photo frame has been up.
     Connections {
         target: Device
-        function onIdleChanged() { if (Device.idle) { window.dismissKeyboard(); assistant.open = false; window.currentScreen = 0 } }
+        function onIdleChanged() { if (Device.idle) { window.dismissKeyboard(); assistant.open = false; viewer.close(); window.currentScreen = 0 } }
     }
 
     RowLayout {
@@ -45,24 +45,30 @@ ApplicationWindow {
             onSelected: index => { assistant.open = false; window.dismissKeyboard(); window.currentScreen = index }
         }
 
-        StackLayout {
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: window.currentScreen
 
-            HomeScreen {
-                onOpenScreen: index => window.currentScreen = index
-                onOpenAssistant: question => {
-                    assistant.open = true
-                    if (question) AI.ask(question)
-                    else assistant.focusInput()
+            Page {
+                anchors.fill: parent; index: 0; current: window.currentScreen
+                HomeScreen {
+                    anchors.fill: parent
+                    onOpenScreen: index => window.currentScreen = index
+                    onOpenAssistant: question => {
+                        assistant.open = true
+                        if (question) AI.ask(question)
+                        else assistant.focusInput()
+                    }
                 }
             }
-            CalendarScreen {}
-            TasksScreen {}
-            RewardsScreen {}
-            PhotosScreen {}
-            PlannerScreen {}
+            Page { anchors.fill: parent; index: 1; current: window.currentScreen; CalendarScreen { anchors.fill: parent } }
+            Page { anchors.fill: parent; index: 2; current: window.currentScreen; TasksScreen { anchors.fill: parent } }
+            Page { anchors.fill: parent; index: 3; current: window.currentScreen; RewardsScreen { anchors.fill: parent } }
+            Page {
+                anchors.fill: parent; index: 4; current: window.currentScreen
+                MediaScreen { anchors.fill: parent; onOpenViewer: (items, i) => viewer.show(items, i) }
+            }
+            Page { anchors.fill: parent; index: 5; current: window.currentScreen; PlannerScreen { anchors.fill: parent } }
         }
     }
 
@@ -72,6 +78,11 @@ ApplicationWindow {
         anchors.leftMargin: Theme.navWidth
         keyboardHeight: window.keyboardHeight
         onCloseRequested: { window.dismissKeyboard(); open = false }
+    }
+
+    MediaViewer {
+        id: viewer
+        anchors.fill: parent
     }
 
     PairingScreen {

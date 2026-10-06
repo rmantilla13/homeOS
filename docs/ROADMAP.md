@@ -27,6 +27,9 @@
 - [x] New visual style: warm canvas, line icons, blue accent, blue/coral/amber glow, pastel member colors
 - [x] Calendar with Day, Week (time grid) and Month views
 - [x] Family assistant on the home screen (Claude, grounded in family data and family memory, with action tools)
+- [x] Dynamic time-of-day palette and photo-driven colors
+- [x] Smooth page transitions and micro-animations
+- [x] Media page (photos and videos, month groups, full-screen viewer with video playback)
 - [ ] Assistant in the iOS app
 - [ ] Voice input (speech-to-text) and spoken replies
 

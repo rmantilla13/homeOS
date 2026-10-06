@@ -55,10 +55,17 @@ Item {
                         Column {
                             Layout.fillWidth: true
                             Label { text: column.member.display_name; color: Theme.text; font.pixelSize: Theme.fontLg; font.weight: Font.DemiBold }
+                            AnimatedNumber {
+                                visible: column.member.role === "child"
+                                value: column.member.points
+                                prefix: "★ "
+                                suffix: qsTr(" points")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSm
+                            }
                             Label {
-                                text: column.member.role === "child"
-                                      ? "★ " + column.member.points + qsTr(" points")
-                                      : column.member.tasksDone + " / " + column.member.tasksTotal + qsTr(" done")
+                                visible: column.member.role !== "child"
+                                text: column.member.tasksDone + " / " + column.member.tasksTotal + qsTr(" done")
                                 color: Theme.textMuted
                                 font.pixelSize: Theme.fontSm
                             }
@@ -74,6 +81,7 @@ Item {
                         delegate: Rectangle {
                             id: taskCard
                             required property var modelData
+                            readonly property string status: modelData.status
                             readonly property bool done: modelData.status === "done"
                             readonly property bool pending: modelData.status === "pending"
 
@@ -112,16 +120,37 @@ Item {
                                     }
                                 }
                                 Rectangle {
+                                    id: check
                                     width: 56; height: 56; radius: 28
                                     color: taskCard.done ? Theme.success : taskCard.pending ? Theme.warning : "transparent"
                                     border.width: taskCard.done || taskCard.pending ? 0 : 4
                                     border.color: Theme.divider
-                                    Label {
+                                    Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                                    Icon {
                                         anchors.centerIn: parent
-                                        text: taskCard.done ? "✓" : taskCard.pending ? "…" : ""
+                                        visible: taskCard.done
+                                        name: "check"
+                                        size: 30
+                                        strokeWidth: 3
                                         color: "white"
-                                        font.pixelSize: 30
-                                        font.weight: Font.Bold
+                                    }
+                                    Icon {
+                                        anchors.centerIn: parent
+                                        visible: taskCard.pending
+                                        name: "clock"
+                                        size: 28
+                                        strokeWidth: 2.4
+                                        color: "white"
+                                    }
+                                    // Little celebration when a chore is ticked off.
+                                    SequentialAnimation {
+                                        id: pop
+                                        NumberAnimation { target: check; property: "scale"; to: 1.3; duration: 140; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: check; property: "scale"; to: 1.0; duration: 260; easing.type: Easing.OutBack }
+                                    }
+                                    Connections {
+                                        target: taskCard
+                                        function onStatusChanged() { if (taskCard.done || taskCard.pending) pop.restart() }
                                     }
                                 }
                             }

@@ -25,9 +25,11 @@ sudo apt-get install -y \
     qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-qpa-plugins \
     qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
     qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtqml-workerscript \
-    qml6-module-qtquick-shapes \
+    qml6-module-qtquick-shapes qml6-module-qt5compat-graphicaleffects \
     qml6-module-qtmultimedia \
     qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin qml6-module-qt-labs-folderlistmodel \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+    gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-alsa \
     fonts-inter fonts-noto-color-emoji
 
 step "Building homeos-display"

@@ -14,7 +14,11 @@ Rectangle {
     color: Theme.background
     visible: opacity > 0
     opacity: open ? 1 : 0
-    Behavior on opacity { NumberAnimation { duration: 220 } }
+    Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
+    transform: Translate {
+        y: panel.open ? 0 : 40
+        Behavior on y { NumberAnimation { duration: Theme.smooth + 60; easing.type: Easing.OutCubic } }
+    }
 
     function send(text) {
         if (!text || !text.trim()) return
@@ -80,6 +84,12 @@ Rectangle {
             spacing: 14
             model: AI.messages
             onCountChanged: Qt.callLater(positionViewAtEnd)
+            add: Transition {
+                ParallelAnimation {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.smooth }
+                    NumberAnimation { property: "scale"; from: 0.92; to: 1; duration: Theme.smooth; easing.type: Easing.OutBack }
+                }
+            }
             onHeightChanged: Qt.callLater(positionViewAtEnd)
 
             delegate: Item {
