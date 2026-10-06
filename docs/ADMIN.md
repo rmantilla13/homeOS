@@ -15,6 +15,7 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 | `/invites` | Create platform invites (optional email lock, note, max uses, expiry), optionally email them; copy, revoke, see status |
 | `/settings` | Invite-only sign-up, assistant on/off, requests per family per day, and the display boot video |
 | `/audit` | Every admin action, newest first |
+| `/privacy`, `/support` | Public: the privacy policy and help page the iOS app links to and App Store Connect lists. No sign-in, indexed. Text in `app/(public)`, contact address and policy date in `lib/site.ts` |
 
 ## How it works
 
@@ -212,11 +213,18 @@ OIDC token for Anthropic workload identity federation (see
 does not take a service role key. `NEXT_PUBLIC_SUPABASE_URL` is the issuer
 it trusts. Don't set `NEXT_PUBLIC_ADMIN_DEMO` on this project.
 
+It also answers `POST /api/account/delete`, the iOS app's Delete account. The
+route forwards the person's Supabase JWT to the `delete-account` edge
+function, which deletes their data and login, and then removes the Blob
+photos and videos of any family that went with the account. See
+[PLATFORM.md](PLATFORM.md) → "Deleting your account".
+
 Optional hardening: turn on Vercel **Deployment Protection** (Vercel
 Authentication or a password) so only your team can reach the sign-in page
-at all. Protection also blocks `/api/assistant-identity` and `/api/media`.
-Leave those paths reachable by a family JWT, or the assistant cannot reach
-Claude and photo and video upload and playback stop.
+at all. Protection also blocks `/api/assistant-identity`, `/api/media`,
+`/api/account/delete`, `/privacy` and `/support`. Leave those paths
+reachable, or the assistant cannot reach Claude, photo and video upload and
+playback stop, Delete account fails, and the App Store links break.
 
 ### Invite emails
 

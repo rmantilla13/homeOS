@@ -49,11 +49,13 @@ ios/OhanaOS/
 ├── App/
 │   ├── OhanaOSApp.swift      RootView: loading (with retry) / welcome / family setup / tabs; deep links
 │   ├── AskOhanaOSIntent.swift Siri: AskOhanaOSIntent + OhanaOSShortcuts (App Shortcuts)
-│   └── Config.swift          Supabase URL and key (Local.xcconfig or the fallbacks), bucket names, auth callback URL
+│   └── Config.swift          Supabase URL and key (Local.xcconfig or the fallbacks), bucket names, auth callback URL,
+│                             privacy policy and support URLs
 ├── Models/       Codable rows mirroring the migrations (snake_case keys), invites, profiles,
 │                 assistant threads and messages, chat types, InviteCode, DayKey
 ├── Services/
-│   ├── FamilyStore.swift     the one @Observable store: auth, invites, profile, family data, writes, assistant
+│   ├── FamilyStore.swift     the one @Observable store: auth, invites, profile, family data, writes, assistant,
+│   │                         account deletion
 │   ├── AssistantClient.swift `assistant` function over URLSession: SSE streaming and quick answers
 │   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, video)
 │   └── Dictation.swift       SFSpeechRecognizer push-to-talk for the assistant
@@ -62,7 +64,8 @@ ios/OhanaOS/
     ├── Components/           floating tab bar, activity/approval cards, shared bits
     ├── OnboardingViews.swift welcome (invite code, create account, sign in), enter an invite code,
     │                         create family, invite-link sheet
-    ├── ProfileView.swift     name, photo, email, family switcher, Siri tip, sign out
+    ├── ProfileView.swift     name, photo, email, family switcher, Siri tip, privacy and support links,
+    │                         sign out, delete account
     ├── InviteViews.swift     create invite, code card with share/copy, pending and accepted rows
     ├── HomeView.swift        Home + assistant hero card
     ├── AssistantView.swift   streaming chat, thread history
@@ -113,7 +116,11 @@ Ohana is invite-only, so the first screen starts with the invite code.
 5. **Signed in with no family and no code** (a fresh account, or after leaving
    a family): "Enter an invite code". A family code shows **Join {family}**; a
    platform code moves on to Create family. Members of a family an admin has
-   suspended also land here, because they can no longer see it.
+   suspended also land here, because they can no longer see it. Sign out and
+   **Delete account** are at the bottom.
+
+The welcome screen links the privacy policy under its Create account / Sign in
+button.
 
 Server errors are shown as they come back from the RPCs (sentence-cased), so
 the messages in PLATFORM.md → "Errors the apps show" appear verbatim.
@@ -139,7 +146,20 @@ pick one with `PhotosPicker`; it's cropped to a 512 px square JPEG, uploaded
 to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
 policy), and `profiles.avatar_path` is set. **Remove photo** clears both. Also
 shows your email, family and role; a family picker when you belong to more
-than one; the Siri tip; and **Sign out**.
+than one; the Siri tip; **Privacy policy** and **Help and support**
+(`https://ohanaos.co/privacy` and `/support`, `Config`); and **Sign out**.
+
+**Delete account** sits below Sign out. Its alert says what happens for the
+family on screen: if nobody else in it has a login, the family is deleted
+too (calendar, chores, photos, displays); otherwise the family keeps your
+name on its screen, your points and what you added. `FamilyStore.deleteAccount`
+posts to `/api/account/delete` on `Config.mediaAPIURL`'s origin with your
+session, then signs out on the phone. The admin app runs the
+`delete-account` edge function and clears that family's photos and videos
+from Blob; the rules are in [PLATFORM.md](PLATFORM.md) → "Deleting your
+account". A refusal is shown as the server words it, for example "You're the
+only parent with a login in The Smiths. Make someone else there a parent
+first".
 
 Member avatars everywhere (`MemberAvatar`) show the photo of the member's
 account when there is one, else the initial on the member's color. Photos are
@@ -294,8 +314,56 @@ Account Holder, because Xcode creates the Apple Distribution certificate.
    `Family`) and turn on automatic distribution. Add testers. They must be
    users under Users and Access (up to 100). Processing takes about 5–30
    minutes. Then testers get an email and install through the TestFlight app.
-   External testers need Beta App Review, a beta description, and a privacy
-   policy URL.
+   Internal builds skip Beta App Review.
+6. **Before anyone outside the team installs it,** deploy what the app's
+   newer screens call, or Delete account answers with an error:
+   - the migration `20261010000001_account_deletion.sql` (`supabase db push`)
+     and `supabase functions deploy delete-account`;
+   - the admin app on Vercel, for `/api/account/delete`, `/privacy` and
+     `/support`. Open `https://ohanaos.co/privacy` and `/support` signed out
+     to check them. Both say to write to `support@ohanaos.co`
+     (`admin/lib/site.ts`): make sure that mailbox exists, or change it there.
+7. **Fill in Test Information** (App Store Connect → Ohana Display →
+   TestFlight → Test Information). External testers and Beta App Review need
+   it:
+
+   | Field | Value |
+   |---|---|
+   | Beta App Description | `Ohana Display keeps a family's calendar, chores, rewards, photos and meal plans in one place, on a wall display and on everyone's iPhone. This beta covers the iPhone app: sign up with an invite code, then try the calendar, chores and rewards, photos, the assistant and Siri.` |
+   | Feedback Email | the support address above |
+   | Privacy Policy URL | `https://ohanaos.co/privacy` |
+   | Marketing URL | optional; `https://ohanaos.co/support` works |
+
+   For the App Store listing later, the Support URL is
+   `https://ohanaos.co/support` and the Privacy Policy URL the same as above.
+8. **Give Beta App Review a way in.** The app is invite-only, so the
+   reviewer needs an account that is already in a family:
+   1. Create a platform invite in the admin console (Invites), or use an
+      existing family invite.
+   2. In the app, sign up with that code as, for example,
+      `appreview@<your domain>` with a password you don't use elsewhere.
+      Confirm the email if confirmation is on.
+   3. Create a family named `App Review` and add a few events, chores,
+      rewards and a photo, so each tab has something to show.
+   4. Invite your own account into that family as a second parent and
+      accept it. Then the reviewer can try **Delete account** without taking
+      the family with them; recreate the review account afterwards if they
+      do.
+   5. In Test Information → Beta App Review Information, turn on **Sign-in
+      required**, enter that email and password, and add your name, phone
+      and email as the contact. For **Notes**:
+
+      ```
+      Ohana Display is invite-only: new accounts need a code from a family or an
+      admin. The account above is already in a demo family. The wall display is
+      separate hardware; the app works without one. Delete account is under
+      Profile (tap the avatar at the top of Home), at the bottom.
+      ```
+9. **Add external testers.** TestFlight → External Testing → **+** to
+   create a group, add the build, then **Submit for Review**. The first build
+   of each version is reviewed (usually within a day or two); later builds of
+   that version usually go out without another review. Testers join by email
+   or a public link (up to 10,000).
 
 Export compliance is already answered (see below), so no build waits on
 "Missing Compliance".
@@ -316,6 +384,11 @@ What the binary already answers, so the upload is not blocked on them:
   recognizer and is not stored by Ohana Display. The Swift packages
   (supabase-swift 2.55.3 and its dependencies) call no required-reason API,
   and swift-crypto ships its own manifest.
+- Account deletion (guideline 5.1.1(v)): Profile → Delete account, and on
+  "Enter an invite code" for accounts without a family. It deletes the
+  account on the server, not only the session.
+- A privacy policy link in the app (welcome screen and Profile) and a
+  support page, both on `https://ohanaos.co`.
 - Usage descriptions: photo library, microphone and speech recognition
   (dictation), and camera. The camera text is for scanning the display's
   pairing code, which the app doesn't request yet. The app uses no local

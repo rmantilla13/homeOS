@@ -127,6 +127,7 @@ returns the same text in `reason`:
 | `only a parent can change that` | A kid editing anything but their own name, color or avatar |
 | `only a parent can add points that skip approval` | A kid or display adding a chore with points and no approval |
 | `only a parent can change a chore's points or approval` | A kid or display changing those on an existing chore |
+| `you're the only parent with a login in {family}. Make someone else there a parent first` | `delete_my_account` by the last parent of a family where others have logins |
 
 ## The first admin
 
@@ -241,6 +242,31 @@ may, the display's auth user, so its refresh token stops working. The
 console calls the `admin` function's `revoke_device`, which finishes the
 auth deletion when SQL can't and writes `revoke_device_auth`. A second
 revoke answers `device not found`.
+
+## Deleting your account
+
+People delete their own account in the iOS app: Profile → **Delete account**,
+or the same button on "Enter an invite code" when they have no family. The App
+Store requires this of any app that creates accounts (guideline 5.1.1(v)).
+The phone calls the admin app's `POST /api/account/delete`, which calls the
+`delete-account` edge function and then clears Blob files.
+`delete_my_account()` does the database part:
+
+- **The only login in a family:** the family goes with everything in it,
+  its displays and their accounts included.
+- **A family others still use:** the member row stays, unlinked, with its
+  points and history, as with `leave_family`. A parent can remove it.
+- **The last parent of a family where others have logins:** refused. Make
+  someone else a parent first.
+- **Always:** the login, the profile, the profile photo
+  (`avatars/<user_id>/`) and their assistant chats.
+
+Displays and platform admins can't delete themselves this way: unpair the
+display, or remove the admin row first. Each deletion writes
+`delete_own_account` to the audit log with the user id and counts, and no
+email. Deploy the `delete-account` function and the admin app together with
+the migration; an app build that has the button gets an error until they're
+live.
 
 ## Assistant limits
 
@@ -394,8 +420,11 @@ new ones in order, and don't edit them in place:
 5. `backend/supabase/migrations/20261009000002_video_blob.sql`
 6. `backend/supabase/migrations/20261009000003_blob_photos.sql`
 7. `backend/supabase/migrations/20261009000004_blob_limits.sql`
+8. `backend/supabase/migrations/20261010000001_account_deletion.sql`, then
+   `supabase functions deploy delete-account` and redeploy the admin app
+   (`/api/account/delete`, `/privacy`, `/support`). Safe to run again.
 
-`supabase db push` does this. The last three used to be `20261008000001` to
+`supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
 are safe to run again if you pasted them into the SQL editor before; a
 re-run of 3 also removes the anon read on `platform_boot_video` that its

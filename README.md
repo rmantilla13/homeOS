@@ -95,6 +95,7 @@ supabase functions deploy pair-device
 supabase functions deploy assistant          # Claude: workload identity, docs/PLATFORM.md
 
 supabase functions deploy admin
+supabase functions deploy delete-account     # Delete account in the iOS app
 tests/run.sh                         # SQL tests (RLS, invites, admin, ...) on a throwaway Postgres
 ```
 

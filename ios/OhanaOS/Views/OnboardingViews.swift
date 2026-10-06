@@ -208,6 +208,9 @@ struct WelcomeView: View {
                 .buttonStyle(.pill())
                 .disabled(!canSubmit)
                 .listRowBackground(Color.clear)
+            } footer: {
+                Link("Privacy policy", destination: Config.privacyPolicyURL)
+                    .frame(maxWidth: .infinity)
             }
         }
         .scrollContentBackground(.hidden)
@@ -283,6 +286,8 @@ struct EnterInviteView: View {
     @State private var code = ""
     @State private var checking = false
     @State private var joining = false
+    @State private var confirmingDelete = false
+    @State private var deleting = false
 
     private var invite: InvitePreview? { preview(for: code, in: store) }
 
@@ -335,6 +340,11 @@ struct EnterInviteView: View {
                     .font(.footnote)
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
+                Button("Delete account", role: .destructive) { confirmingDelete = true }
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .disabled(deleting)
             } footer: {
                 if let email = store.email {
                     Text("Signed in as \(email)").frame(maxWidth: .infinity)
@@ -344,6 +354,18 @@ struct EnterInviteView: View {
         .scrollContentBackground(.hidden)
         .screenBackground()
         .animation(Theme.springy, value: invite)
+        .alert("Delete your account?", isPresented: $confirmingDelete) {
+            Button("Delete account", role: .destructive) {
+                Task {
+                    deleting = true
+                    _ = await store.deleteAccount()
+                    deleting = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your login and profile are deleted. This can't be undone.")
+        }
         .showsStoreErrors()
         .task(id: store.pendingInviteCode) {
             guard let pending = store.pendingInviteCode else { return }
