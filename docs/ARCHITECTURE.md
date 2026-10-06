@@ -149,8 +149,11 @@ running in the `assistant` edge function.
   request limit per family. Request, history and family-snapshot sizes are
   capped so one family can't run up costs.
 - **Privacy:** the function queries Postgres with the caller's own JWT, so
-  row-level security limits the assistant to that family. The Anthropic API key
-  lives only in the function's secrets and never reaches a device.
+  row-level security limits the assistant to that family. Claude is reached
+  through Anthropic workload identity federation: the admin deployment mints
+  a short-lived Vercel OIDC token, and the function exchanges it for a
+  short-lived Anthropic token. No Anthropic API key is required once that
+  is set up, and neither token reaches a device. See [PLATFORM.md](PLATFORM.md).
 - **Demo mode:** the display answers a few common questions (today, tomorrow,
   dinner, chores, points, adding to the grocery list) from the sample data, so
   the screen works without a backend.

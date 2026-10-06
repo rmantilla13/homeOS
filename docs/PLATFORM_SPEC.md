@@ -459,7 +459,11 @@ characters each (the last 20 are kept).
    as data typed by family members, not instructions.
 5. **Claude:** `claude-opus-5-5`, `output_config.effort` `low`, adaptive
    thinking omitted (it's the default), and
-   `fallbacks: "default"` with beta `server-side-fallback-2026-07-01`. Keep
+   `fallbacks: "default"` with beta `server-side-fallback-2026-07-01`.
+   Authentication is Anthropic workload identity federation (PLATFORM.md),
+   not a long-lived API key. Until `ANTHROPIC_FEDERATION_RULE_ID`,
+   `ANTHROPIC_ORGANIZATION_ID` and `ANTHROPIC_SERVICE_ACCOUNT_ID` are all
+   set, the function still accepts `ANTHROPIC_API_KEY`. Keep
    v1's tools, add tool `forget` (`{ fact_contains: string }`; deletes
    matching family memories; parents only, otherwise it returns a polite
    refusal), and validate tool inputs before running them. Quick mode appends
@@ -716,6 +720,7 @@ and the admin console show it.
 `SettingsSheet.qml` with:
 
 - screen saver style (reuse the picker content)
+- dark mode on/off (QSettings `display/darkMode`, default off): a warm near-black canvas, light text, and the same blue accent `#4F7CF7`
 - wake word on/off (`Voice.setWakewordEnabled`, disabled when the service is unavailable)
 - spoken replies on/off (QSettings `voice/speakReplies`, default on)
 - screen speakers on/off and volume, when PipeWire (`wpctl`) is available.

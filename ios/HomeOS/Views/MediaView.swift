@@ -15,6 +15,9 @@ struct MediaView: View {
     @State private var uploadTotal = 0
     @State private var uploadDone = 0
     @State private var viewing: MediaViewerLaunch?
+    @State private var selecting = false
+    @State private var selected: Set<UUID> = []
+    @State private var confirmingDelete = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 3)
 
@@ -44,16 +47,34 @@ struct MediaView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    ScreenHeader(title: "Media", subtitle: "\(store.media.count) memories") {
-                        PhotosPicker(selection: $selection, maxSelectionCount: 30, matching: .any(of: [.images, .videos])) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(Theme.accent, in: Circle())
+                    ScreenHeader(title: "Media", subtitle: headerSubtitle) {
+                        HStack(spacing: 10) {
+                            if selecting {
+                                Button("Cancel") {
+                                    withAnimation(Theme.springy) {
+                                        selecting = false
+                                        selected = []
+                                    }
+                                }
+                                .buttonStyle(.pill(.soft))
+                            } else {
+                                if !items.isEmpty {
+                                    Button("Select") { withAnimation(Theme.springy) { selecting = true } }
+                                        .buttonStyle(.pill(.soft))
+                                        .disabled(uploadTotal > 0)
+                                        .accessibilityLabel("Select photos and videos")
+                                }
+                                PhotosPicker(selection: $selection, maxSelectionCount: 30, matching: .any(of: [.images, .videos])) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                        .background(Theme.accent, in: Circle())
+                                }
+                                .disabled(uploadTotal > 0)
+                                .accessibilityLabel("Add photos and videos")
+                            }
                         }
-                        .disabled(uploadTotal > 0)
-                        .accessibilityLabel("Add photos and videos")
                     }
                     .padding(.horizontal, Theme.page)
 
@@ -79,12 +100,21 @@ struct MediaView: View {
                                 .padding(.horizontal, Theme.page)
                             LazyVGrid(columns: columns, spacing: 3) {
                                 ForEach(group.items) { item in
+                                    let isSelected = selected.contains(item.id)
                                     Button {
-                                        viewing = MediaViewerLaunch(items: items, startId: item.id)
+                                        if selecting {
+                                            withAnimation(Theme.springy) {
+                                                if isSelected { selected.remove(item.id) } else { selected.insert(item.id) }
+                                            }
+                                        } else {
+                                            viewing = MediaViewerLaunch(items: items, startId: item.id)
+                                        }
                                     } label: {
-                                        MediaTile(item: item)
+                                        MediaTile(item: item, selecting: selecting, selected: isSelected)
                                     }
                                     .buttonStyle(PressableStyle())
+                                    .accessibilityLabel(item.isVideo ? "Video" : "Photo")
+                                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                                     .transition(.scale(scale: 0.8).combined(with: .opacity))
                                 }
                             }
@@ -97,11 +127,21 @@ struct MediaView: View {
                 .animation(Theme.springy, value: filter)
                 .animation(Theme.springy, value: store.media)
                 .animation(Theme.springy, value: uploadTotal)
+                .animation(Theme.springy, value: selecting)
             }
             .screenBackground()
             .refreshable { await store.refreshMedia() }
             .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if selecting { selectionBar }
+            }
             .fullScreenCover(item: $viewing) { MediaViewer(launch: $0) }
+            .confirmationDialog(deleteTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button(selected.count > 1 ? "Delete \(selected.count)" : "Delete", role: .destructive) {
+                    deleteSelected()
+                }
+            }
+            .sensoryFeedback(.selection, trigger: selected.count)
             .onChange(of: selection) { _, picked in
                 guard !picked.isEmpty else { return }
                 Task { await upload(picked) }
@@ -145,12 +185,69 @@ struct MediaView: View {
         await store.refreshMedia()
         withAnimation(Theme.springy) { uploadTotal = 0 }
     }
+
+    private var headerSubtitle: String {
+        if selecting {
+            return selected.isEmpty ? "Select memories" : "\(selected.count) selected"
+        }
+        return "\(store.media.count) memories"
+    }
+
+    private var filteredIds: Set<UUID> { Set(items.map(\.id)) }
+
+    private var allVisibleSelected: Bool {
+        !filteredIds.isEmpty && filteredIds.isSubset(of: selected)
+    }
+
+    private var deleteTitle: String {
+        switch selected.count {
+        case 1: return "Delete this from the family library?"
+        default: return "Delete \(selected.count) items from the family library?"
+        }
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            Button(allVisibleSelected ? "Clear" : "Select all") {
+                withAnimation(Theme.springy) {
+                    if allVisibleSelected {
+                        selected.subtract(filteredIds)
+                    } else {
+                        selected.formUnion(filteredIds)
+                    }
+                }
+            }
+            .buttonStyle(.pill(.soft))
+            Spacer(minLength: 8)
+            Button("Delete", role: .destructive) { confirmingDelete = true }
+                .buttonStyle(.pill(.destructive))
+                .disabled(selected.isEmpty)
+                .accessibilityLabel(selected.count == 1 ? "Delete 1 item" : "Delete \(selected.count) items")
+        }
+        .padding(.horizontal, Theme.page)
+        .padding(.vertical, 10)
+        .background(Theme.background)
+        .overlay(alignment: .top) { Theme.divider.frame(height: 1) }
+    }
+
+    private func deleteSelected() {
+        let chosen = store.media.filter { selected.contains($0.id) }
+        let count = chosen.count
+        withAnimation(Theme.springy) {
+            selected = []
+            selecting = false
+        }
+        guard count > 0 else { return }
+        Task { await store.deleteMedia(chosen) }
+    }
 }
 
 /// Square grid tile; videos get a play badge and duration.
 struct MediaTile: View {
     @Environment(FamilyStore.self) private var store
     let item: MediaItem
+    var selecting = false
+    var selected = false
     @State private var image: UIImage?
 
     var body: some View {
@@ -189,6 +286,22 @@ struct MediaTile: View {
                         .padding(5)
                         .background(.black.opacity(0.45), in: Circle())
                         .padding(5)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if selecting {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(selected ? Theme.accent : Color.black.opacity(0.45), in: Circle())
+                        .padding(5)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .overlay {
+                if selected {
+                    Rectangle().strokeBorder(Theme.accent, lineWidth: 3)
                 }
             }
             .task(id: item.storagePath) {

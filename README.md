@@ -90,8 +90,8 @@ the app on boot.
 cd backend && supabase start         # local stack (requires Docker + Supabase CLI)
 supabase db reset                    # applies migrations and seed.sql
 supabase functions deploy pair-device
-supabase secrets set ANTHROPIC_API_KEY=...   # for the family assistant
-supabase functions deploy assistant
+supabase functions deploy assistant          # Claude: workload identity, docs/PLATFORM.md
+
 supabase functions deploy admin
 tests/run.sh                         # SQL tests (RLS, invites, admin, ...) on a throwaway Postgres
 ```

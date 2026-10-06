@@ -4,8 +4,8 @@ import QtQuick.Layouts
 import HomeOS
 import HomeOS.Core
 
-// Display settings, from the gear in the nav rail: screen saver, voice,
-// Wi-Fi, speaker volume, restart, about this display, and re-pairing.
+// Display settings, from the gear in the nav rail: screen saver, dark mode,
+// voice, Wi-Fi, speaker volume, restart, about this display, and re-pairing.
 Popup {
     id: sheet
     modal: true
@@ -197,6 +197,41 @@ Popup {
                         spacing: 12
                     }
 
+                    SectionLabel { Layout.topMargin: 12; text: qsTr("DISPLAY") }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: displayRows.implicitHeight
+                        radius: 24
+                        color: Theme.surfaceAlt
+                        ColumnLayout {
+                            id: displayRows
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 18
+                            anchors.rightMargin: 20
+                            spacing: 0
+                            SettingRow {
+                                icon: "moon"
+                                title: qsTr("Dark mode")
+                                detail: qsTr("Warm dark background for the whole screen")
+                                Toggle {
+                                    checked: Device.darkMode
+                                    onToggled: on => Device.darkMode = on
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                icon: "sparkle"
+                                title: qsTr("Animated tiles")
+                                detail: qsTr("Let the colors on Home and Rewards drift slowly")
+                                Toggle {
+                                    checked: Device.animatedTiles
+                                    onToggled: on => Device.animatedTiles = on
+                                }
+                            }
+                        }
+                    }
+
                     SectionLabel { Layout.topMargin: 12; text: qsTr("VOICE") }
                     Rectangle {
                         Layout.fillWidth: true
@@ -230,31 +265,6 @@ Popup {
                                 Toggle {
                                     checked: Voice.speakReplies
                                     onToggled: on => Voice.speakReplies = on
-                                }
-                            }
-                        }
-                    }
-
-                    SectionLabel { Layout.topMargin: 12; text: qsTr("DISPLAY") }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: displayRows.implicitHeight
-                        radius: 24
-                        color: Theme.surfaceAlt
-                        ColumnLayout {
-                            id: displayRows
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.leftMargin: 18
-                            anchors.rightMargin: 20
-                            spacing: 0
-                            SettingRow {
-                                icon: "sparkle"
-                                title: qsTr("Animated tiles")
-                                detail: qsTr("Let the colors on Home and Rewards drift slowly")
-                                Toggle {
-                                    checked: Device.animatedTiles
-                                    onToggled: on => Device.animatedTiles = on
                                 }
                             }
                         }

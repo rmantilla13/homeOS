@@ -39,6 +39,7 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
     if (m_screensaver.isEmpty())
         m_screensaver = QSettings().value("display/screensaver", "photos").toString();
     m_animatedTiles = QSettings().value("display/animatedTiles", true).toBool();
+    m_darkMode = QSettings().value("display/darkMode", false).toBool();
 
     const QDir backlights(QStringLiteral("/sys/class/backlight"));
     const QStringList devices = backlights.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -165,4 +166,13 @@ void DisplayController::setAnimatedTiles(bool on)
     m_animatedTiles = on;
     QSettings().setValue("display/animatedTiles", on);
     emit animatedTilesChanged();
+}
+
+void DisplayController::setDarkMode(bool on)
+{
+    if (on == m_darkMode)
+        return;
+    m_darkMode = on;
+    QSettings().setValue("display/darkMode", on);
+    emit darkModeChanged();
 }
