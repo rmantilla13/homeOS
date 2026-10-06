@@ -1,0 +1,30 @@
+# Generate the Xcode project with: brew install xcodegen && xcodegen
+name: HomeOS
+options:
+  bundleIdPrefix: com.homeos
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.20.0
+targets:
+  HomeOS:
+    type: application
+    platform: iOS
+    sources: [HomeOS]
+    dependencies:
+      - package: Supabase
+    info:
+      path: HomeOS/Info.plist
+      properties:
+        CFBundleDisplayName: homeOS
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSPhotoLibraryUsageDescription: Pick photos and videos to show on your family display.
+        NSCameraUsageDescription: Scan the pairing code on your family display.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.homeos.app
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
