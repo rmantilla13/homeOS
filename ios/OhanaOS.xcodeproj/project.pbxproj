@@ -177,6 +177,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = B9058C8EF2799863C5D2C587 /* Build configuration list for PBXNativeTarget "OhanaOS" */;
 			buildPhases = (
+				7A1C3E5F9B2D4F60A8E1C2D3 /* Check Release Config */,
 				B7E62CDF0032AF22C734B25E /* Sources */,
 				520352A753BDF7D3DA72D0CE /* Resources */,
 				91E175115AAD06C098A8F7E7 /* Frameworks */,
@@ -236,6 +237,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7A1C3E5F9B2D4F60A8E1C2D3 /* Check Release Config */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/check-release-config.sh",
+			);
+			name = "Check Release Config";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+			shellPath = /bin/sh;
+			shellScript = "# Archives only: stop before a placeholder or secret ships.\n/bin/bash \"${SRCROOT}/scripts/check-release-config.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		B7E62CDF0032AF22C734B25E /* Sources */ = {
