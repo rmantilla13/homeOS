@@ -8,12 +8,17 @@ import HomeOS.Core
 // (clear blue), evening (violet/rose) and night (dark) - and every color
 // eases to the new palette over a couple of seconds, so the screen drifts
 // through the day instead of switching abruptly.
+//
+// Settings → Dark mode (Device.darkMode, remembered) replaces that palette
+// with one warm near-black canvas. The accent stays the day blue.
 Item {
     id: theme
     visible: false
 
     readonly property string mood: Device.mood
-    readonly property bool dark: mood === "night"
+    readonly property bool darkMode: Device.darkMode
+    // Night, or the settings toggle: tiles and member tags use the dark treatment.
+    readonly property bool dark: darkMode || mood === "night"
 
     readonly property var palettes: ({
         "morning": {
@@ -41,7 +46,14 @@ Item {
             glow: ["#3B4FB8", "#7A64E8", "#A04E78", "#6B4A2A"]
         }
     })
-    readonly property var p: palettes[mood] || palettes["day"]
+    // Warm near-black. Cards step up from the canvas; the accent is the day blue.
+    readonly property var darkPalette: ({
+        background: "#1C1814", surface: "#2A2420", surfaceAlt: "#342C26", sunken: "#3E362F",
+        text: "#F6F1EB", textMuted: "#B3A69C", divider: "#6B6056",
+        accent: "#4F7CF7", accentSoft: "#243056",
+        glow: ["#3B5BD4", "#C45A3A", "#C48A2E", "#8A7350"]
+    })
+    readonly property var p: darkMode ? darkPalette : (palettes[mood] || palettes["day"])
 
     // Animated tokens. Everything in the UI binds to these.
     property color background: p.background
