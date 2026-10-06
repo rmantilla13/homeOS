@@ -1,0 +1,9 @@
+.toggle {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.forCell {
+  min-width: 220px;
+}

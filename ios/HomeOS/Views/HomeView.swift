@@ -5,6 +5,7 @@ struct HomeView: View {
     @Binding var selectedTab: AppTab
     @State private var launch: AssistantLaunch?
     @State private var planningDinner = false
+    @State private var showingProfile = false
 
     var body: some View {
         NavigationStack {
@@ -26,6 +27,7 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $launch) { AssistantView(launch: $0) }
             .sheet(isPresented: $planningDinner) { MealEditor(day: DayKey.today) }
+            .sheet(isPresented: $showingProfile) { ProfileView() }
             .showsStoreErrors()
         }
     }
@@ -33,7 +35,11 @@ struct HomeView: View {
     private var header: some View {
         ScreenHeader(title: store.family?.name ?? "homeOS",
                      subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
-            MemberAvatar(member: store.me, size: 44)
+            Button { showingProfile = true } label: {
+                MemberAvatar(member: store.me, size: 44)
+            }
+            .buttonStyle(PressableStyle())
+            .accessibilityLabel("Your profile")
         }
     }
 

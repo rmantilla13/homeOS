@@ -398,9 +398,167 @@ struct MediaMetadata {
     var takenAt: Date?
 }
 
+// MARK: Accounts & invites
+
+/// A person's account details (`profiles`). Device accounts don't have one.
+struct Profile: Codable, Identifiable, Hashable {
+    let id: UUID
+    var displayName: String
+    var avatarPath: String?
+    var updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case avatarPath = "avatar_path"
+        case updatedAt = "updated_at"
+    }
+}
+
+/// What `preview_invite` says about a code. Works before signing in.
+struct InvitePreview: Decodable, Hashable {
+    enum Kind: String, Decodable {
+        case family    // join an existing family
+        case platform  // start a new family
+    }
+
+    var valid: Bool
+    var kind: Kind?
+    var familyName: String?
+    var role: MemberRole?
+    var invitedBy: String?
+    var expiresAt: Date?
+    var reason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case valid, kind, role, reason
+        case familyName = "family_name"
+        case invitedBy = "invited_by"
+        case expiresAt = "expires_at"
+    }
+
+    /// "You're invited to The Smiths as a parent", or why the code can't be used.
+    var headline: String {
+        guard valid else { return (reason ?? "invite code not valid").sentenceCased }
+        switch kind {
+        case .family:
+            let asRole = role.map { " as \($0.withArticle)" } ?? ""
+            return "You're invited to \(familyName ?? "a family")\(asRole)"
+        case .platform, nil:
+            return "This code lets you start a new family"
+        }
+    }
+}
+
+/// A row of `family_invites` (parents only). `code` is stored without the dash.
+struct FamilyInvite: Codable, Identifiable, Hashable {
+    let id: UUID
+    var code: String
+    var role: MemberRole
+    var memberId: UUID?
+    var email: String?
+    var createdAt: Date
+    var expiresAt: Date
+    var acceptedBy: UUID?
+    var acceptedAt: Date?
+    var revokedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, code, role, email
+        case memberId = "member_id"
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+        case acceptedBy = "accepted_by"
+        case acceptedAt = "accepted_at"
+        case revokedAt = "revoked_at"
+    }
+
+    enum Status { case pending, accepted, expired, revoked }
+
+    var status: Status {
+        if acceptedAt != nil { return .accepted }
+        if revokedAt != nil { return .revoked }
+        if expiresAt <= .now { return .expired }
+        return .pending
+    }
+
+    var displayCode: String { InviteCode.format(code) }
+}
+
+/// What `create_family_invite` returns; `code` is already in display form.
+struct CreatedInvite: Decodable, Hashable, Identifiable {
+    let id: UUID
+    var code: String
+    var expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, code
+        case expiresAt = "expires_at"
+    }
+}
+
+/// Invite codes: 8 characters shown as `XXXX-XXXX`, compared without case,
+/// spaces or dashes (`normalize_invite_code` on the server).
+enum InviteCode {
+    /// "abcd-efgh " → "ABCDEFGH".
+    static func normalize(_ raw: String) -> String {
+        String(raw.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) })
+    }
+
+    /// "abcdefgh" → "ABCD-EFGH". Anything that isn't 8 characters is left normalized.
+    static func format(_ raw: String) -> String {
+        let code = normalize(raw)
+        guard code.count == 8 else { return code }
+        return "\(code.prefix(4))-\(code.suffix(4))"
+    }
+
+    /// The code in a `homeos://invite/<CODE>` link.
+    static func from(url: URL) -> String? {
+        guard url.scheme?.lowercased() == "homeos", url.host?.lowercased() == "invite" else { return nil }
+        let code = normalize(url.pathComponents.first { $0 != "/" } ?? "")
+        return code.isEmpty ? nil : format(code)
+    }
+
+    static func link(_ code: String) -> URL? {
+        URL(string: "homeos://invite/\(format(code))")
+    }
+
+    /// What the share sheet sends with a family invite.
+    static func shareText(code: String, familyName: String?, expiresAt: Date) -> String {
+        let display = format(code)
+        let family = familyName.map { "\($0) on homeOS" } ?? "our family on homeOS"
+        let url = Self.link(display)?.absoluteString ?? "homeos://invite/\(display)"
+        let expiry = expiresAt.formatted(date: .abbreviated, time: .omitted)
+        return """
+        Join \(family)! Open \(url) on your iPhone, or enter the invite code \(display) in the homeOS app. \
+        The code works until \(expiry).
+        """
+    }
+}
+
+extension MemberRole {
+    /// "a parent", "a child", "a family member".
+    var withArticle: String {
+        switch self {
+        case .parent: return "a parent"
+        case .child: return "a child"
+        case .other: return "a family member"
+        }
+    }
+
+    var title: String { self == .other ? "Other" : rawValue.capitalized }
+}
+
+extension String {
+    /// "invite code expired" → "Invite code expired". The RPCs' messages are lowercase.
+    var sentenceCased: String { self.prefix(1).uppercased() + String(self.dropFirst()) }
+
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 // MARK: Assistant
 
-/// One turn in the assistant chat. Kept on the phone only.
+/// One turn in the assistant chat, shown as a bubble.
 struct ChatMessage: Identifiable, Hashable {
     enum Role: String { case user, assistant }
 
@@ -409,6 +567,8 @@ struct ChatMessage: Identifiable, Hashable {
     var text: String
     var actions: [AssistantAction] = []
     var isError = false
+    /// The reply is still arriving over the stream.
+    var isStreaming = false
 }
 
 struct AssistantAction: Codable, Hashable {
@@ -416,10 +576,56 @@ struct AssistantAction: Codable, Hashable {
     var summary: String
 }
 
-/// Response of the `assistant` edge function.
-struct AssistantReply: Decodable {
+/// The reply of the `assistant` function: the whole JSON body when not
+/// streaming, or the `done` event's data.
+struct AssistantReply: Decodable, Hashable {
     var reply: String
     var actions: [AssistantAction]?
+    var threadId: UUID?
+    var messageId: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case reply, actions
+        case threadId = "thread_id"
+        case messageId = "message_id"
+    }
+}
+
+/// A conversation in the assistant history (`assistant_threads`, your own only).
+struct AssistantThread: Codable, Identifiable, Hashable {
+    let id: UUID
+    var title: String
+    var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, title
+        case updatedAt = "updated_at"
+    }
+}
+
+/// A stored message (`assistant_messages`).
+struct AssistantMessageRow: Decodable, Identifiable {
+    let id: Int
+    var role: String
+    var content: String
+    var actions: [AssistantAction]
+
+    enum CodingKeys: String, CodingKey {
+        case id, role, content, actions
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        role = try c.decode(String.self, forKey: .role)
+        content = try c.decode(String.self, forKey: .content)
+        // Actions are jsonb; tolerate anything unexpected rather than losing the thread.
+        actions = (try? c.decode([AssistantAction].self, forKey: .actions)) ?? []
+    }
+
+    var chatMessage: ChatMessage {
+        ChatMessage(role: role == "user" ? .user : .assistant, text: content, actions: actions)
+    }
 }
 
 // MARK: Dates

@@ -6,4 +6,9 @@ enum Config {
     static let supabaseURL = URL(string: "https://YOUR-PROJECT.supabase.co")!
     static let supabaseAnonKey = "YOUR-ANON-KEY"
     static let mediaBucket = "family-media"
+    static let avatarBucket = "avatars"
+    /// Where email confirmations and admin email invites send people back to
+    /// the app. Add it under Supabase → Authentication → URL Configuration →
+    /// Redirect URLs.
+    static let authCallbackURL = URL(string: "homeos://auth-callback")!
 }

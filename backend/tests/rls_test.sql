@@ -1,9 +1,7 @@
 -- Exercises RLS, chore approval, points ledger and reward redemption.
 -- Run with tests/run.sh (needs a local Postgres 15+).
 \set ON_ERROR_STOP 1
-grant usage on schema public, auth to authenticated;
-grant all on all tables in schema public to authenticated;
-grant execute on all functions in schema public to authenticated;
+-- Table and function grants come from stub_auth.sql's default privileges, as on Supabase.
 insert into auth.users values ('11111111-1111-1111-1111-111111111111'), ('22222222-2222-2222-2222-222222222222'), ('33333333-3333-3333-3333-333333333333');
 -- Mom (parent) is user 1; device is user 2; user 3 is a stranger.
 update members set user_id = '11111111-1111-1111-1111-111111111111' where display_name = 'Mom';
@@ -62,8 +60,18 @@ select 'device sees memories' as t, count(*) from family_memories;
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 select 'stranger sees memories' as t, count(*) from family_memories;
 
--- create_family by stranger
+-- create_family by stranger: invite-only by default (see invites_test.sql),
+-- open once an admin turns invite_only off
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 select count(*) as fams_before from families;
+do $$ begin
+  perform create_family('Stranger Family', 'Sam');
+  raise exception 'create_family without an invite should fail';
+exception when raise_exception then
+  if sqlerrm <> 'invite code required' then raise; end if;
+end $$;
+reset role;
+update platform_settings set invite_only = false;
+set role authenticated;
 select create_family('Stranger Family', 'Sam') is not null as created;
 select name from families;

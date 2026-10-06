@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Members, lists, meals, family memory and wall displays.
+/// Members, invites, lists, meals, family memory and wall displays.
 struct FamilyView: View {
     @Environment(FamilyStore.self) private var store
     @State private var showingAddMember = false
@@ -9,27 +9,42 @@ struct FamilyView: View {
     @State private var newListName = ""
     @State private var editingMeals: MealDay?
     @State private var newMemory = ""
-    @State private var confirmingSignOut = false
+    @State private var showingProfile = false
+    @State private var editingMember: Member?
+    @State private var showingInvite = false
+    @State private var confirmingLeave = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
-                    ScreenHeader(title: store.family?.name ?? "Family", subtitle: "Family")
+                    ScreenHeader(title: store.family?.name ?? "Family", subtitle: "Family") {
+                        Button { showingProfile = true } label: {
+                            MemberAvatar(member: store.me, size: 44)
+                        }
+                        .buttonStyle(PressableStyle())
+                        .accessibilityLabel("Your profile")
+                    }
                     membersSection
+                    if store.isParent { invitesSection }
                     listsSection
                     mealsSection
                     memorySection
                     if store.isParent { displaysSection }
-                    Button("Sign out", role: .destructive) { confirmingSignOut = true }
-                        .buttonStyle(.pill(.neutral))
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 10) {
+                        Button("Profile") { showingProfile = true }
+                            .buttonStyle(.pill(.neutral))
+                        Button("Leave family", role: .destructive) { confirmingLeave = true }
+                            .buttonStyle(.pill(.neutral))
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, Theme.page)
                 .padding(.bottom, 24)
                 .animation(Theme.springy, value: store.memories)
                 .animation(Theme.springy, value: store.lists)
                 .animation(Theme.springy, value: store.members)
+                .animation(Theme.springy, value: store.invites)
             }
             .screenBackground()
             .refreshable { await store.refresh() }
@@ -38,6 +53,9 @@ struct FamilyView: View {
             .sheet(isPresented: $showingAddMember) { AddMemberView() }
             .sheet(isPresented: $showingPair) { PairDisplayView() }
             .sheet(item: $editingMeals) { MealEditor(day: $0.id) }
+            .sheet(isPresented: $showingProfile) { ProfileView() }
+            .sheet(item: $editingMember) { MemberEditor(member: $0) }
+            .sheet(isPresented: $showingInvite) { CreateInviteView() }
             .alert("New list", isPresented: $showingNewList) {
                 TextField("Name", text: $newListName)
                 Button("Cancel", role: .cancel) { newListName = "" }
@@ -47,8 +65,11 @@ struct FamilyView: View {
                     if !name.isEmpty { Task { await store.addList(name: name) } }
                 }
             }
-            .confirmationDialog("Sign out of homeOS?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
-                Button("Sign out", role: .destructive) { Task { await store.signOut() } }
+            .confirmationDialog("Leave \(store.family?.name ?? "this family")?", isPresented: $confirmingLeave,
+                                titleVisibility: .visible) {
+                Button("Leave family", role: .destructive) { Task { await store.leaveFamily() } }
+            } message: {
+                Text("Your account is unlinked from the family. \(store.me?.displayName ?? "You") stays on the family screen with their points. You'll need a new invite to come back.")
             }
             .showsStoreErrors()
         }
@@ -62,17 +83,21 @@ struct FamilyView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 16) {
                     ForEach(store.members) { member in
-                        VStack(spacing: 6) {
-                            MemberAvatar(member: member, size: 56)
-                            Text(member.displayName)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.text)
-                                .lineLimit(1)
-                            Text(member.role.rawValue.capitalized)
-                                .font(.caption)
-                                .foregroundStyle(Theme.muted)
+                        Button { editingMember = member } label: {
+                            VStack(spacing: 6) {
+                                MemberAvatar(member: member, size: 56)
+                                Text(member.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Theme.text)
+                                    .lineLimit(1)
+                                Text(member.id == store.me?.id ? "You" : member.role.title)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                            .frame(width: 72)
                         }
-                        .frame(width: 72)
+                        .buttonStyle(PressableStyle())
+                        .disabled(!store.canEdit(member))
                         .transition(.scale.combined(with: .opacity))
                     }
                     if store.isParent {
@@ -93,6 +118,45 @@ struct FamilyView: View {
                 .padding(4)
             }
             .card(padding: 14)
+        }
+    }
+
+    // MARK: Invites
+
+    private var invitesSection: some View {
+        let pending = store.invites.filter { $0.status == .pending }
+        let accepted = store.invites.filter { $0.status == .accepted }.prefix(5)
+        return VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Invites") {
+                Button("Invite") { showingInvite = true }
+                    .font(.subheadline.weight(.semibold))
+            }
+            if pending.isEmpty && accepted.isEmpty {
+                HStack {
+                    Text("Invite the other grown-ups, or give a kid their own login.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.muted)
+                    Spacer()
+                    Button("Invite") { showingInvite = true }
+                        .buttonStyle(.pill(.soft))
+                }
+                .card(padding: 16)
+            }
+            if !pending.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(pending) { invite in
+                        PendingInviteRow(invite: invite)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .card(padding: 14)
+            }
+            if !accepted.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(accepted) { AcceptedInviteRow(invite: $0) }
+                }
+                .card(padding: 14)
+            }
         }
     }
 
@@ -462,7 +526,6 @@ struct AddMemberView: View {
     @State private var name = ""
     @State private var role: MemberRole = .child
     @State private var color = memberPalette[0]
-    @Namespace private var namespace
 
     var body: some View {
         NavigationStack {
@@ -470,14 +533,7 @@ struct AddMemberView: View {
                 Section {
                     HStack {
                         Spacer()
-                        Circle()
-                            .fill(Color(hex: color))
-                            .frame(width: 72, height: 72)
-                            .overlay {
-                                Text(name.prefix(1).uppercased())
-                                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.white)
-                            }
+                        AvatarCircle(name: name, color: color, size: 72)
                             .animation(Theme.springy, value: color)
                         Spacer()
                     }
@@ -486,28 +542,13 @@ struct AddMemberView: View {
                 Section {
                     TextField("Name", text: $name)
                     Picker("Role", selection: $role) {
-                        ForEach(MemberRole.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                        ForEach(MemberRole.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
+                } footer: {
+                    Text("Kids don't need a login. To give someone their own, invite them from the Family tab.")
                 }
                 Section("Color") {
-                    HStack(spacing: 10) {
-                        ForEach(memberPalette, id: \.self) { hex in
-                            ZStack {
-                                if hex == color {
-                                    Circle()
-                                        .stroke(Color(hex: hex), lineWidth: 3)
-                                        .frame(width: 40, height: 40)
-                                        .matchedGeometryEffect(id: "ring", in: namespace)
-                                }
-                                Circle().fill(Color(hex: hex)).frame(width: 30, height: 30)
-                            }
-                            .frame(width: 40, height: 40)
-                            .contentShape(Circle())
-                            .onTapGesture { withAnimation(Theme.springy) { color = hex } }
-                            .accessibilityLabel("Color \(hex)")
-                            .accessibilityAddTraits(hex == color ? .isSelected : [])
-                        }
-                    }
+                    ColorPalettePicker(selection: $color)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -522,6 +563,145 @@ struct AddMemberView: View {
                 }
             }
         }
+    }
+}
+
+/// The member palette with a ring that slides to the picked color.
+struct ColorPalettePicker: View {
+    @Binding var selection: String
+    var colors = memberPalette
+    @Namespace private var namespace
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 40, maximum: 40), spacing: 8)], alignment: .leading, spacing: 8) {
+            ForEach(colors, id: \.self) { hex in
+                ZStack {
+                    if hex == selection {
+                        Circle()
+                            .stroke(Color(hex: hex), lineWidth: 3)
+                            .frame(width: 40, height: 40)
+                            .matchedGeometryEffect(id: "ring", in: namespace)
+                    }
+                    Circle().fill(Color(hex: hex)).frame(width: 30, height: 30)
+                }
+                .frame(width: 40, height: 40)
+                .contentShape(Circle())
+                .onTapGesture { withAnimation(Theme.springy) { selection = hex } }
+                .accessibilityLabel("Color \(hex)")
+                .accessibilityAddTraits(hex == selection ? .isSelected : [])
+            }
+        }
+    }
+}
+
+/// Edit a member. Parents can change anyone's name, color and role, invite a
+/// member without a login, or remove them; everyone else edits only themselves.
+struct MemberEditor: View {
+    @Environment(FamilyStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let member: Member
+
+    @State private var name: String
+    @State private var color: String
+    @State private var role: MemberRole
+    @State private var working = false
+    @State private var confirmingRemove = false
+    @State private var inviting = false
+
+    init(member: Member) {
+        self.member = member
+        _name = State(initialValue: member.displayName)
+        _color = State(initialValue: member.color)
+        _role = State(initialValue: member.role)
+    }
+
+    private var isMe: Bool { member.id == store.me?.id }
+    private var firstName: String { member.displayName.split(separator: " ").first.map(String.init) ?? member.displayName }
+    /// The palette, plus the member's current color if it's a custom one.
+    private var palette: [String] { memberPalette.contains(member.color) ? memberPalette : memberPalette + [member.color] }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(spacing: 8) {
+                        AvatarCircle(name: name, color: color, photo: store.avatarPath(for: member), size: 72)
+                            .animation(Theme.springy, value: color)
+                        if isMe {
+                            Text("This is you").font(.caption.weight(.semibold)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                }
+                Section {
+                    TextField("Name", text: $name)
+                    if store.isParent {
+                        Picker("Role", selection: $role) {
+                            ForEach(MemberRole.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                    } else {
+                        LabeledContent("Role", value: member.role.title)
+                    }
+                }
+                Section("Color") {
+                    ColorPalettePicker(selection: $color, colors: palette)
+                }
+                Section("Account") {
+                    if member.userId != nil {
+                        Label(isMe ? "Signed in on this iPhone" : "Has a homeOS login", systemImage: "person.crop.circle.badge.checkmark")
+                            .foregroundStyle(Theme.text)
+                    } else {
+                        Label("No login. \(firstName) shows up on the family screen only.", systemImage: "person.crop.circle")
+                            .foregroundStyle(Theme.muted)
+                        if store.isParent {
+                            Button("Invite \(firstName) to get a login") { inviting = true }
+                        }
+                    }
+                }
+                if store.isParent && !isMe {
+                    Section {
+                        Button("Remove from family", role: .destructive) { confirmingRemove = true }
+                    } footer: {
+                        Text("Their chores, completions and points are deleted too.")
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .screenBackground()
+            .navigationTitle(isMe ? "You" : member.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || working)
+                }
+            }
+            .sheet(isPresented: $inviting) { CreateInviteView(preselected: member) }
+            .showsStoreErrors()
+            .confirmationDialog("Remove \(member.displayName)?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+                Button("Remove", role: .destructive) { Task { await remove() } }
+            } message: {
+                Text("This deletes \(firstName) from the family, with their chores and points.")
+            }
+        }
+    }
+
+    private func save() async {
+        working = true
+        defer { working = false }
+        let changed = name != member.displayName || color != member.color || role != member.role
+        if changed {
+            guard await store.updateMember(member, name: name, color: color, role: role) else { return }
+        }
+        dismiss()
+    }
+
+    private func remove() async {
+        working = true
+        defer { working = false }
+        if await store.removeMember(member) { dismiss() }
     }
 }
 

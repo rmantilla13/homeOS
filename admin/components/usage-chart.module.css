@@ -1,0 +1,231 @@
+.chart {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+}
+
+.summaryValue {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.summaryLabel {
+  margin-left: 6px;
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keyInput,
+.keyOutput {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.keyInput {
+  background: var(--series-1);
+}
+
+.keyOutput {
+  background: var(--series-2);
+}
+
+.plot {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  outline-offset: 4px;
+}
+
+.plot svg {
+  display: block;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+.series1 {
+  fill: var(--series-1);
+}
+
+.series2 {
+  fill: var(--series-2);
+}
+
+.dim {
+  opacity: 0.4;
+  transition: opacity 0.12s ease;
+}
+
+.activeBand {
+  fill: var(--surface-2);
+}
+
+.grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+
+.baseline {
+  stroke: var(--chart-axis);
+  stroke-width: 1;
+}
+
+.tick {
+  fill: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.panelTitle {
+  fill: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.valueLabel {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.emptyLabel {
+  fill: var(--text-3);
+  font-size: 13px;
+}
+
+.tooltip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 4px;
+  min-width: 170px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.tipDate {
+  margin-bottom: 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.tipRow strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tipRow span {
+  color: var(--text-3);
+}
+
+.keyLine1,
+.keyLine2,
+.keyNone {
+  flex: none;
+  width: 12px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.keyLine1 {
+  background: var(--series-1);
+}
+
+.keyLine2 {
+  background: var(--series-2);
+}
+
+.keyNone {
+  background: transparent;
+}
+
+.tableToggle {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tableToggle:hover {
+  text-decoration: underline;
+}
+
+.tableWrap {
+  position: relative;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 8px 14px;
+  text-align: right;
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  border-top: 0;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.table th:first-child {
+  text-align: left;
+  font-weight: 500;
+}

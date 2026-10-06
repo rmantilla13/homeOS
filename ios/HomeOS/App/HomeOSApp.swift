@@ -10,6 +10,8 @@ struct HomeOSApp: App {
                 .environment(store)
                 .providesMood()
                 .task { await store.start() }
+                // homeos://invite/<CODE> and homeos://auth-callback (URL scheme in project.yml).
+                .onOpenURL { store.handleOpenURL($0) }
         }
     }
 }
@@ -22,18 +24,52 @@ struct RootView: View {
         Group {
             switch store.phase {
             case .loading:
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .screenBackground()
+                LoadingView()
             case .signedOut:
-                SignInView()
+                WelcomeView()
             case .needsFamily:
-                CreateFamilyView()
+                FamilySetupView()
             case .ready:
                 MainTabView()
             }
         }
         .animation(.easeInOut(duration: 0.3), value: store.phase)
+        // An invite link opened while you're already in a family.
+        .sheet(item: Binding(
+            get: { store.phase == .ready ? store.pendingInviteCode.map(InviteLink.init) : nil },
+            set: { if $0 == nil { store.setPendingInvite(nil) } }
+        )) { link in
+            InviteLinkSheet(code: link.code)
+        }
+    }
+}
+
+/// Spinner while the session and family load, with a retry if that fails.
+private struct LoadingView: View {
+    @Environment(FamilyStore.self) private var store
+
+    var body: some View {
+        VStack(spacing: 16) {
+            if let message = store.errorMessage {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.largeTitle)
+                    .foregroundStyle(Theme.muted)
+                Text(message)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.muted)
+                Button("Try again") {
+                    store.errorMessage = nil
+                    Task { await store.loadFamily() }
+                }
+                .buttonStyle(.pill())
+            } else {
+                ProgressView()
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .screenBackground()
     }
 }
 

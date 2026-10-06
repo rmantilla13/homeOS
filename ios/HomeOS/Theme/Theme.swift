@@ -273,22 +273,62 @@ struct Tag: View {
     }
 }
 
+/// A member's circle: their profile photo if they have an account with one,
+/// else their initial on their color.
 struct MemberAvatar: View {
     let member: Member?
     var size: CGFloat = 36
     var ring = false
+    @Environment(FamilyStore.self) private var store: FamilyStore?
 
     var body: some View {
+        AvatarCircle(name: member?.displayName, color: member?.color, photo: store?.avatarPath(for: member),
+                     size: size, ring: ring)
+    }
+}
+
+/// A colored circle with an initial that fades to a photo from the
+/// `avatars` bucket once it has loaded.
+struct AvatarCircle: View {
+    let name: String?
+    var color: String?
+    var photo: (path: String, version: String)?
+    var size: CGFloat = 36
+    var ring = false
+    @State private var loaded: UIImage?
+
+    private var photoKey: String? { photo.map { "\($0.path)#\($0.version)" } }
+
+    var body: some View {
+        let cached = photo.flatMap { AvatarCache.shared.cached(path: $0.path, version: $0.version) }
+        let image = photo == nil ? nil : (cached ?? loaded)  // the current version first
         Circle()
-            .fill(Color(hex: member?.color ?? "#8E8E93"))
+            .fill(Color(hex: color ?? "#8E8E93"))
             .frame(width: size, height: size)
             .overlay {
-                Text(member?.displayName.prefix(1).uppercased() ?? "?")
-                    .font(.system(size: size * 0.44, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(Circle())
+                        .transition(.opacity)
+                } else {
+                    Text(name?.prefix(1).uppercased() ?? "?")
+                        .font(.system(size: size * 0.44, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
             }
             .overlay {
                 if ring { Circle().stroke(Theme.surface, lineWidth: 2) }
+            }
+            .task(id: photoKey) {
+                guard let photo else {
+                    loaded = nil
+                    return
+                }
+                let image = await AvatarCache.shared.image(path: photo.path, version: photo.version)
+                withAnimation(.easeOut(duration: 0.2)) { loaded = image }
             }
     }
 }

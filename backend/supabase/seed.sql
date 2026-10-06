@@ -1,5 +1,7 @@
--- Local development seed: one demo family. Link a parent by inserting a
--- member with your auth user id, or call create_family() from the iOS app.
+-- Local development seed: one demo family and two invite codes. Sign up in
+-- the iOS app with LETS-PLAY to start a new family, or with MEET-THEM to join
+-- the demo family as a parent. To make yourself a platform admin, see
+-- docs/PLATFORM.md.
 
 insert into public.families (id, name, timezone)
 values ('00000000-0000-0000-0000-00000000f001', 'The Demo Family', 'America/New_York');
@@ -23,3 +25,10 @@ insert into public.rewards (family_id, title, icon, cost) values
 
 insert into public.lists (family_id, name) values
   ('00000000-0000-0000-0000-00000000f001', 'Groceries');
+
+-- Invite codes are stored normalized (uppercase, no dash).
+insert into public.platform_invites (code, note, max_uses, expires_at) values
+  ('LETSPLAY', 'Local development', 100, now() + interval '365 days');
+
+insert into public.family_invites (family_id, code, role, expires_at) values
+  ('00000000-0000-0000-0000-00000000f001', 'MEETTHEM', 'parent', now() + interval '60 days');

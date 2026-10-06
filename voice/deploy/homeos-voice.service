@@ -1,0 +1,24 @@
+# Runs the homeOS voice service (wake word, speech to text, spoken replies)
+# next to the display. Installed by voice/deploy/install-voice.sh, which fills
+# in @USER@: the same user as homeos-display, so they share the audio devices.
+[Unit]
+Description=homeOS voice service
+After=sound.target
+
+[Service]
+User=@USER@
+SupplementaryGroups=audio
+# Reads /etc/homeos/voice.toml; models live in ~/.local/share/homeos-voice.
+ExecStart=/opt/homeos-voice/bin/python -m homeos_voice
+# Models are fetched only by `--download-models`, never while running.
+Environment=HF_HUB_OFFLINE=1
+Environment=PYTHONUNBUFFERED=1
+# Loading the models takes a few seconds, longer from a slow SD card.
+TimeoutStartSec=120
+Restart=always
+RestartSec=3
+# Audio capture shouldn't stall when the display is busy.
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,92 @@
+# homeOS voice service settings: /etc/homeos/voice.toml.
+#
+# Every key is optional, and the values shown are the defaults. Uncomment what
+# you want to change, then restart:  sudo systemctl restart homeos-voice
+# More in docs/VOICE.md.
+
+# Log detail: debug, info, warning or error.
+#log_level = "info"
+
+# Where models and the remembered wake-word switch are kept; --download-models
+# fills it. "~" is the home of the user the service runs as.
+#data_dir = "~/.local/share/homeos-voice"
+
+[server]
+# The display connects to ws://host:port (HOMEOS_VOICE_URL on its side). There
+# is no authentication, so keep it on localhost.
+#host = "127.0.0.1"
+#port = 8765
+
+[audio]
+# Microphone: a device index or part of its name, from
+# `python -m homeos_voice --list-devices`. Empty picks a USB mic.
+#input_device = ""
+# For mic arrays that can't record mono: which channel to use.
+#input_channel = 0
+# Playback: "aplay" (ALSA), "sounddevice" (PortAudio), or "auto" (aplay if installed).
+#output = "auto"
+# For aplay, an ALSA device from `aplay -L`, e.g. "default:CARD=vc4hdmi0" for
+# the Pi 5's HDMI0 port (the panel's speakers). For sounddevice, an index or
+# name. Empty uses the system default.
+#output_device = ""
+
+[wakeword]
+# Listen for the wake word. The display can switch it off; that choice is
+# remembered in data_dir and wins over this setting.
+#enabled = true
+# A built-in openWakeWord model (hey_jarvis, alexa, hey_mycroft, hey_rhasspy)
+# or a .onnx/.tflite file. A bare file name is looked up in <data_dir>/wakeword.
+#model = "hey_jarvis"
+# The name the display shows. Empty derives it from the model ("Hey Jarvis").
+#name = ""
+# Score (0-1) that counts as the wake word. Higher means fewer false wakes and
+# more missed ones.
+#threshold = 0.5
+# Seconds after a detection before another one counts.
+#refractory = 2.0
+# Seconds after speaking or listening before the wake word counts again, so
+# the room's echo can fade.
+#resume_delay = 0.5
+# "onnx" or "tflite", for built-in models (files go by their extension).
+#inference_framework = "onnx"
+
+[vad]
+# End-of-speech detection: "webrtc", "energy" (loudness only), or "auto"
+# (webrtc if it's installed).
+#engine = "auto"
+# webrtcvad strictness about what counts as speech, 0 (lenient) to 3 (strict).
+#aggressiveness = 2
+# Seconds of quiet that end an utterance.
+#silence = 0.7
+# The longest utterance, in seconds of speech.
+#max_length = 8.0
+# Seconds to wait for someone to start talking before giving up.
+#no_speech = 4.0
+# Energy engine only: the quietest level (RMS, 0-1) that can count as speech.
+#energy_threshold = 0.015
+
+[stt]
+# faster-whisper model: tiny.en, base.en, small.en, ... or a model directory.
+#model = "base.en"
+# int8 is the fastest on the Pi's CPU.
+#compute_type = "int8"
+# Spoken language. Empty detects it (needs a multilingual model such as "base").
+#language = "en"
+# 1 is the fastest; 5 is a little more accurate and slower.
+#beam_size = 1
+# CPU threads; 0 lets faster-whisper decide.
+#threads = 0
+# Words that help with spelling, such as family names: "Leo, Maya, homeOS."
+#initial_prompt = ""
+
+[tts]
+# "piper", "espeak" (espeak-ng), "off", or "auto" (piper, else espeak-ng).
+#engine = "auto"
+# A Piper voice name (fetched by --download-models) or a .onnx file.
+#voice = "en_US-amy-medium"
+# Speaking rate: 1.0 is normal, 1.2 is 20% faster.
+#speed = 1.0
+# Loudness: 1.0 is normal.
+#volume = 1.0
+# Voice for the espeak-ng fallback (list them with `espeak-ng --voices`).
+#espeak_voice = "en-us"

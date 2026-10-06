@@ -2,6 +2,7 @@ import AVFoundation
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import ImageIO
+import Supabase
 import SwiftUI
 import UIKit
 
@@ -49,6 +50,52 @@ final class MediaCache {
         if let image { fullImages.setObject(image, forKey: key) }
         return image
     }
+}
+
+/// Profile photos from the private `avatars` bucket. Keys include the
+/// profile's `updated_at`, so a new photo is fetched once the profile changes.
+@MainActor
+final class AvatarCache {
+    static let shared = AvatarCache()
+
+    private let images = NSCache<NSString, UIImage>()
+    private var loading: [String: Task<UIImage?, Never>] = [:]
+    private var keysByPath: [String: Set<String>] = [:]
+
+    private init() {
+        images.countLimit = 100
+    }
+
+    func cached(path: String, version: String) -> UIImage? {
+        images.object(forKey: cacheKey(path, version) as NSString)
+    }
+
+    func image(path: String, version: String) async -> UIImage? {
+        let key = cacheKey(path, version)
+        if let image = images.object(forKey: key as NSString) { return image }
+        if let inFlight = loading[key] { return await inFlight.value }
+        let task = Task<UIImage?, Never> {
+            guard let data = try? await supabase.storage.from(Config.avatarBucket).download(path: path),
+                  let image = UIImage(data: data) else { return nil }
+            return MediaTools.downscale(image, maxPixel: 256)
+        }
+        loading[key] = task
+        let image = await task.value
+        loading[key] = nil
+        if let image {
+            images.setObject(image, forKey: key as NSString)
+            keysByPath[path, default: []].insert(key)
+        }
+        return image
+    }
+
+    /// Drops every cached version of a photo (after replacing or removing it).
+    func forget(path: String) {
+        for key in keysByPath[path] ?? [] { images.removeObject(forKey: key as NSString) }
+        keysByPath[path] = nil
+    }
+
+    private func cacheKey(_ path: String, _ version: String) -> String { "\(path)#\(version)" }
 }
 
 enum MediaTools {
@@ -108,6 +155,20 @@ enum MediaTools {
                                      durationSeconds: nil,
                                      takenAt: exifDate(data))
         return (jpeg, metadata)
+    }
+
+    /// A centered square JPEG (512 px) for a profile photo.
+    static func prepareAvatar(_ data: Data, side: CGFloat = 512) -> Data? {
+        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
+        let scale = side / min(image.size.width, image.size.height)
+        let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let square = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            image.draw(in: CGRect(x: (side - drawn.width) / 2, y: (side - drawn.height) / 2,
+                                  width: drawn.width, height: drawn.height))
+        }
+        return square.jpegData(compressionQuality: 0.85)
     }
 
     static func videoMetadata(_ data: Data, fileExtension: String) async -> MediaMetadata {

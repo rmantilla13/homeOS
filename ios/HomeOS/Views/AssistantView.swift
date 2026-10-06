@@ -26,7 +26,8 @@ struct AssistantSuggestion: Identifiable {
     ]
 }
 
-/// Chat with the family assistant (the `assistant` edge function).
+/// Chat with the family assistant (the `assistant` edge function). Replies
+/// stream in; conversations are kept as threads you can come back to.
 struct AssistantView: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -35,6 +36,7 @@ struct AssistantView: View {
     @State private var draft = ""
     @State private var dictation = Dictation()
     @State private var didLaunch = false
+    @State private var showingHistory = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -43,31 +45,36 @@ struct AssistantView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 14) {
-                        if store.chat.isEmpty && !store.isThinking {
+                        if store.chat.isEmpty {
                             emptyState
                         }
                         ForEach(store.chat) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity))
+                            Group {
+                                if message.isStreaming && message.text.isEmpty {
+                                    TypingIndicator()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    MessageBubble(message: message)
+                                }
+                            }
+                            .id(message.id)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity),
+                                removal: .opacity))
                         }
-                        if store.isThinking {
-                            TypingIndicator()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("typing")
-                                .transition(.opacity)
-                        }
+                        Color.clear.frame(height: 1).id(bottomId)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .animation(Theme.springy, value: store.chat)
+                    .animation(Theme.springy, value: store.chat.count)
                     .animation(.easeInOut(duration: 0.2), value: store.isThinking)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: store.chat.count) { scrollToBottom(proxy) }
-                .onChange(of: store.isThinking) { scrollToBottom(proxy) }
+                .onChange(of: store.chat.count) {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(bottomId, anchor: .bottom) }
+                }
+                // Follow the reply as it streams in.
+                .onChange(of: store.chat.last?.text) { proxy.scrollTo(bottomId, anchor: .bottom) }
             }
             inputBar
         }
@@ -81,10 +88,13 @@ struct AssistantView: View {
             }
             .ignoresSafeArea()
         }
+        .sheet(isPresented: $showingHistory) { ThreadListView() }
         .task {
             guard !didLaunch else { return }
             didLaunch = true
             if let prompt = launch.prompt {
+                // A suggestion chip starts its own conversation.
+                store.newChat()
                 await store.ask(prompt)
             } else if launch.listen {
                 await dictation.start()
@@ -92,6 +102,7 @@ struct AssistantView: View {
                 focused = true
             }
         }
+        .task { await store.loadThreads() }
         .onChange(of: dictation.transcript) { _, text in
             if !text.isEmpty { draft = text }
         }
@@ -106,8 +117,16 @@ struct AssistantView: View {
         }
     }
 
+    private let bottomId = "bottom"
+
+    private var subtitle: String {
+        if store.isThinking { return "Thinking…" }
+        if store.isReplying { return "Answering…" }
+        return store.currentThread?.title ?? "Family assistant"
+    }
+
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 8) {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
@@ -119,21 +138,33 @@ struct AssistantView: View {
             Spacer()
             VStack(spacing: 1) {
                 Text("homeOS").font(.headline).foregroundStyle(Theme.text)
-                Text(store.isThinking ? "Thinking…" : "Family assistant")
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
                     .contentTransition(.opacity)
             }
             Spacer()
-            Button { withAnimation(Theme.springy) { store.resetChat() } } label: {
+            Button { showingHistory = true } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.surface, in: Circle())
+            }
+            .accessibilityLabel("Chat history")
+            Button {
+                withAnimation(Theme.springy) { store.newChat() }
+                focused = true
+            } label: {
                 Image(systemName: "square.and.pencil")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.text)
                     .frame(width: 40, height: 40)
                     .background(Theme.surface, in: Circle())
             }
-            .disabled(store.chat.isEmpty || store.isThinking)
-            .accessibilityLabel("New conversation")
+            .disabled(store.chat.isEmpty)
+            .accessibilityLabel("New chat")
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -165,13 +196,20 @@ struct AssistantView: View {
                     .buttonStyle(PressableStyle())
                 }
             }
+            if !store.threads.isEmpty {
+                Button { showingHistory = true } label: {
+                    Label("Earlier chats", systemImage: "clock.arrow.circlepath")
+                }
+                .buttonStyle(.pill(.soft))
+            }
         }
         .padding(.top, 70)
         .transition(.opacity)
     }
 
     private var firstName: String {
-        store.me?.displayName.split(separator: " ").first.map(String.init) ?? "there"
+        let name = store.myProfile?.displayName.nilIfEmpty ?? store.me?.displayName
+        return name?.split(separator: " ").first.map(String.init) ?? "there"
     }
 
     private var inputBar: some View {
@@ -195,7 +233,7 @@ struct AssistantView: View {
                         .accessibilityLabel("Speak")
                 } else {
                     CircleIconButton(systemName: "arrow.up", size: 48) { send() }
-                        .disabled(store.isThinking)
+                        .disabled(store.isReplying)
                         .accessibilityLabel("Send")
                 }
             }
@@ -210,21 +248,82 @@ struct AssistantView: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !store.isReplying else { return }
         dictation.cancel()
         dictation.transcript = ""
         draft = ""
         Task { await store.ask(text) }
     }
+}
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.25)) {
-            if store.isThinking {
-                proxy.scrollTo("typing", anchor: .bottom)
-            } else if let last = store.chat.last {
-                proxy.scrollTo(last.id, anchor: .bottom)
+/// Your earlier conversations: tap to reopen, swipe to delete.
+struct ThreadListView: View {
+    @Environment(FamilyStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if store.threads.isEmpty {
+                    Text("No conversations yet. Ask homeOS something and it'll show up here.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.muted)
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(store.threads) { thread in
+                    Button {
+                        Task { await store.openThread(thread) }
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(thread.title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Theme.text)
+                                    .lineLimit(2)
+                                Text(thread.updatedAt.formatted(.relative(presentation: .named)))
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                            Spacer()
+                            if thread.id == store.currentThreadId {
+                                Image(systemName: "checkmark").foregroundStyle(Theme.accent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Theme.surface)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            Task { await store.deleteThread(thread) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .screenBackground()
+            .animation(Theme.springy, value: store.threads)
+            .refreshable { await store.loadThreads() }
+            .task { await store.loadThreads() }
+            .navigationTitle("Chats")
+            .navigationBarTitleDisplayMode(.inline)
+            .showsStoreErrors()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.newChat()
+                        dismiss()
+                    } label: {
+                        Label("New chat", systemImage: "square.and.pencil")
+                    }
+                }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 }
 

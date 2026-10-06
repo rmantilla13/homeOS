@@ -1,0 +1,95 @@
+.page {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 48px 16px;
+  overflow: hidden;
+}
+
+/* The display's assistant glow, softened into the canvas. */
+.glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 980px;
+  height: 980px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 200deg,
+    transparent 0deg,
+    var(--glow-1) 40deg,
+    var(--glow-2) 100deg,
+    var(--glow-3) 150deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  filter: blur(90px);
+  opacity: 0.28;
+  transform: translate(-50%, -46%);
+  pointer-events: none;
+}
+
+.card {
+  position: relative;
+  width: min(420px, 100%);
+  padding: 36px;
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.orb {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--glow);
+  color: #fff;
+}
+
+.brandText {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brandText span {
+  margin-left: 4px;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 6px 0 24px;
+  color: var(--text-2);
+}
+
+.footer {
+  position: relative;
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 26px 22px;
+  }
+}

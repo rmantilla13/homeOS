@@ -6,16 +6,20 @@ let supabase = SupabaseClient(supabaseURL: Config.supabaseURL, supabaseKey: Conf
 
 /// App-wide state: auth, the current family, and its data. Views read from
 /// here and call its async actions; row-level security scopes every query
-/// to the signed-in user's family.
+/// to the signed-in user's families, and each query also names the family on
+/// screen, for people who belong to more than one.
 @Observable
 @MainActor
 final class FamilyStore {
     enum Phase { case loading, signedOut, needsFamily, ready }
+    enum SignUpResult { case signedIn, confirmEmail, failed }
 
     var phase: Phase = .loading
     var errorMessage: String?
 
     var family: Family?
+    /// Every family you belong to; `family` is the one on screen.
+    var families: [Family] = []
     var members: [Member] = []
     var devices: [Device] = []
     var events: [FamilyEvent] = []
@@ -30,12 +34,42 @@ final class FamilyStore {
     var listItems: [ListItem] = []
     var meals: [MealPlan] = []
     var memories: [FamilyMemory] = []
+    /// Your profile and those of people who share a family with you.
+    var profiles: [Profile] = []
+    /// The family's invites, newest first (parents only).
+    var invites: [FamilyInvite] = []
 
-    // Assistant conversation (phone only; the edge function is stateless).
+    // Invite-only onboarding.
+    /// A code from a `homeos://invite` link or typed on the welcome screen.
+    /// Survives relaunches (e.g. while confirming an email) until it's used.
+    private(set) var pendingInviteCode: String? = UserDefaults.standard.string(forKey: Keys.pendingInvite)
+    /// What `preview_invite` said about `pendingInviteCode`.
+    var pendingPreview: InvitePreview?
+    /// The name typed at sign-up, for the member row a family invite creates.
+    @ObservationIgnored private var pendingDisplayName: String?
+    /// Set when someone has just signed up or in: a pending family invite is
+    /// then accepted without asking again.
+    @ObservationIgnored private var redeemAfterAuth = false
+
+    // Assistant.
+    /// Your conversations, most recent first.
+    var threads: [AssistantThread] = []
+    /// The open conversation; nil until the first reply of a new chat names it.
+    var currentThreadId: UUID?
     var chat: [ChatMessage] = []
-    var isThinking = false
+    /// A reply is on its way (from send until `done` or `error`).
+    var isReplying = false
+    @ObservationIgnored private var replyTask: Task<Void, Never>?
+    /// Bumped when a chat is closed mid-reply, so late events are dropped.
+    @ObservationIgnored private var replyGeneration = 0
+    private let assistant = AssistantClient()
 
     @ObservationIgnored private var signedURLs: [String: (url: URL, expires: Date)] = [:]
+
+    private enum Keys {
+        static let pendingInvite = "homeos.pendingInviteCode"
+        static let familyId = "homeos.familyId"
+    }
 
     var me: Member? {
         guard let uid = supabase.auth.currentUser?.id else { return nil }
@@ -45,9 +79,24 @@ final class FamilyStore {
     var kids: [Member] { members.filter { $0.role == .child } }
     var pendingCompletions: [TaskCompletion] { completions.filter { $0.status == "pending" } }
 
+    var email: String? { supabase.auth.currentUser?.email }
+    var myProfile: Profile? { profile(for: supabase.auth.currentUser?.id) }
+    /// Waiting for the first words of a reply.
+    var isThinking: Bool { chat.last.map { $0.isStreaming && $0.text.isEmpty } ?? false }
+
     func member(_ id: UUID?) -> Member? { members.first { $0.id == id } }
     func reward(_ id: UUID) -> Reward? { rewards.first { $0.id == id } }
     func task(_ id: UUID) -> FamilyTask? { tasks.first { $0.id == id } }
+    func profile(for userId: UUID?) -> Profile? {
+        guard let userId else { return nil }
+        return profiles.first { $0.id == userId }
+    }
+
+    /// The family picked last time, so people in two families land on the same one.
+    private var preferredFamilyId: UUID? {
+        get { UserDefaults.standard.string(forKey: Keys.familyId).flatMap(UUID.init(uuidString:)) }
+        set { UserDefaults.standard.set(newValue?.uuidString, forKey: Keys.familyId) }
+    }
 
     // MARK: Lifecycle
 
@@ -55,7 +104,7 @@ final class FamilyStore {
         for await (event, session) in supabase.auth.authStateChanges {
             guard [.initialSession, .signedIn, .signedOut].contains(event) else { continue }
             if session == nil {
-                reset()
+                clearSession()
                 phase = .signedOut
             } else {
                 await loadFamily()
@@ -63,22 +112,49 @@ final class FamilyStore {
         }
     }
 
-    private func reset() {
+    private func clearSession() {
+        clearFamilyData()
         family = nil
-        members = []; devices = []; events = []; tasks = []; completions = []
-        rewards = []; redemptions = []; points = [:]; media = []
-        lists = []; listItems = []; meals = []; memories = []
-        chat = []; signedURLs = [:]
+        families = []
+        profiles = []
+        pendingPreview = nil
+        pendingDisplayName = nil
+        redeemAfterAuth = false
+        newChat()
+        threads = []
+        signedURLs = [:]
     }
 
+    private func clearFamilyData() {
+        members = []; devices = []; events = []; tasks = []; completions = []
+        rewards = []; redemptions = []; points = [:]; media = []
+        lists = []; listItems = []; meals = []; memories = []; invites = []
+    }
+
+    /// Picks the family to show (or the setup screens when there's none) and loads it.
     func loadFamily() async {
         do {
-            let families: [Family] = try await supabase.from("families").select().limit(1).execute().value
-            guard let family = families.first else {
+            let all: [Family] = try await supabase.from("families").select().order("created_at").execute().value
+            families = all
+            guard let chosen = all.first(where: { $0.id == preferredFamilyId }) ?? all.first else {
+                family = nil
+                clearFamilyData()
+                await loadProfiles()
+                if redeemAfterAuth {
+                    redeemAfterAuth = false
+                    if await redeemPendingInvite() { return }
+                }
                 phase = .needsFamily
                 return
             }
-            self.family = family
+            redeemAfterAuth = false
+            if family?.id != chosen.id {
+                clearFamilyData()
+                newChat()
+                threads = []
+            }
+            family = chosen
+            preferredFamilyId = chosen.id
             await refresh()
             phase = .ready
         } catch {
@@ -86,8 +162,15 @@ final class FamilyStore {
         }
     }
 
+    func switchFamily(to other: Family) async {
+        guard other.id != family?.id else { return }
+        preferredFamilyId = other.id
+        await loadFamily()
+    }
+
     func refresh() async {
-        guard family != nil else { return }
+        guard let family else { return }
+        let fid = family.id.uuidString
         let iso = ISO8601DateFormatter()
         let today = Calendar.current.startOfDay(for: .now)
         let eventsFrom = iso.string(from: today.addingTimeInterval(-45 * 86_400))
@@ -96,29 +179,37 @@ final class FamilyStore {
         let mealsFrom = DayKey.string(today.addingTimeInterval(-86_400))
         let mealsTo = DayKey.string(today.addingTimeInterval(8 * 86_400))
         do {
-            async let members: [Member] = supabase.from("members").select().order("sort_order").execute().value
-            async let devices: [Device] = supabase.from("devices").select("id, name, last_seen_at").order("created_at").execute().value
+            async let members: [Member] = supabase.from("members").select().eq("family_id", value: fid)
+                .order("sort_order").execute().value
+            async let devices: [Device] = supabase.from("devices").select("id, name, last_seen_at").eq("family_id", value: fid)
+                .order("created_at").execute().value
             async let events: [FamilyEvent] = supabase.from("events")
                 .select("*, event_members(member_id)")
+                .eq("family_id", value: fid)
                 .gte("starts_at", value: eventsFrom)
                 .lt("starts_at", value: eventsTo)
                 .order("starts_at")
                 .limit(1000)
                 .execute().value
-            async let tasks: [FamilyTask] = supabase.from("tasks").select().eq("archived", value: false).order("created_at").execute().value
-            async let recent: [TaskCompletion] = supabase.from("task_completions").select()
+            async let tasks: [FamilyTask] = supabase.from("tasks").select().eq("family_id", value: fid)
+                .eq("archived", value: false).order("created_at").execute().value
+            async let recent: [TaskCompletion] = supabase.from("task_completions").select().eq("family_id", value: fid)
                 .gte("for_date", value: completionsFrom).execute().value
-            async let pending: [TaskCompletion] = supabase.from("task_completions").select()
+            async let pending: [TaskCompletion] = supabase.from("task_completions").select().eq("family_id", value: fid)
                 .eq("status", value: "pending").execute().value
-            async let rewards: [Reward] = supabase.from("rewards").select().eq("active", value: true).order("cost").execute().value
-            async let redemptions: [RewardRedemption] = supabase.from("reward_redemptions").select()
+            async let rewards: [Reward] = supabase.from("rewards").select().eq("family_id", value: fid)
+                .eq("active", value: true).order("cost").execute().value
+            async let redemptions: [RewardRedemption] = supabase.from("reward_redemptions").select().eq("family_id", value: fid)
                 .eq("status", value: "requested").order("created_at").execute().value
-            async let points: [MemberPoints] = supabase.from("member_points").select().execute().value
-            async let lists: [FamilyList] = supabase.from("lists").select().order("sort_order").execute().value
+            async let points: [MemberPoints] = supabase.from("member_points").select().eq("family_id", value: fid).execute().value
+            async let lists: [FamilyList] = supabase.from("lists").select().eq("family_id", value: fid)
+                .order("sort_order").execute().value
             async let items: [ListItem] = supabase.from("list_items").select().order("created_at").limit(500).execute().value
-            async let meals: [MealPlan] = supabase.from("meal_plans").select()
+            async let meals: [MealPlan] = supabase.from("meal_plans").select().eq("family_id", value: fid)
                 .gte("date", value: mealsFrom).lte("date", value: mealsTo).execute().value
-            async let memories: [FamilyMemory] = supabase.from("family_memories").select().order("created_at", ascending: false).execute().value
+            async let memories: [FamilyMemory] = supabase.from("family_memories").select().eq("family_id", value: fid)
+                .order("created_at", ascending: false).execute().value
+            async let profiles: [Profile] = supabase.from("profiles").select("id, display_name, avatar_path, updated_at").execute().value
 
             self.members = try await members
             self.devices = try await devices
@@ -130,10 +221,15 @@ final class FamilyStore {
             self.rewards = try await rewards
             self.redemptions = try await redemptions
             self.points = Dictionary((try await points).map { ($0.memberId, $0.balance) }, uniquingKeysWith: { a, _ in a })
-            self.lists = try await lists
-            self.listItems = try await items
+            let familyLists = try await lists
+            self.lists = familyLists
+            // list_items has no family_id; keep the ones on this family's lists.
+            let listIds = Set(familyLists.map(\.id))
+            self.listItems = try await items.filter { listIds.contains($0.listId) }
             self.meals = try await meals
             self.memories = try await memories
+            self.profiles = try await profiles
+            await loadInvites()
             await refreshMedia()
         } catch {
             report(error)
@@ -141,8 +237,9 @@ final class FamilyStore {
     }
 
     func refreshMedia() async {
+        guard let family else { return }
         do {
-            media = try await supabase.from("media_items").select()
+            media = try await supabase.from("media_items").select().eq("family_id", value: family.id.uuidString)
                 .order("created_at", ascending: false).limit(300).execute().value
         } catch {
             report(error)
@@ -150,39 +247,341 @@ final class FamilyStore {
     }
 
     private func report(_ error: Error) {
-        errorMessage = error.localizedDescription
+        // Closing a screen or ending pull-to-refresh cancels requests; that's no error.
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+        errorMessage = Self.message(for: error)
         print("homeOS error:", error)
     }
 
-    // MARK: Auth & setup
+    /// The RPCs raise short lowercase sentences meant for people ("invite code expired").
+    private static func message(for error: Error) -> String {
+        if let error = error as? PostgrestError { return error.message.sentenceCased }
+        return error.localizedDescription
+    }
+
+    // MARK: Auth & invites
 
     // TODO(M1): Sign in with Apple.
     func signIn(email: String, password: String) async {
-        do { try await supabase.auth.signIn(email: email, password: password) } catch { report(error) }
+        redeemAfterAuth = true
+        do {
+            try await supabase.auth.signIn(email: email, password: password)
+        } catch {
+            redeemAfterAuth = false
+            report(error)
+        }
     }
 
-    func signUp(email: String, password: String) async {
-        do { try await supabase.auth.signUp(email: email, password: password) } catch { report(error) }
+    /// Creates an account carrying the pending invite code, which lets it
+    /// past the invite-only sign-up hook.
+    func signUp(email: String, password: String, name: String) async -> SignUpResult {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var data: [String: AnyJSON] = ["display_name": .string(name)]
+        if let code = pendingInviteCode { data["invite_code"] = .string(code) }
+        pendingDisplayName = name
+        redeemAfterAuth = true
+        do {
+            let response = try await supabase.auth.signUp(email: email, password: password, data: data,
+                                                          redirectTo: Config.authCallbackURL)
+            if case .session = response { return .signedIn }
+            // Email confirmation is on: the session arrives when they confirm and sign in.
+            return .confirmEmail
+        } catch {
+            redeemAfterAuth = false
+            report(error)
+            return .failed
+        }
     }
 
     func signOut() async {
+        setPendingInvite(nil)
         try? await supabase.auth.signOut()
     }
 
-    func createFamily(name: String, myName: String) async {
+    /// `homeos://invite/<CODE>` prefills the invite; `homeos://auth-callback`
+    /// finishes an email confirmation or an admin's email invite.
+    func handleOpenURL(_ url: URL) {
+        if let code = InviteCode.from(url: url) {
+            setPendingInvite(code)
+            return
+        }
+        guard url.scheme?.lowercased() == "homeos", url.host?.lowercased() == "auth-callback" else { return }
+        Task { await self.completeAuthCallback(url) }
+    }
+
+    private func completeAuthCallback(_ url: URL) async {
+        // Admin email invites carry implicit-grant tokens in the fragment;
+        // confirmations of sign-ups made in the app carry a PKCE code.
+        var fragment = URLComponents()
+        fragment.percentEncodedQuery = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedFragment
+        let items = fragment.queryItems ?? []
+        let value: (String) -> String? = { name in items.first { $0.name == name }?.value }
+        if let problem = value("error_description") ?? value("error") {
+            errorMessage = problem.replacingOccurrences(of: "+", with: " ")
+            return
+        }
+        redeemAfterAuth = true
+        do {
+            if let accessToken = value("access_token"), let refreshToken = value("refresh_token") {
+                try await supabase.auth.setSession(accessToken: accessToken, refreshToken: refreshToken)
+            } else {
+                try await supabase.auth.session(from: url)
+            }
+        } catch {
+            redeemAfterAuth = false
+            report(error)
+        }
+    }
+
+    func setPendingInvite(_ code: String?) {
+        let code = code.map(InviteCode.format).flatMap { $0.isEmpty ? nil : $0 }
+        if code != pendingInviteCode { pendingPreview = nil }
+        pendingInviteCode = code
+        UserDefaults.standard.set(code, forKey: Keys.pendingInvite)
+    }
+
+    /// Asks the server what a code is for. Works signed out. Nil when the request failed.
+    func previewInvite(_ code: String) async -> InvitePreview? {
+        struct Params: Encodable { let code: String }
+        do {
+            let preview: InvitePreview = try await supabase
+                .rpc("preview_invite", params: Params(code: InviteCode.normalize(code)))
+                .execute().value
+            return preview
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    /// Remembers a code and checks it; the result lands in `pendingPreview`.
+    func checkInvite(_ code: String) async {
+        setPendingInvite(code)
+        guard let code = pendingInviteCode else { return }
+        let preview = await previewInvite(code)
+        if pendingInviteCode == code { pendingPreview = preview }
+    }
+
+    /// Right after signing up or in: accept a family invite, or leave a
+    /// platform invite for the Create Family screen. True if a family was joined.
+    private func redeemPendingInvite() async -> Bool {
+        if pendingInviteCode == nil, case let .string(code)? = supabase.auth.currentUser?.userMetadata["invite_code"] {
+            // Confirmed on another device, or an admin's email invite.
+            setPendingInvite(code)
+        }
+        guard let code = pendingInviteCode, let preview = await previewInvite(code) else { return false }
+        pendingPreview = preview
+        guard preview.valid, preview.kind == .family else { return false }
+        return await acceptInvite(code, displayName: pendingDisplayName)
+    }
+
+    /// Joins a family with a family invite code and shows that family.
+    @discardableResult
+    func acceptInvite(_ code: String, displayName: String? = nil) async -> Bool {
+        struct Params: Encodable { let code: String; let display_name: String? }
+        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let familyId: UUID = try await supabase
+                .rpc("accept_family_invite", params: Params(code: InviteCode.normalize(code),
+                                                            display_name: name?.isEmpty == false ? name : nil))
+                .execute().value
+            setPendingInvite(nil)
+            pendingDisplayName = nil
+            preferredFamilyId = familyId
+            await loadFamily()
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Starts a family. While the platform is invite-only this needs a platform invite.
+    func createFamily(name: String, myName: String, inviteCode: String?) async {
         struct Params: Encodable {
             let family_name: String
             let my_name: String
             let tz: String
+            let invite_code: String?
         }
         do {
-            let _: UUID = try await supabase
-                .rpc("create_family", params: Params(family_name: name, my_name: myName, tz: TimeZone.current.identifier))
+            let familyId: UUID = try await supabase
+                .rpc("create_family", params: Params(family_name: name, my_name: myName, tz: TimeZone.current.identifier,
+                                                     invite_code: inviteCode.map(InviteCode.normalize)))
                 .execute().value
+            setPendingInvite(nil)
+            preferredFamilyId = familyId
             await loadFamily()
         } catch {
             report(error)
         }
+    }
+
+    // MARK: Profile
+
+    func loadProfiles() async {
+        do {
+            profiles = try await supabase.from("profiles").select("id, display_name, avatar_path, updated_at").execute().value
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Renames you; `renameMember` also renames your member row (the name on the wall).
+    func updateDisplayName(_ name: String, renameMember: Bool) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let uid = supabase.auth.currentUser?.id, !name.isEmpty else { return false }
+        let ok = await perform {
+            try await supabase.from("profiles").update(["display_name": name]).eq("id", value: uid.uuidString).execute()
+            if renameMember, let me = self.me {
+                try await supabase.from("members").update(["display_name": name]).eq("id", value: me.id.uuidString).execute()
+            }
+        }
+        if family == nil { await loadProfiles() }
+        return ok
+    }
+
+    /// Uploads a square JPEG to `avatars/<uid>/avatar.jpg` and points the profile at it.
+    func uploadAvatar(_ jpeg: Data) async -> Bool {
+        guard let uid = supabase.auth.currentUser?.id else { return false }
+        // Storage policies compare the folder with auth.uid()::text, which is lowercase.
+        let path = "\(uid.uuidString.lowercased())/avatar.jpg"
+        let ok = await perform {
+            _ = try await supabase.storage.from(Config.avatarBucket)
+                .upload(path, data: jpeg, options: FileOptions(cacheControl: "60", contentType: "image/jpeg", upsert: true))
+            try await supabase.from("profiles").update(["avatar_path": path]).eq("id", value: uid.uuidString).execute()
+        }
+        AvatarCache.shared.forget(path: path)
+        if family == nil { await loadProfiles() }
+        return ok
+    }
+
+    func removeAvatar() async {
+        guard let uid = supabase.auth.currentUser?.id, let path = myProfile?.avatarPath else { return }
+        await perform {
+            let clear: [String: AnyJSON] = ["avatar_path": .null]
+            try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
+            _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [path])
+        }
+        AvatarCache.shared.forget(path: path)
+    }
+
+    /// A profile's photo in the `avatars` bucket, versioned by `updated_at`.
+    func photo(of profile: Profile?) -> (path: String, version: String)? {
+        guard let profile, let path = profile.avatarPath else { return nil }
+        return (path, profile.updatedAt.map { String($0.timeIntervalSince1970) } ?? "")
+    }
+
+    /// A member's photo comes from their account's profile, if they have one.
+    func avatarPath(for member: Member?) -> (path: String, version: String)? {
+        photo(of: profile(for: member?.userId))
+    }
+
+    // MARK: Members
+
+    /// Parents edit anyone; everyone else edits only their own name and color.
+    func canEdit(_ member: Member) -> Bool { isParent || member.id == me?.id }
+
+    /// Members without a login, who a parent can invite to claim their row.
+    var membersWithoutAccounts: [Member] { members.filter { $0.userId == nil } }
+
+    func updateMember(_ member: Member, name: String, color: String, role: MemberRole) async -> Bool {
+        struct Changes: Encodable {
+            let display_name: String
+            let color: String
+            let role: MemberRole?  // left out unless a parent is editing
+        }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        let changes = Changes(display_name: name, color: color, role: isParent ? role : nil)
+        if let i = members.firstIndex(where: { $0.id == member.id }) {
+            members[i].displayName = name
+            members[i].color = color
+            if isParent { members[i].role = role }
+        }
+        return await perform {
+            try await supabase.from("members").update(changes).eq("id", value: member.id.uuidString).execute()
+        }
+    }
+
+    /// Parents only. The member's chores, completions and points go with them;
+    /// the server refuses to remove the last parent with an account.
+    func removeMember(_ member: Member) async -> Bool {
+        members.removeAll { $0.id == member.id }
+        return await perform {
+            try await supabase.from("members").delete().eq("id", value: member.id.uuidString).execute()
+        }
+    }
+
+    /// Unlinks your account. Your member row, points and history stay on the screen.
+    func leaveFamily() async -> Bool {
+        guard let family else { return false }
+        struct Params: Encodable { let family: UUID }
+        do {
+            try await supabase.rpc("leave_family", params: Params(family: family.id)).execute()
+        } catch {
+            report(error)
+            return false
+        }
+        preferredFamilyId = nil
+        self.family = nil
+        clearFamilyData()
+        newChat()
+        threads = []
+        await loadFamily()
+        return true
+    }
+
+    // MARK: Invites
+
+    func loadInvites() async {
+        guard let family, isParent else {
+            invites = []
+            return
+        }
+        do {
+            invites = try await supabase.from("family_invites").select()
+                .eq("family_id", value: family.id.uuidString)
+                .order("created_at", ascending: false)
+                .limit(50)
+                .execute().value
+        } catch {
+            report(error)
+        }
+    }
+
+    /// A family invite. With `member`, whoever accepts gets that member's row (and role).
+    func createInvite(role: MemberRole, for member: Member?, email: String?, expiresInDays: Int) async -> CreatedInvite? {
+        guard let family else { return nil }
+        struct Params: Encodable {
+            let family: UUID
+            let role: MemberRole
+            let member: UUID?
+            let email: String?
+            let expires_in_days: Int
+        }
+        let email = email?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let params = Params(family: family.id, role: member?.role ?? role, member: member?.id,
+                            email: email?.isEmpty == false ? email : nil, expires_in_days: expiresInDays)
+        do {
+            let rows: [CreatedInvite] = try await supabase.rpc("create_family_invite", params: params).execute().value
+            await loadInvites()
+            return rows.first
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    func revokeInvite(_ invite: FamilyInvite) async {
+        struct Params: Encodable { let invite: UUID }
+        if let i = invites.firstIndex(where: { $0.id == invite.id }) { invites[i].revokedAt = .now }
+        do {
+            try await supabase.rpc("revoke_family_invite", params: Params(invite: invite.id)).execute()
+        } catch {
+            report(error)
+        }
+        await loadInvites()
     }
 
     func addMember(name: String, role: MemberRole, color: String) async {
@@ -501,33 +900,149 @@ final class FamilyStore {
 
     // MARK: Assistant
 
-    /// Sends the conversation to the `assistant` edge function and appends its reply.
-    func ask(_ text: String) async {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isThinking else { return }
-        chat.append(ChatMessage(role: .user, text: text))
-        isThinking = true
-        defer { isThinking = false }
+    var currentThread: AssistantThread? { threads.first { $0.id == currentThreadId } }
 
-        struct Turn: Encodable { let role: String; let text: String }
-        struct Body: Encodable { let messages: [Turn] }
-        let turns = chat.filter { !$0.isError }.suffix(20).map { Turn(role: $0.role.rawValue, text: $0.text) }
-
+    /// Your own conversations in this family (RLS hides everyone else's).
+    func loadThreads() async {
+        guard let family else { return }
         do {
-            let reply: AssistantReply = try await supabase.functions.invoke(
-                "assistant", options: FunctionInvokeOptions(body: Body(messages: turns)))
-            let actions = reply.actions ?? []
-            chat.append(ChatMessage(role: .assistant, text: reply.reply, actions: actions))
-            if !actions.isEmpty { await refresh() }
+            threads = try await supabase.from("assistant_threads")
+                .select("id, title, updated_at")
+                .eq("family_id", value: family.id.uuidString)
+                .eq("archived", value: false)
+                .order("updated_at", ascending: false)
+                .limit(100)
+                .execute().value
         } catch {
-            print("homeOS assistant error:", error)
-            chat.append(ChatMessage(role: .assistant, text: "I couldn't reach homeOS just now. Check your connection and try again.",
-                                    isError: true))
+            report(error)
         }
     }
 
-    func resetChat() {
+    func openThread(_ thread: AssistantThread) async {
+        guard thread.id != currentThreadId || chat.isEmpty else { return }
+        cancelReply()
+        currentThreadId = thread.id
         chat = []
+        do {
+            let rows: [AssistantMessageRow] = try await supabase.from("assistant_messages")
+                .select("id, role, content, actions")
+                .eq("thread_id", value: thread.id.uuidString)
+                .order("id", ascending: false)
+                .limit(200)
+                .execute().value
+            guard currentThreadId == thread.id else { return }
+            chat = rows.reversed().map(\.chatMessage)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Starts over; the next message opens a new thread.
+    func newChat() {
+        cancelReply()
+        currentThreadId = nil
+        chat = []
+    }
+
+    func deleteThread(_ thread: AssistantThread) async {
+        if currentThreadId == thread.id { newChat() }
+        threads.removeAll { $0.id == thread.id }
+        do {
+            try await supabase.from("assistant_threads").delete().eq("id", value: thread.id.uuidString).execute()
+        } catch {
+            report(error)
+            await loadThreads()
+        }
+    }
+
+    /// Sends a message in the open thread and streams the reply into `chat`.
+    func ask(_ text: String) async {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isReplying else { return }
+        isReplying = true  // before the task starts, so a double tap can't send twice
+        let task = Task { await self.streamReply(to: text) }
+        replyTask = task
+        await task.value
+    }
+
+    private func cancelReply() {
+        replyTask?.cancel()
+        replyTask = nil
+        replyGeneration += 1
+        isReplying = false
+    }
+
+    private func streamReply(to text: String) async {
+        let generation = replyGeneration
+        isReplying = true
+        chat.append(ChatMessage(role: .user, text: text))
+        let placeholder = ChatMessage(role: .assistant, text: "", isStreaming: true)
+        chat.append(placeholder)
+
+        do {
+            try await assistant.stream(text, threadId: currentThreadId, familyId: family?.id) { event in
+                self.apply(event, to: placeholder.id, generation: generation, prompt: text)
+            }
+        } catch {
+            if !Task.isCancelled {
+                print("homeOS assistant error:", error)
+                let message = (error as? AssistantError ?? AssistantError.unreachable).message
+                updateReply(placeholder.id, generation: generation) {
+                    $0.text = message
+                    $0.isError = true
+                }
+            }
+        }
+        guard generation == replyGeneration else { return }
+
+        // The stream closed early: keep what arrived, or say it failed.
+        updateReply(placeholder.id, generation: generation) {
+            if $0.isStreaming && $0.text.isEmpty {
+                $0.text = AssistantError.unreachable.message
+                $0.isError = true
+            }
+            $0.isStreaming = false
+        }
+        isReplying = false
+        replyTask = nil
+        let didSomething = chat.first { $0.id == placeholder.id }?.actions.isEmpty == false
+        if didSomething { await refresh() }
+        await loadThreads()
+    }
+
+    private func apply(_ event: AssistantEvent, to replyId: UUID, generation: Int, prompt: String) {
+        guard generation == replyGeneration else { return }
+        switch event {
+        case .thread(let id):
+            currentThreadId = id
+            if !threads.contains(where: { $0.id == id }) {
+                // Shown right away; loadThreads() brings the server's title after `done`.
+                threads.insert(AssistantThread(id: id, title: String(prompt.prefix(48)), updatedAt: .now), at: 0)
+            }
+        case .delta(let text):
+            updateReply(replyId, generation: generation) { $0.text += text }
+        case .action(let action):
+            updateReply(replyId, generation: generation) { $0.actions.append(action) }
+        case .done(let reply):
+            // The final reply replaces what streamed (the server may have tidied it).
+            updateReply(replyId, generation: generation) {
+                $0.text = reply.reply
+                if let actions = reply.actions { $0.actions = actions }
+                $0.isStreaming = false
+            }
+            if let id = reply.threadId { currentThreadId = id }
+        case .error(let message):
+            updateReply(replyId, generation: generation) {
+                $0.text = message
+                $0.isError = true
+                $0.isStreaming = false
+            }
+        }
+    }
+
+    private func updateReply(_ id: UUID, generation: Int, _ change: (inout ChatMessage) -> Void) {
+        guard generation == replyGeneration, let i = chat.firstIndex(where: { $0.id == id }) else { return }
+        change(&chat[i])
     }
 
     // MARK: Display pairing
@@ -549,13 +1064,17 @@ final class FamilyStore {
     // MARK: Helpers
 
     /// Runs a write, then reloads. On failure the optimistic local change is
-    /// replaced by the server's state.
-    private func perform(_ work: () async throws -> Void) async {
+    /// replaced by the server's state. Returns whether the write succeeded.
+    @discardableResult
+    private func perform(_ work: () async throws -> Void) async -> Bool {
+        var ok = true
         do {
             try await work()
         } catch {
             report(error)
+            ok = false
         }
         await refresh()
+        return ok
     }
 }
