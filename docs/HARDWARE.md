@@ -1,59 +1,61 @@
 # Hardware
 
-Goal: the best performance and room for custom features (sensors, voice,
-camera, local AI), in a device that can later become a custom PCB.
+## Prototype (current build)
 
-## Recommendation: Rockchip RK3588
-
-| | RK3588 (recommended) | Raspberry Pi 5 / CM5 | x86 mini-PC (Intel N100/N305) |
-|---|---|---|---|
-| CPU | 4× A76 @ 2.4 GHz + 4× A55 | 4× A76 @ 2.4 GHz | 4–8 Gracemont cores |
-| GPU | Mali-G610 (Mesa Panthor, mainline) | VideoCore VII | Intel UHD |
-| Video decode | 8K60 H.265/VP9/AV1, 8K30 H.264 | HEVC only, **no H.264 HW decode** | H.264/H.265/VP9/AV1 |
-| NPU | 6 TOPS built in | none (needs AI HAT+) | none |
-| Display outputs | HDMI 2.1, eDP, 2× MIPI-DSI | 2× HDMI, 2× MIPI-DSI | HDMI/DP |
-| Custom-PCB path | Compute modules (Radxa CM5, etc.) | CM5 on a custom carrier | Hard |
-| Power (typ.) | 5–12 W | 4–8 W | 10–25 W |
-
-The RK3588 wins because family video playback needs hardware H.264 decode,
-which the Pi 5 lacks. The built-in NPU also gives local face grouping for
-photos, presence detection and wake-word without a cloud round trip, and the
-SoC comes as a compute module for the move to a custom carrier board.
-
-If software support matters more than peak performance, the Pi CM5 is the
-fallback. The display app is plain Qt, so it runs on any of the three.
-
-## Phase 1: prototype (off-the-shelf parts)
-
-| Part | Suggested | Purpose |
+| Part | Chosen | Notes |
 |---|---|---|
-| SBC | Radxa ROCK 5B+ or Orange Pi 5 Plus (16 GB) | Main compute |
-| Storage | 256–512 GB NVMe | OS, media cache, offline data |
-| Display | 21.5" 1920×1080 IPS, capacitive 10-point touch (HDMI + USB-HID) | Main screen |
-| Presence | HLK-LD2410 mmWave radar (UART) | Wake the screen when someone approaches |
-| Ambient light | VEML7700 (I²C) | Auto-brightness, night dimming |
-| Audio out | MAX98357A I²S amp + 2× 3 W speakers | Chimes, reminders, video sound |
-| Audio in | 2–4 mic array (e.g. XMOS-based USB) | Voice commands (later) |
-| Camera (optional) | USB/MIPI camera with a hardware privacy shutter | Video calls, family check-in |
-| Power | 12 V / 5 A barrel supply | Board + panel |
+| Computer | Raspberry Pi 5, 8 GB | Runs Raspberry Pi OS (64-bit) and the Qt display app |
+| Screen | JUNEBOX 10.1" IPS, 1920×1200, 5-point touch | HDMI for video, USB for touch, built-in speakers (HDMI audio) |
+| Power | Official Raspberry Pi 27 W USB-C supply | Lower-rated supplies cause throttling and USB power warnings |
+| Cables | Micro-HDMI → HDMI, USB-A → USB-C (touch) | The Pi 5 has micro-HDMI ports |
+| Cooling | Raspberry Pi Active Cooler (recommended) | Keeps the Pi from throttling during video and long uptime |
+| Storage | 64 GB+ A2 microSD (NVMe HAT + SSD later) | NVMe is faster and more durable for a 24/7 device |
 
-## Phase 2: custom device
+The display app runs at `QT_SCALE_FACTOR=1.5` on this panel, so it lays out
+for 1280×800 and switches to its compact layout. On larger screens (around 21",
+1920×1080), set the scale to 1.0. See `/etc/homeos/display.env` on the device.
 
-- Carrier board for an RK3588 compute module: eDP or MIPI-DSI straight to an
-  optically bonded panel, I²C touch controller, on-board radar, light sensor,
-  I²S audio and mic array.
-- Enclosure: wall mount with a recessed cable channel, or a desk stand; passive
-  cooling with a heat spreader against the back plate.
-- Status LED and a physical privacy switch that cuts mic and camera power.
+Setup steps: [PI_SETUP.md](PI_SETUP.md).
 
-## Software platform on the device
+### Why the Pi 5
 
-- **Phase 1:** Armbian / Debian with a mainline kernel (Panthor GPU driver),
-  with Qt 6 rendering via EGLFS/KMS (no X11 or Wayland session needed).
-- **Phase 2:** Yocto image with A/B partitions and OTA updates (RAUC or
-  Mender), read-only rootfs, and the display app as a systemd service.
-- Hardware access from the app:
-  - backlight: `/sys/class/backlight`
-  - radar: UART
-  - light sensor: I²C via `/dev/i2c-*`
-  - video decode: GStreamer with the Rockchip MPP plugins (`QtMultimedia`)
+- **Software support:** Raspberry Pi OS ships the Qt 6 packages the app is
+  built and tested against, and Pi documentation and community support are
+  the best available.
+- **Video:** iPhone videos are HEVC, which the Pi 5 decodes in hardware. The
+  Pi 5 has no H.264 hardware decoder, but the CPU handles H.264 at 1080p.
+- **Room to grow:** GPIO, I²C and UART connect the sensors below, the AI HAT+
+  adds local AI if needed, and the Compute Module 5 is the path to a custom
+  board.
+
+## Add-ons (next)
+
+| Part | Suggested | Connects to | Purpose |
+|---|---|---|---|
+| Presence | HLK-LD2410 mmWave radar | UART (GPIO 14/15) | Wake the screen when someone approaches |
+| Ambient light | VEML7700 | I²C (GPIO 2/3) | Auto-brightness and night dimming |
+| Mic array | ReSpeaker or another XMOS USB mic | USB | Voice commands |
+| Camera (optional) | Pi Camera Module 3 with a privacy shutter | CSI | Video calls, family check-in |
+| AI (optional) | Raspberry Pi AI HAT+ | PCIe | Local face grouping, wake word |
+
+Note on brightness: this panel is an HDMI monitor, so its backlight can't be
+set from `/sys/class/backlight`. The app's dimming applies only to panels wired
+over DSI or eDP. For an HDMI panel, the options are DDC/CI (if the monitor
+supports it, via `ddcutil`) or a darker night theme. The night theme is already
+in place.
+
+## Custom device (later)
+
+- A Compute Module 5 on a custom carrier board with a DSI or eDP panel that is
+  optically bonded, an I²C touch controller, and radar, light sensor, I²S audio
+  and microphones on board.
+- A wall-mount enclosure with passive cooling against the back plate, plus a
+  hardware privacy switch that cuts power to the mic and camera.
+- A Yocto image with A/B updates over the air (RAUC or Mender), a read-only
+  root filesystem and secure boot.
+
+### Alternative board
+
+If local AI or 8K video ever matters more than software support, Rockchip
+RK3588 boards (Radxa ROCK 5B+, Orange Pi 5 Plus) have a 6 TOPS NPU and
+hardware decode for every common codec. The app is plain Qt, so it ports over.

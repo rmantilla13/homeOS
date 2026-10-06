@@ -24,7 +24,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 40
+        anchors.margins: Theme.pageMargin
         spacing: Theme.spacing
 
         // Header: clock and date.
@@ -83,7 +83,7 @@ Item {
                     delegate: Rectangle {
                         required property var modelData
                         width: ListView.view.width
-                        height: 96
+                        height: Theme.compact ? 84 : 96
                         radius: 18
                         color: Theme.surfaceAlt
                         Rectangle {
@@ -129,7 +129,7 @@ Item {
                             required property var modelData
                             width: parent.width
                             spacing: 20
-                            MemberAvatar { member: modelData; size: 72 }
+                            MemberAvatar { member: modelData; size: Theme.compact ? 56 : 72 }
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 8
@@ -169,7 +169,7 @@ Item {
 
                 Card {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 200
+                    Layout.preferredHeight: Theme.compact ? 160 : 200
                     title: qsTr("Dinner tonight")
                     onActionClicked: home.openScreen(5)
                     actionText: qsTr("Plan")

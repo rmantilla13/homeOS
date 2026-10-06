@@ -16,10 +16,12 @@
 - [ ] iOS: create and edit events, tasks and rewards; approve completions
 
 ## M2: Hardware prototype
-- [ ] Bring up the RK3588 board, Armbian, and Qt on EGLFS
-- [ ] Hardware video decode through GStreamer and Rockchip MPP
+- [x] Pi 5 install script, kiosk service, on-screen keyboard, compact layout for the 10.1" panel
+- [x] Docker simulator of the device (Debian arm64 + VNC)
+- [ ] First boot on the real Pi 5 + 10.1" panel (EGLFS, touch, HDMI audio)
+- [ ] Video playback in the photo frame (HEVC hardware decode)
 - [ ] Wake on mmWave presence, auto-brightness, night mode
-- [ ] systemd kiosk service, watchdog, logging
+- [ ] Watchdog and remote logging
 
 ## M3: Polish and family features
 - [ ] Recurring chores generated nightly (edge function plus cron)
@@ -29,6 +31,6 @@
 - [ ] Meal-plan to shopping-list generation
 
 ## M4: Custom device
-- [ ] Carrier board for an RK3588 compute module, with bonded panel and enclosure
+- [ ] Carrier board for the Raspberry Pi Compute Module 5, with bonded panel and enclosure
 - [ ] Yocto image, A/B OTA updates, secure boot
-- [ ] Voice: local wake word on the NPU, plus commands
+- [ ] Voice: local wake word (CPU or AI HAT+), plus commands

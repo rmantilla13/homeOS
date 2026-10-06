@@ -16,7 +16,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 40
+        anchors.margins: Theme.pageMargin
         spacing: Theme.spacing
 
         RowLayout {

@@ -8,6 +8,8 @@ Rectangle {
     property int size: 64
     property bool selected: false
 
+    implicitWidth: size
+    implicitHeight: size
     width: size
     height: size
     radius: size / 2

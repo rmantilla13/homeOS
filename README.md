@@ -49,6 +49,7 @@ Useful flags and variables:
 | `--demo` | Use sample data even if a backend is configured |
 | `HOMEOS_IDLE_SECONDS=30` | Seconds before the photo frame starts (default 120) |
 | `HOMEOS_NIGHT_MODE=on\|off` | Force the night theme on or off |
+| `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
 
 To connect it to the backend, set:
 
@@ -61,8 +62,9 @@ The display then shows a 6-digit pairing code. Enter it in the iOS app under
 Family → Pair a display. The display stores its session in
 `~/.config/homeOS/display.conf`.
 
-On the device, run it as a kiosk with `display/deploy/homeos-display.service`,
-which renders straight to the panel through EGLFS.
+To set up the Raspberry Pi 5 device, or to simulate it with Docker, see
+[docs/PI_SETUP.md](docs/PI_SETUP.md). One script installs everything and starts
+the app on boot.
 
 ### Backend
 
@@ -87,4 +89,5 @@ key is meant to ship in client apps; row-level security protects the data.
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Hardware](docs/HARDWARE.md)
+- [Raspberry Pi setup](docs/PI_SETUP.md)
 - [Roadmap](docs/ROADMAP.md)

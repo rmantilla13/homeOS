@@ -14,7 +14,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 40
+        anchors.margins: Theme.pageMargin
         spacing: Theme.spacing
 
         RowLayout {
@@ -35,7 +35,7 @@ Item {
                     MemberAvatar {
                         anchors.horizontalCenter: parent.horizontalCenter
                         member: modelData
-                        size: 88
+                        size: Theme.compact ? 64 : 88
                         selected: rewardsScreen.selected && rewardsScreen.selected.id === modelData.id
                         TapHandler { onTapped: rewardsScreen.selectedId = modelData.id }
                     }
@@ -47,7 +47,7 @@ Item {
         // Balance banner.
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 150
+            Layout.preferredHeight: Theme.compact ? 100 : 150
             radius: Theme.radius
             color: rewardsScreen.selected ? rewardsScreen.selected.color : Theme.accent
             visible: rewardsScreen.selected !== null
@@ -63,7 +63,7 @@ Item {
                 Label {
                     text: "★ " + (rewardsScreen.selected ? rewardsScreen.selected.points : 0)
                     color: "white"
-                    font.pixelSize: 80
+                    font.pixelSize: Theme.compact ? 60 : 80
                     font.weight: Font.Bold
                 }
             }
@@ -75,7 +75,7 @@ Item {
             Layout.fillHeight: true
             clip: true
             cellWidth: width / 3
-            cellHeight: 260
+            cellHeight: Theme.compact ? 220 : 260
             model: Store.rewards
             delegate: Item {
                 id: rewardCell

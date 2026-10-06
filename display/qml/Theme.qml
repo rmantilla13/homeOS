@@ -24,10 +24,15 @@ QtObject {
     readonly property int fontMd: 26
     readonly property int fontLg: 34
     readonly property int fontXl: 48
-    readonly property int fontHuge: 120
+    readonly property int fontHuge: compact ? 96 : 120
 
     readonly property int radius: 24
-    readonly property int spacing: 24
+    readonly property int spacing: compact ? 16 : 24
+    readonly property int pageMargin: compact ? 24 : 40
     readonly property int touchTarget: 72
-    readonly property int navWidth: 128
+    readonly property int navWidth: compact ? 104 : 128
+
+    // Set by Main.qml from the window size. Small panels (e.g. the 10.1" 1920×1200
+    // screen at QT_SCALE_FACTOR=1.5 → 1280×800) get tighter spacing and sizes.
+    property bool compact: false
 }

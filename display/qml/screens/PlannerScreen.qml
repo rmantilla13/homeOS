@@ -15,7 +15,7 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 40
+        anchors.margins: Theme.pageMargin
         spacing: Theme.spacing
 
         Card {
@@ -34,7 +34,7 @@ Item {
                         readonly property date day: planner.addDays(planner.today, index)
                         readonly property var meal: Store.meals.find(m => m.date === Qt.formatDate(day, "yyyy-MM-dd") && m.meal === "dinner")
                         width: parent.width
-                        height: 92
+                        height: Theme.compact ? 70 : 92
                         radius: 18
                         color: index === 0 ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12) : Theme.surfaceAlt
                         RowLayout {

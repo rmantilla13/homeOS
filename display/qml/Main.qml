@@ -6,8 +6,9 @@ import HomeOS.Core
 
 ApplicationWindow {
     id: window
-    width: 1920
-    height: 1080
+    // Fill the panel; in a window, start at the 10.1" panel's logical size.
+    width: startWindowed ? 1280 : Screen.width
+    height: startWindowed ? 800 : Screen.height
     visible: true
     visibility: startWindowed ? Window.Windowed : Window.FullScreen
     title: "homeOS"
@@ -15,6 +16,8 @@ ApplicationWindow {
     font.family: Theme.fontFamily
 
     property int currentScreen: 0
+
+    Binding { target: Theme; property: "compact"; value: window.width < 1600 }
 
     // Drop back to the home screen after the photo frame has been up.
     Connections {
@@ -87,6 +90,14 @@ ApplicationWindow {
             target: Store
             function onNotify(message) { toastLabel.text = message; toastAnim.restart() }
         }
+    }
+
+    // On-screen keyboard (QT_IM_MODULE=qtvirtualkeyboard on the device).
+    Loader {
+        anchors.fill: parent
+        z: 1000
+        active: Qt.application.arguments.indexOf("--no-keyboard") < 0
+        source: "components/KeyboardPanel.qml"
     }
 
     // Offline indicator.

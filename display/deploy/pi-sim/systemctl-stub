@@ -1,0 +1,5 @@
+#!/bin/sh
+# Stand-in for systemctl inside the simulator container.
+echo "[simulated] systemctl $*" >&2
+[ "$1" = get-default ] && echo graphical.target
+exit 0

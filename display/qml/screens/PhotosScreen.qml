@@ -10,7 +10,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 40
+        anchors.margins: Theme.pageMargin
         spacing: Theme.spacing
 
         RowLayout {
@@ -34,7 +34,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            cellWidth: width / 4
+            cellWidth: width / (Theme.compact ? 3 : 4)
             cellHeight: cellWidth * 0.75
             model: Store.photos
             delegate: Item {

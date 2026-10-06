@@ -23,9 +23,9 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: 32
-        anchors.bottomMargin: 32
-        spacing: 12
+        anchors.topMargin: Theme.compact ? 16 : 32
+        anchors.bottomMargin: Theme.compact ? 16 : 32
+        spacing: Theme.compact ? 8 : 12
 
         Repeater {
             model: rail.items
@@ -35,8 +35,8 @@ Rectangle {
                 readonly property bool active: index === rail.currentIndex
 
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 104
-                Layout.preferredHeight: 104
+                Layout.preferredWidth: Theme.compact ? 88 : 104
+                Layout.preferredHeight: Theme.compact ? 88 : 104
                 radius: 28
                 color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.15) : "transparent"
 
@@ -47,7 +47,7 @@ Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: modelData.icon
                         font.family: Theme.emojiFont
-                        font.pixelSize: 40
+                        font.pixelSize: Theme.compact ? 32 : 40
                     }
                     Label {
                         anchors.horizontalCenter: parent.horizontalCenter

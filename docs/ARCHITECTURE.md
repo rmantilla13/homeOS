@@ -4,7 +4,7 @@
  ┌──────────────────┐        ┌──────────────────────────────┐        ┌──────────────────┐
  │  iOS app (Swift) │◀──────▶│  Supabase (cloud backend)    │◀──────▶│ Wall display     │
  │  parents & kids  │  HTTPS │  Postgres + RLS              │ HTTPS  │ Qt 6 / QML / C++ │
- │  feed the screen │  + WS  │  Auth · Storage · Realtime   │  + WS  │ RK3588 device    │
+ │  feed the screen │  + WS  │  Auth · Storage · Realtime   │  + WS  │ Raspberry Pi 5   │
  └──────────────────┘        │  Edge Functions (pairing,    │        │ local cache      │
                              │  push, recurring jobs)       │        └──────────────────┘
                              └──────────────────────────────┘

@@ -40,6 +40,7 @@ qt_add_qml_module(homeos-display
         qml/screens/PairingScreen.qml
     RESOURCES
         resources/demo/family.json
+        qml/components/KeyboardPanel.qml
 )
 
 target_link_libraries(homeos-display PRIVATE Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick)
