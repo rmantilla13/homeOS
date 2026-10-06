@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QHostAddress>
 #include <QNetworkInterface>
+#include <QSettings>
 #include <QStandardPaths>
 
 namespace {
@@ -204,7 +205,18 @@ void SystemController::setVolume(int percent)
     if (m_wpctl.isEmpty() || m_busy)
         return;
     m_volumeGoal = qBound(0, percent, 100);
-    begin(QStringLiteral("volume-mute"), m_wpctl, {QStringLiteral("set-mute"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), QStringLiteral("0")}, {}, 4000);
+    begin(QStringLiteral("volume-set"), m_wpctl,
+          {QStringLiteral("set-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), QStringLiteral("%1%").arg(m_volumeGoal)}, {}, 4000);
+}
+
+void SystemController::setMuted(bool on)
+{
+    QSettings().setValue(QStringLiteral("audio/muted"), on);
+    if (m_wpctl.isEmpty() || m_busy)
+        return;
+    m_muteGoal = on;
+    begin(QStringLiteral("mute"), m_wpctl,
+          {QStringLiteral("set-mute"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), on ? QStringLiteral("1") : QStringLiteral("0")}, {}, 4000);
 }
 
 void SystemController::restartApp()
@@ -284,27 +296,57 @@ void SystemController::finish(const QString &action, bool ok, const QString &out
         }
     } else if (action == QLatin1String("volume")) {
         const int percent = ok ? parseVolumePercent(out) : -1;
+        const bool muted = ok && parseMuted(out);
         m_volumeAvailable = percent >= 0;
         if (percent >= 0)
             m_volume = percent;
+        m_muted = muted;
         emit volumeChanged();
-    } else if (action == QLatin1String("volume-mute")) {
-        if (!ok) {
-            m_volumeAvailable = false;
-            emit volumeChanged();
-            setMessage(QStringLiteral("No speaker is connected."));
-        } else {
-            begin(QStringLiteral("volume-set"), m_wpctl,
-                  {QStringLiteral("set-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), QStringLiteral("%1%").arg(m_volumeGoal)}, {}, 4000);
-            return;
+        if (m_volumeAvailable && !m_audioApplied) {
+            m_audioApplied = true;
+            QSettings settings;
+            const bool wantMuted = settings.value(QStringLiteral("audio/muted"), false).toBool();
+            // The installer used to leave HDMI at full volume, which makes the
+            // panel's speakers hiss. Ease that off once.
+            if (!settings.value(QStringLiteral("audio/tamed")).toBool()) {
+                settings.setValue(QStringLiteral("audio/tamed"), true);
+                if (percent >= 90) {
+                    m_volumeGoal = 50;
+                    m_muteAfter = wantMuted;
+                    begin(QStringLiteral("volume-set"), m_wpctl,
+                          {QStringLiteral("set-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), QStringLiteral("50%")}, {}, 4000);
+                    return;
+                }
+            }
+            if (wantMuted != muted) {
+                m_muteGoal = wantMuted;
+                begin(QStringLiteral("mute"), m_wpctl,
+                      {QStringLiteral("set-mute"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), wantMuted ? QStringLiteral("1") : QStringLiteral("0")}, {},
+                      4000);
+                return;
+            }
         }
     } else if (action == QLatin1String("volume-set")) {
         if (ok) {
             m_volume = m_volumeGoal;
             m_volumeAvailable = true;
             emit volumeChanged();
+            if (m_muteAfter) {
+                m_muteAfter = false;
+                m_muteGoal = true;
+                begin(QStringLiteral("mute"), m_wpctl,
+                      {QStringLiteral("set-mute"), QStringLiteral("@DEFAULT_AUDIO_SINK@"), QStringLiteral("1")}, {}, 4000);
+                return;
+            }
         } else {
             setMessage(QStringLiteral("Couldn't change the volume."));
+        }
+    } else if (action == QLatin1String("mute")) {
+        if (ok) {
+            m_muted = m_muteGoal;
+            emit volumeChanged();
+        } else {
+            setMessage(QStringLiteral("Couldn't change the speakers."));
         }
     } else if (action == QLatin1String("scan")) {
         if (ok) {
@@ -475,6 +517,11 @@ bool SystemController::parseWifiStatus(const QString &text, bool *enabled, QStri
         }
     }
     return true;
+}
+
+bool SystemController::parseMuted(const QString &text)
+{
+    return text.contains(QLatin1String("[MUTED]"));
 }
 
 int SystemController::parseVolumePercent(const QString &text)

@@ -64,6 +64,8 @@ private slots:
     {
         QCOMPARE(SystemController::parseVolumePercent(QStringLiteral("Volume: 0.42")), 42);
         QCOMPARE(SystemController::parseVolumePercent(QStringLiteral("Volume: 1.00 [MUTED]")), 100);
+        QVERIFY(SystemController::parseMuted(QStringLiteral("Volume: 1.00 [MUTED]")));
+        QVERIFY(!SystemController::parseMuted(QStringLiteral("Volume: 0.42")));
         QCOMPARE(SystemController::parseVolumePercent(QStringLiteral("Volume: 0.00")), 0);
         QCOMPARE(SystemController::parseVolumePercent(QStringLiteral("no sink")), -1);
     }

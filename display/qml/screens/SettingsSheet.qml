@@ -257,14 +257,43 @@ Popup {
                                     onToggled: on => Device.animatedTiles = on
                                 }
                             }
-                            Rectangle { visible: System.volumeAvailable; Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                        }
+                    }
+
+                    SectionLabel { visible: System.volumeAvailable; Layout.topMargin: 12; text: qsTr("SPEAKERS") }
+                    Rectangle {
+                        visible: System.volumeAvailable
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: speakerRows.implicitHeight
+                        radius: 24
+                        color: Theme.surfaceAlt
+                        ColumnLayout {
+                            id: speakerRows
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 18
+                            anchors.rightMargin: 20
+                            spacing: 0
                             SettingRow {
-                                visible: System.volumeAvailable
+                                icon: System.muted ? "speaker-off" : "speaker"
+                                title: qsTr("Screen speakers")
+                                detail: System.muted
+                                        ? qsTr("Off. This stops the hiss from the screen.")
+                                        : qsTr("Built into the screen. Its own buttons still change how loud it is.")
+                                Toggle {
+                                    checked: !System.muted
+                                    onToggled: on => System.setMuted(!on)
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                enabled: !System.muted
                                 icon: "speaker"
-                                title: qsTr("Speaker volume")
-                                detail: qsTr("The screen's speakers. Its own buttons still work.")
+                                title: qsTr("Volume")
+                                detail: System.muted ? qsTr("Turn the speakers on to change this.") : qsTr("Lower this if a hiss remains.")
                                 RowLayout {
                                     spacing: 8
+                                    enabled: !System.muted
                                     Label {
                                         text: Math.round(volume.value) + "%"
                                         color: Theme.textMuted
@@ -276,7 +305,8 @@ Popup {
                                         from: 0
                                         to: 100
                                         stepSize: 1
-                                        value: System.volume
+                                        enabled: !System.muted
+                                        value: System.volume < 0 ? 0 : System.volume
                                         implicitWidth: Theme.compact ? 160 : 200
                                         implicitHeight: 44
                                         onPressedChanged: if (!pressed) System.setVolume(Math.round(value))

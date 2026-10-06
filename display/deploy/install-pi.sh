@@ -200,17 +200,39 @@ ALSA
 else
     echo "Keeping your own /etc/asound.conf"
 fi
-# WirePlumber starts each output at 40% volume (-24 dB), which makes videos
-# and the voice replies quiet; start the panel at full volume instead. Its
-# own volume buttons still work.
+# Full volume on this panel's HDMI speakers is mostly hiss. Start lower;
+# the gear menu can turn them off or up. A volume set later is kept.
 sudo mkdir -p /etc/wireplumber/wireplumber.conf.d
 sudo tee /etc/wireplumber/wireplumber.conf.d/50-homeos.conf >/dev/null <<'WP'
-# Written by homeOS install-pi.sh: outputs start at full volume (WirePlumber's
-# default is 40%). A volume set later with wpctl or pactl is kept instead.
+# Written by homeOS install-pi.sh. 0.5 is loud enough for a video without
+# the panel's amplifier sitting at full scale (that hiss). A volume set
+# later with wpctl is kept instead.
 wireplumber.settings = {
-  device.routes.default-sink-volume = 1.0
+  device.routes.default-sink-volume = 0.5
 }
 WP
+# Close the HDMI audio device soon after playback, so the speakers go quiet
+# instead of holding a silent stream open.
+sudo tee /etc/wireplumber/wireplumber.conf.d/51-homeos-speakers.conf >/dev/null <<'WP'
+# Written by homeOS install-pi.sh.
+monitor.alsa.rules = [
+  {
+    matches = [
+      {
+        node.name = "~alsa_output.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        session.suspend-timeout-seconds = 1
+      }
+    }
+  }
+]
+WP
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    systemctl --user try-restart wireplumber.service pipewire.service pipewire-pulse.service || true
+fi
 
 if [ -d /etc/NetworkManager/conf.d ]; then
     step "Turning off Wi-Fi power saving"

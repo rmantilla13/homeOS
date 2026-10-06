@@ -171,7 +171,7 @@ VoiceClient  ─ WebSocket to the voice service: wake, transcripts, speech
 SupabaseClient ─ REST (PostgREST) and streamed function calls (SSE)
      │
 DisplayController ─ idle → screen saver, backlight, presence wake
-SystemController ─ Wi-Fi, speaker volume, restart, reboot
+SystemController ─ Wi-Fi, screen speakers (mute and volume), restart, reboot
 ```
 
 - **Kiosk mode**: runs full screen with `-platform eglfs`, one app per device,

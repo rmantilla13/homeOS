@@ -35,6 +35,7 @@ class SystemController : public QObject
     Q_PROPERTY(QString ipAddress READ ipAddress NOTIFY ipChanged)
     Q_PROPERTY(bool volumeAvailable READ volumeAvailable NOTIFY volumeChanged)
     Q_PROPERTY(int volume READ volume NOTIFY volumeChanged)
+    Q_PROPERTY(bool muted READ muted NOTIFY volumeChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString message READ message NOTIFY messageChanged)
     Q_PROPERTY(QString lastAction READ lastAction NOTIFY actionFinished)
@@ -55,6 +56,7 @@ public:
     QString ipAddress() const { return m_ipAddress; }
     bool volumeAvailable() const { return m_volumeAvailable; }
     int volume() const { return m_volume; }
+    bool muted() const { return m_muted; }
     bool busy() const { return m_busy; }
     QString message() const { return m_message; }
     QString lastAction() const { return m_lastAction; }
@@ -65,6 +67,7 @@ public:
     Q_INVOKABLE void connectWifi(const QString &ssid, const QString &password, bool saved);
     Q_INVOKABLE void setWifiEnabled(bool on);
     Q_INVOKABLE void setVolume(int percent);
+    Q_INVOKABLE void setMuted(bool on);
     Q_INVOKABLE void restartApp();
     Q_INVOKABLE void reboot();
 
@@ -72,6 +75,7 @@ public:
     static QVector<WifiNetwork> parseWifiScan(const QString &text);
     static bool parseWifiStatus(const QString &text, bool *enabled, QString *ssid);
     static int parseVolumePercent(const QString &text);
+    static bool parseMuted(const QString &text);
     static bool validSsid(const QString &ssid);
     static bool validPassword(const QString &password);
     static QString friendlyWifiError(const QString &stderrText);
@@ -108,6 +112,10 @@ private:
     int m_wifiSignal = -1;
     int m_volume = -1;
     int m_volumeGoal = -1;
+    bool m_muted = false;
+    bool m_muteGoal = false;
+    bool m_audioApplied = false;
+    bool m_muteAfter = false;
     bool m_radioGoal = false;
     QTemporaryFile *m_secret = nullptr;
     bool m_wifiAvailable = false;

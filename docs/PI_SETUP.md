@@ -96,9 +96,10 @@ The script takes 20–30 minutes. It:
 - stops the text console from blanking the screen or showing a cursor behind
   the app (in `/boot/firmware/cmdline.txt`; the original is saved as
   `cmdline.txt.homeos-backup`)
-- sends sound to the screen's speakers at full volume (the screen's own
-  buttons turn it down), and turns off Wi-Fi power saving, which makes Wi-Fi
-  drop out
+- sends sound to the screen's speakers at half volume (full volume on this
+  panel is mostly hiss; the gear menu turns the speakers off or up, and the
+  screen's own buttons still work), and turns off Wi-Fi power saving, which
+  makes Wi-Fi drop out
 - starts the app on every boot as the `homeos-display` service
 - warns at the end if the Pi has been short of power
 
@@ -157,7 +158,8 @@ Start with the logs: `journalctl -u homeos-display -b`.
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |
-| No sound, or too quiet | Check the screen's own volume and mute. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. `wpctl get-volume @DEFAULT_AUDIO_SINK@` should say `1.00`; set it with `wpctl set-volume @DEFAULT_AUDIO_SINK@ 100%`. |
+| Hiss or noise from the screen's speakers | In the gear menu, turn **Screen speakers** off, or lower **Volume**. The screen's own volume buttons add gain on top of that, so turn those down too. Nothing playing should go quiet after about a second. |
+| No sound, or too quiet | Turn **Screen speakers** on in the gear menu and raise **Volume**. Also check the screen's own mute and volume. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. |
 | No sound after turning the screen on after the Pi | Sound looks for the screen's speakers when the Pi starts, and may miss them if the screen was off. Run `systemctl --user restart wireplumber`, or `sudo reboot`. |
 | Videos stutter (often 4K iPhone clips) | On Raspberry Pi OS Trixie, Qt plays video through FFmpeg, which decodes on the Pi's CPU: fine for 1080p. Record at 1080p on the iPhone (Settings → Camera → Record Video). To try the Pi's HEVC decoder, add `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm` to `display.env` and restart the app; remove it if videos get worse or go black. |
 | `vcgencmd get_throttled` isn't `0x0`, or `dmesg` says `Undervoltage detected` | The Pi is short of power. Use the official 27 W supply, and power the screen from its own adapter. |

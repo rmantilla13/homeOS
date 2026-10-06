@@ -643,7 +643,11 @@ and the admin console show it.
 - screen saver style (reuse the picker content)
 - wake word on/off (`Voice.setWakewordEnabled`, disabled when the service is unavailable)
 - spoken replies on/off (QSettings `voice/speakReplies`, default on)
-- speaker volume, when PipeWire (`wpctl`) is available
+- screen speakers on/off and volume, when PipeWire (`wpctl`) is available.
+  Off mutes the HDMI sink (remembered). The first time the app sees the sink
+  at about full volume it eases it to 50%, because full scale on this panel
+  is mostly hiss. Install also asks WirePlumber to start new outputs at 0.5
+  and to suspend HDMI audio one second after playback stops
 - Wi-Fi: current network, scan, join (saved, open, or a password), radio on/off.
   Joining and the radio go through `/usr/local/libexec/homeos-system` as root
   (`display/deploy/install-pi.sh` installs it and a NOPASSWD sudoers rule).
