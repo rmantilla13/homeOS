@@ -3,6 +3,7 @@ import { DataError } from "@/lib/errors";
 import { buildDemoState, USAGE_DAYS, type DemoFamily, type DemoState } from "@/lib/demo/fixtures";
 import type {
   AuditEntry,
+  BootVideo,
   FamilyDetail,
   FamilyRow,
   FamilyStatus,
@@ -185,6 +186,11 @@ export function demoSettings(): Settings {
   return { ...state().settings };
 }
 
+export function demoBootVideo(): BootVideo | null {
+  const video = state().bootVideo;
+  return video ? { ...video } : null;
+}
+
 export function demoListAudit(lim: number, off: number): AuditEntry[] {
   return state().audit.slice(off, off + lim);
 }
@@ -241,6 +247,23 @@ export function demoRevokeInvite(id: string) {
   if (!invite) throw new DataError("invite not found");
   invite.revoked_at ??= new Date().toISOString();
   audit("revoke_platform_invite", "platform_invite", id, { code: invite.code });
+}
+
+export function demoSetBootVideo(byteSize: number, durationMs: number): BootVideo {
+  const video: BootVideo = {
+    byte_size: byteSize,
+    duration_ms: durationMs,
+    updated_at: new Date().toISOString(),
+    preview_url: "/demo-boot.mp4",
+  };
+  state().bootVideo = video;
+  audit("set_boot_video", "boot_video", "current.mp4", { byte_size: byteSize, duration_ms: durationMs, demo: true });
+  return { ...video };
+}
+
+export function demoRemoveBootVideo() {
+  state().bootVideo = null;
+  audit("remove_boot_video", "boot_video", "current.mp4", { demo: true });
 }
 
 export function demoUpdateSettings(patch: Partial<Pick<Settings, "invite_only" | "assistant_enabled" | "assistant_daily_limit">>): Settings {

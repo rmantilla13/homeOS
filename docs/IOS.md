@@ -205,8 +205,10 @@ app's chat history. The Profile screen shows a `SiriTipView` for it.
 
 ## CI
 
-`.github/workflows/ios.yml` runs on pushes and pull requests that touch
-`ios/**` or the workflow. On `macos-15` it selects the newest stable Xcode
+`.github/workflows/ios.yml` runs on pull requests that touch `ios/**` or the
+workflow, and on demand (Actions → iOS → Run workflow). It does not run on
+pushes to `main`: macOS runners use minutes at ten times the Linux rate. On
+`macos-15` it selects the newest stable Xcode
 (`maxim-lobanov/setup-xcode`, failing if that's older than 16) and builds the
 checked-in project:
 

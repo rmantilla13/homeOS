@@ -1,15 +1,15 @@
 # Builds the iOS app for the simulator (no signing). See docs/IOS.md → CI.
+# macOS minutes cost ten times Linux ones, so this runs on pull requests that
+# touch the app and on demand (Actions → iOS → Run workflow), not on every
+# push to main.
 name: iOS
 
 on:
-  push:
-    paths:
-      - "ios/**"
-      - ".github/workflows/ios.yml"
   pull_request:
     paths:
       - "ios/**"
       - ".github/workflows/ios.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -9,7 +9,11 @@ export type AdminRequest =
   | { action: "delete_family"; familyId: string }
   | { action: "sign_media"; familyId: string; mediaIds: string[] }
   | { action: "delete_media"; mediaId: string }
-  | { action: "revoke_device"; deviceId: string };
+  | { action: "revoke_device"; deviceId: string }
+  | { action: "get_boot_video" }
+  | { action: "create_boot_video_upload" }
+  | { action: "commit_boot_video"; path: string }
+  | { action: "remove_boot_video" };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -61,9 +65,21 @@ export function parseAdminRequest(body: unknown): AdminRequest | { error: string
     case "revoke_device":
       if (!isUuid(b.device_id)) return { error: "device_id must be a uuid" };
       return { action: "revoke_device", deviceId: b.device_id.toLowerCase() };
+    case "get_boot_video":
+    case "create_boot_video_upload":
+    case "remove_boot_video":
+      return { action: b.action };
+    case "commit_boot_video": {
+      const path = typeof b.path === "string" ? b.path : "";
+      if (!/^pending\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mp4$/.test(path)) {
+        return { error: "path must be a pending boot video" };
+      }
+      return { action: "commit_boot_video", path };
+    }
     default:
       return {
-        error: "action must be invite_email, ban_user, unban_user, delete_user, delete_family, sign_media, delete_media or revoke_device",
+        error:
+          "action must be invite_email, ban_user, unban_user, delete_user, delete_family, sign_media, delete_media, revoke_device, get_boot_video, create_boot_video_upload, commit_boot_video or remove_boot_video",
       };
   }
 }

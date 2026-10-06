@@ -77,9 +77,24 @@ Deno.test("delete_media and revoke_device need a uuid", () => {
   assertEquals(parseAdminRequest({ action: "revoke_device" }), { error: "device_id must be a uuid" });
 });
 
+Deno.test("boot video actions", () => {
+  const path = "pending/6f1c2b9a-0d4e-4b8a-9c3f-5e7d1a2b3c4d.mp4";
+  assertEquals(parseAdminRequest({ action: "get_boot_video" }), { action: "get_boot_video" });
+  assertEquals(parseAdminRequest({ action: "create_boot_video_upload" }), { action: "create_boot_video_upload" });
+  assertEquals(parseAdminRequest({ action: "remove_boot_video" }), { action: "remove_boot_video" });
+  assertEquals(parseAdminRequest({ action: "commit_boot_video", path }), { action: "commit_boot_video", path });
+  assertEquals(parseAdminRequest({ action: "commit_boot_video", path: "current.mp4" }), {
+    error: "path must be a pending boot video",
+  });
+  assertEquals(parseAdminRequest({ action: "commit_boot_video", path: "pending/../current.mp4" }), {
+    error: "path must be a pending boot video",
+  });
+});
+
 Deno.test("unknown actions and non-object bodies", () => {
   const err = {
-    error: "action must be invite_email, ban_user, unban_user, delete_user, delete_family, sign_media, delete_media or revoke_device",
+    error:
+      "action must be invite_email, ban_user, unban_user, delete_user, delete_family, sign_media, delete_media, revoke_device, get_boot_video, create_boot_video_upload, commit_boot_video or remove_boot_video",
   };
   assertEquals(parseAdminRequest({ action: "make_admin", user_id: USER }), err);
   assertEquals(parseAdminRequest({}), err);

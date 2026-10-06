@@ -33,13 +33,22 @@ Migrations are added after the existing ones, never edited in place:
   checks (§1.8), on tables from 20261006000001
 - `20261008000001_media_platform.sql`: per-family storage quotas, media path
   binding, device and membership guards, admin media / limits / revoke RPCs (§1.9)
-- `20261008000001_video_blob.sql`: `media_items.file_store` (§1.10)
-- `20261008000002_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
 - `20261008000002_media_storage.sql`: the Storage quota trigger and the
   `family-media` policies (Supabase-only, like 000002 and 000005)
-- `20261008000003_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
+- `20261008000004_boot_video.sql`: `platform_boot_video` (service role
+  only) and the private `boot-video` bucket, where anon and displays may read
+  `current.mp4` and nothing else. Safe to run again (§2, §3)
 - `20261009000001_wall_create_rewards.sql`: split `rewards` RLS so a paired
   display (or a parent) may insert; parents still update and delete (§1.8, §5)
+- `20261009000002_video_blob.sql`: `media_items.file_store` (§1.10)
+- `20261009000003_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
+- `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
+
+The last three were `20261008000001` to `20261008000003`. Two of those
+versions were shared with `media_platform` and `media_storage`, and Supabase
+keys migrations by version, so they moved after the others in the same order.
+They are safe to run again on a database where they were pasted into the SQL
+editor. Every version is unique; keep it that way.
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -542,8 +551,12 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. Blob rows are signed by `/api/media/urls` instead. |
 | `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. |
 | `revoke_device` | `device_id` | `admin_revoke_device` with the admin's own JWT (404 `device not found`). If SQL couldn't delete the auth user, calls `auth.admin.deleteUser`. Returns `{ ok, auth_user_removed }`, or `{ error, auth_user_removed: false }` with 502 when Auth refuses. |
+| `get_boot_video` | — | Reads `platform_boot_video` with the service role and, when a row exists, signs `boot-video/current.mp4` for 10 minutes. Returns `{ video: null }` or `{ video: { byte_size, duration_ms, updated_at, preview_url } }`. Not audited. |
+| `create_boot_video_upload` | — | Returns `{ path, signed_url, token }` for a new `boot-video/pending/<uuid>.mp4`. The browser PUTs the file there. The service role key stays in the function. |
+| `commit_boot_video` | `path` | `path` must be that pending object. Downloads it, requires a silent MP4 of 0.5–12 seconds and at most 20 MB, copies it to `current.mp4`, and upserts `platform_boot_video`. Anything else is deleted and answered 400. Audits `set_boot_video`. |
+| `remove_boot_video` | — | Deletes `current.mp4` and the row. Displays fall back to the built-in clip. Audits `remove_boot_video`. |
 
-Every action except `sign_media` writes `admin_audit_log` with the service
+Every action except `sign_media` and `get_boot_video` writes `admin_audit_log` with the service
 role (`delete_family` writes `delete_family_files`, `delete_media` writes
 `delete_media_files`, `revoke_device` writes `revoke_device_auth`; the RPCs
 write their own rows). Responses are `{ ok: true, ... }`, or `{ error }` with
@@ -588,9 +601,11 @@ the session. Every page except `/login` requires a session and
 - `/invites`: create a platform invite (email optional, note, max uses,
   expiry), optionally emailing it (`admin` → `invite_email`). The list shows
   status and has copy-code and revoke actions.
-- `/settings`: invite-only toggle, assistant enabled, daily limit. Saving
-  sends only the values this form changed (null leaves the others), so a
-  stale form can't undo another admin's change.
+- `/settings`: invite-only toggle, assistant enabled, daily limit, and the
+  platform boot video (preview, upload, remove). Saving settings sends only
+  the values this form changed (null leaves the others), so a stale form
+  can't undo another admin's change. The boot video is one silent MP4 for
+  every display, stored in the private `boot-video` bucket.
 - `/audit`: paginated audit log.
 
 **Media API** (family JWT, not the admin session)
@@ -916,7 +931,8 @@ Details are in [IOS.md](IOS.md).
 
 ## 7. CI (`.github/workflows/`)
 
-- **`ios.yml`:** on push and PR, when `ios/**` or the workflow changes:
+- **`ios.yml`:** on PRs that change `ios/**` or the workflow, and on
+  `workflow_dispatch` (not on push: macOS minutes cost 10x):
   `xcodebuild -project ios/OhanaOS.xcodeproj -scheme OhanaOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
   Pick the newest Xcode 16+ with `maxim-lobanov/setup-xcode` or `xcode-select`.
 - **`ci.yml`:** jobs on `ubuntu-24.04`
@@ -928,3 +944,8 @@ Details are in [IOS.md](IOS.md).
     `QT_QPA_PLATFORM=offscreen ./homeos-display --demo` for 5 s; it must still be running
   - `admin`: Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`, `npm test`
   - `voice`: Python 3.11, `pip install -e voice[dev]`, `pytest voice`
+  - `pi-install`: `install-pi.sh --with-voice` in a `debian:trixie` container
+    (Qt 6.8, Python 3.13), then a smoke run and preview mode. Runs when
+    `display/deploy/**`, `voice/deploy/**`, `display/CMakeLists.txt`,
+    `voice/pyproject.toml` or `ci.yml` change, and on pull requests into
+    `main` that touch `display/**` or `voice/**`

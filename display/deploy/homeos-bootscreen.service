@@ -1,0 +1,25 @@
+# Plays the homeOS boot video on the panel from the time the console is up
+# until homeos-display takes the screen. Installed by install-pi.sh.
+#
+# This unit does not Conflicts= with homeos-display. Both have to be in the
+# boot transaction: a conflict drops one of them, and the video would never
+# start. The display unit stops this process itself, and waits until it has
+# exited, before opening HDMI.
+#
+# Before=getty (not After=) matches the kiosk. After=getty plus Conflicts=
+# order-cycles, and systemd then leaves the login prompt on the panel.
+[Unit]
+Description=homeOS boot video
+After=local-fs.target systemd-udevd.service
+Before=homeos-display.service getty@tty1.service autovt@tty1.service
+Conflicts=getty@tty1.service autovt@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/homeos-bootscreen
+# A stop has to drop the DRM device before the app opens it.
+TimeoutStopSec=3
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
