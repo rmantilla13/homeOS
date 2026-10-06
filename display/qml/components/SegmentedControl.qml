@@ -20,8 +20,10 @@ Rectangle {
         height: parent.height - 12
         radius: height / 2
         color: Theme.accent
-        x: row.x + (repeater.itemAt(seg.currentIndex) ? repeater.itemAt(seg.currentIndex).x : 0)
-        width: repeater.itemAt(seg.currentIndex) ? repeater.itemAt(seg.currentIndex).width : 0
+        // Depend on row.width/count so this re-evaluates once the items exist.
+        readonly property Item target: repeater.count > 0 && row.width > 0 ? repeater.itemAt(seg.currentIndex) : null
+        x: row.x + (target ? target.x : 0)
+        width: target ? target.width : 0
         Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
     }
@@ -44,7 +46,7 @@ Rectangle {
                     text: modelData
                     font.pixelSize: Theme.fontSm
                     font.weight: Font.Medium
-                    color: index === seg.currentIndex ? Theme.onAccent : Theme.text
+                    color: index === seg.currentIndex ? Theme.accentInk : Theme.text
                 }
                 TapHandler { onTapped: { seg.currentIndex = index; seg.selected(index) } }
             }

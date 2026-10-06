@@ -64,7 +64,7 @@ Item {
                             id: dayLabel
                             anchors.centerIn: parent
                             text: Qt.formatDate(modelData, "ddd d")
-                            color: today ? Theme.onAccent : Theme.text
+                            color: today ? Theme.accentInk : Theme.text
                             font.pixelSize: Theme.fontMd - 2
                             font.weight: Font.Medium
                         }
@@ -181,9 +181,11 @@ Item {
                                 color: modelData.e.tintColor
                                 clip: true
 
+                                readonly property bool roomy: height >= 60
                                 Column {
                                     anchors.fill: parent
-                                    anchors.margins: 10
+                                    anchors.margins: parent.roomy ? 10 : 6
+                                    anchors.leftMargin: 10
                                     anchors.rightMargin: badge.visible ? 38 : 10
                                     spacing: 2
                                     Label {
@@ -192,11 +194,12 @@ Item {
                                         color: modelData.e.inkColor
                                         font.pixelSize: Theme.fontXs + 1
                                         font.weight: Font.DemiBold
-                                        wrapMode: Text.WordWrap
+                                        wrapMode: parent.parent.roomy ? Text.WordWrap : Text.NoWrap
                                         maximumLineCount: 2
                                         elide: Text.ElideRight
                                     }
                                     Label {
+                                        visible: parent.parent.roomy
                                         width: parent.width
                                         text: modelData.e.timeLabel
                                         color: modelData.e.inkColor

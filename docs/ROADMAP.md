@@ -23,6 +23,13 @@
 - [ ] Wake on mmWave presence, auto-brightness, night mode
 - [ ] Watchdog and remote logging
 
+## M2.5: Design and assistant
+- [x] New visual style: warm canvas, line icons, blue accent, blue/coral/amber glow, pastel member colors
+- [x] Calendar with Day, Week (time grid) and Month views
+- [x] Family assistant on the home screen (Claude, grounded in family data and family memory, with action tools)
+- [ ] Assistant in the iOS app
+- [ ] Voice input (speech-to-text) and spoken replies
+
 ## M3: Polish and family features
 - [ ] Recurring chores generated nightly (edge function plus cron)
 - [ ] Google and iCloud calendar sync

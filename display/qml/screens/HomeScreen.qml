@@ -15,6 +15,8 @@ Item {
     readonly property var dinner: Store.meals.find(m => m.date === todayIso && m.meal === "dinner")
     readonly property var upcoming: Store.events
         .filter(e => (e.all_day ? e.day >= todayIso : e.startMs >= now.getTime() - 30 * 60000))
+        .sort((a, b) => a.day === b.day ? (a.all_day ? -1 : b.all_day ? 1 : a.startMs - b.startMs)
+                                        : (a.day < b.day ? -1 : 1))
         .slice(0, 6)
 
     Timer { interval: 1000; running: true; repeat: true; onTriggered: home.now = new Date() }
@@ -207,7 +209,7 @@ Item {
                             width: 60; height: 60
                             icon: "mic"
                             fill: Theme.accent
-                            ink: Theme.onAccent
+                            ink: Theme.accentInk
                             onClicked: home.openAssistant("")
                         }
                         TapHandler { onTapped: home.openAssistant("") }

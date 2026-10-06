@@ -16,7 +16,7 @@ QtObject {
     readonly property color textMuted:   dark ? "#8F95A1" : "#77767B"
     readonly property color accent:      "#4F7CF7"
     readonly property color accentSoft:  dark ? "#2A3554" : "#E3EAFE"
-    readonly property color onAccent:    "#FFFFFF"
+    readonly property color accentInk:    "#FFFFFF"
     readonly property color success:     "#3DB37A"
     readonly property color warning:     "#F2A93B"
     readonly property color divider:     dark ? "#30333C" : "#E4E0D9"

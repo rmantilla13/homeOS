@@ -14,9 +14,10 @@ plus an iOS app that family members use to feed it.
 ![Home screen](docs/screenshots/home.png)
 
 <p>
+  <img src="docs/screenshots/assistant.png" width="32%" alt="Assistant">
   <img src="docs/screenshots/calendar.png" width="32%" alt="Calendar">
-  <img src="docs/screenshots/chores.png" width="32%" alt="Chores">
-  <img src="docs/screenshots/rewards.png" width="32%" alt="Rewards">
+
+  <img src="docs/screenshots/calendar-month.png" width="32%" alt="Month view">
 </p>
 
 ## Repository layout
@@ -36,7 +37,8 @@ homeOS/
 ```bash
 sudo apt install qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
-  qml6-module-qtquick-window qml6-module-qtmultimedia
+  qml6-module-qtquick-window qml6-module-qtquick-shapes qml6-module-qtmultimedia \
+  qml6-module-qtquick-virtualkeyboard qml6-module-qt-labs-folderlistmodel
 cmake -S display -B build/display && cmake --build build/display -j
 ./build/display/homeos-display            # runs in demo mode with sample data
 ```
@@ -72,6 +74,8 @@ the app on boot.
 cd backend && supabase start         # local stack (requires Docker + Supabase CLI)
 supabase db reset                    # applies migrations and seed.sql
 supabase functions deploy pair-device
+supabase secrets set ANTHROPIC_API_KEY=...   # for the family assistant
+supabase functions deploy assistant
 tests/run.sh                         # RLS + points tests against a throwaway Postgres
 ```
 

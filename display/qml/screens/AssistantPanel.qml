@@ -26,14 +26,12 @@ Rectangle {
     // Swallow taps so nothing underneath reacts.
     MouseArea { anchors.fill: parent }
 
+    // Glow behind the empty state; fades out once the conversation starts.
     Glow {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: parent.height * 0.6
-        intensity: messages.count === 0 ? 0.9 : 0.35
-        Behavior on intensity { NumberAnimation { duration: 400 } }
-        onIntensityChanged: requestPaint()
+        anchors.fill: parent
+        anchors.topMargin: parent.height * 0.3
+        opacity: messages.count === 0 ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 400 } }
     }
 
     ColumnLayout {
@@ -107,7 +105,7 @@ Rectangle {
                         anchors.rightMargin: 22
                         text: row.modelData.text
                         wrapMode: Text.WordWrap
-                        color: row.mine ? Theme.onAccent : Theme.text
+                        color: row.mine ? Theme.accentInk : Theme.text
                         font.pixelSize: Theme.fontMd - 2
                         lineHeight: 1.15
                     }
@@ -249,7 +247,7 @@ Rectangle {
                     width: 60; height: 60
                     icon: "send"
                     fill: Theme.accent
-                    ink: Theme.onAccent
+                    ink: Theme.accentInk
                     enabled: input.text.trim().length > 0 && !AI.busy
                     onClicked: panel.send(input.text)
                 }

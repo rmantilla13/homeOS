@@ -22,6 +22,7 @@
   as soon as a phone edits something.
 - **Edge Functions**:
   - `pair-device` binds a new screen to a family.
+  - `assistant` is the family AI, described below.
   - Later: push notifications (APNs), recurring-chore generation, and
     calendar sync with Google and iCloud.
 
@@ -43,6 +44,31 @@
 
 Points are never edited directly. They are written only by database
 functions (`approve_completion`, `redeem_reward`), so balances can't drift.
+
+## Family assistant
+
+The "Ask homeOS" card on the home screen opens a chat with Claude (Opus 5.5),
+running in the `assistant` edge function.
+
+- **Grounded in family data, not trained on it.** Each request builds a fresh
+  snapshot of the family's data: members and points, the next 14 days of the
+  calendar, today's chores, rewards, the week's meals, open list items, and
+  the **family memory**. Nothing is fine-tuned, so answers always reflect
+  today's data.
+- **Family memory** (`family_memories` table) holds lasting facts the assistant
+  saves with its `remember` tool, such as "Leo is allergic to peanuts" or
+  "soccer carpool is with the Parks". Parents can delete memories.
+- **Tools:** `add_event`, `add_list_item`, `add_chore`, `set_meal`, `remember`.
+  Points, approvals and rewards are deliberately not exposed, so a child at the
+  screen can't award themselves points.
+- **Privacy:** the function queries Postgres with the caller's own JWT, so
+  row-level security limits the assistant to that family. The Anthropic API key
+  lives only in the function's secrets and never reaches a device.
+- **Demo mode:** the display answers a few common questions (today, tomorrow,
+  dinner, chores, points, adding to the grocery list) from the sample data, so
+  the screen works without a backend.
+- **Voice:** the mic button is in place; speech-to-text comes later (whisper.cpp
+  running locally on the Pi, or a cloud speech service).
 
 ## Display app: `display/`
 

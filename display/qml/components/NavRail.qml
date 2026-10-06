@@ -48,14 +48,14 @@ Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         name: modelData.icon
                         size: Theme.compact ? 26 : 30
-                        color: active ? Theme.onAccent : Theme.textMuted
+                        color: active ? Theme.accentInk : Theme.textMuted
                     }
                     Label {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: modelData.label
                         font.pixelSize: 14
                         font.weight: active ? Font.DemiBold : Font.Medium
-                        color: active ? Theme.onAccent : Theme.textMuted
+                        color: active ? Theme.accentInk : Theme.textMuted
                     }
                 }
                 TapHandler { onTapped: rail.selected(index) }

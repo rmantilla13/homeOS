@@ -122,7 +122,7 @@ QString Assistant::demoAnswer(const QString &question)
         for (const QVariant &v : m_store->meals()) {
             const QVariantMap m = v.toMap();
             if (m.value("date").toString() == today && m.value("meal").toString() == "dinner")
-                return tr("Tonight is %1. 🍽️").arg(m.value("title").toString());
+                return tr("Tonight is %1.").arg(m.value("title").toString());
         }
         return tr("Dinner isn't planned yet for tonight.");
     }
@@ -140,7 +140,7 @@ QString Assistant::demoAnswer(const QString &question)
             if (remaining.contains(name))
                 parts << QStringLiteral("%1: %2").arg(name, joinNatural(remaining.value(name)));
         }
-        return parts.isEmpty() ? tr("Everyone's done with their chores today! 🎉")
+        return parts.isEmpty() ? tr("Everyone's done with their chores today!")
                                : tr("Still to do — ") + parts.join("; ") + ".";
     }
 

@@ -42,7 +42,7 @@ ApplicationWindow {
             Layout.fillHeight: true
             Layout.preferredWidth: Theme.navWidth
             currentIndex: window.currentScreen
-            onSelected: index => window.currentScreen = index
+            onSelected: index => { assistant.open = false; window.dismissKeyboard(); window.currentScreen = index }
         }
 
         StackLayout {
