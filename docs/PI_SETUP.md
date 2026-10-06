@@ -110,6 +110,9 @@ The script takes 20–30 minutes. It:
   panel is mostly hiss; the gear menu turns the speakers off or up, and the
   screen's own buttons still work), and turns off Wi-Fi power saving, which
   makes Wi-Fi drop out
+- writes `/etc/ssh/sshd_config.d/homeos.conf` (`IPQoS cs0 cs0` and `UseDNS no`)
+  and reloads ssh, so typing in a terminal does not stutter over Wi-Fi. That
+  applies in the current session; it does not need a reboot
 - enables and starts the `homeos-display` service, which takes the console on
   every boot so the screen shows Ohana instead of a login prompt
 - warns at the end if the Pi has been short of power
@@ -184,6 +187,7 @@ Start with the logs: `journalctl -u homeos-display -b`.
 | `vcgencmd get_throttled` isn't `0x0`, or `dmesg` says `Undervoltage detected` | The Pi is short of power. Use the official 27 W supply, and power the screen from its own adapter. |
 | Slow or hot (`vcgencmd measure_temp` above 80 °C) | Check that the cooler's cable is in the **FAN** connector. The fan only spins above 50 °C. |
 | `homeos.local` not found, or Wi-Fi drops | Wait two minutes after power-on. Check the Wi-Fi name, password and country you set in Imager. A network cable always works. |
+| Typing lags in an SSH terminal | Re-run `./display/deploy/install-pi.sh`, or write `IPQoS cs0 cs0` and `UseDNS no` to `/etc/ssh/sshd_config.d/homeos.conf` and run `sudo systemctl reload ssh`. Stay in this session; a reboot is not required. That fixes the stutter even when the Pi is idle. If keystrokes still stutter, run `top`: a `homeos-display` restart loop pegging a core is a different problem. |
 | Wrong time | `timedatectl` should say `System clock synchronized: yes` (it needs the internet). Set the zone with `sudo timedatectl set-timezone America/New_York` (or yours). |
 | Everything too big or too small | Change `QT_SCALE_FACTOR` in `display.env`: 1.5 for this screen, 1.25 for a little more room. |
 | Wrong keyboard layout or date format | Set `LANG` in `display.env`, for example `en_US.UTF-8`. |

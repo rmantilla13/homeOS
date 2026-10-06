@@ -246,6 +246,25 @@ wifi.powersave = 2
 NM
 fi
 
+step "Keeping SSH typing responsive"
+# OpenSSH sets IP_TOS to low-delay (IPTOS_LOWDELAY). Many access points
+# mishandle those packets, so keystrokes stutter over Wi-Fi even when the
+# Pi is idle. cs0 leaves them unmarked. UseDNS skips a reverse lookup that
+# only slows login. This file is homeOS-owned and rewritten on every run.
+# A reload applies it in the current session; a reboot is not required.
+sudo mkdir -p /etc/ssh/sshd_config.d
+sudo tee /etc/ssh/sshd_config.d/homeos.conf >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh.
+IPQoS cs0 cs0
+UseDNS no
+EOF
+sudo chmod 644 /etc/ssh/sshd_config.d/homeos.conf
+# Debian and Raspberry Pi OS name the unit ssh.service. Reload does not
+# drop the session. If ssh is not running, the drop-in applies when it starts.
+if systemctl is-active --quiet ssh; then
+    sudo systemctl reload ssh
+fi
+
 step "Installing the kiosk service"
 sed -e "s/@USER@/$user/g" -e "s/@UID@/$uid/g" "$repo/display/deploy/homeos-display.service" \
     | sudo tee /etc/systemd/system/homeos-display.service >/dev/null
