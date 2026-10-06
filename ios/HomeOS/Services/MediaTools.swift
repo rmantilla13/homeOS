@@ -5,6 +5,7 @@ import ImageIO
 import Supabase
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// In-memory thumbnails and their average colors, keyed by storage path.
 @MainActor
@@ -171,14 +172,34 @@ enum MediaTools {
         return square.jpegData(compressionQuality: 0.85)
     }
 
-    static func videoMetadata(_ data: Data, fileExtension: String) async -> MediaMetadata {
+    /// A movie copied out of the photo picker. The picker deletes its own
+    /// temp file when `importing` returns, so this keeps a hard link (or a
+    /// copy) the upload can stream from. Delete `url` when the upload ends.
+    struct PickedVideo: Transferable {
+        let url: URL
+
+        static var transferRepresentation: some TransferRepresentation {
+            FileRepresentation(contentType: .movie) { video in
+                SentTransferredFile(video.url)
+            } importing: { received in
+                let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension(ext)
+                do {
+                    try FileManager.default.linkItem(at: received.file, to: dest)
+                } catch {
+                    try FileManager.default.copyItem(at: received.file, to: dest)
+                }
+                return PickedVideo(url: dest)
+            }
+        }
+    }
+
+    /// Duration, size and creation date, read from the file without loading it.
+    static func videoMetadata(at url: URL) async -> MediaMetadata {
         var metadata = MediaMetadata()
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(fileExtension)
         do {
-            try data.write(to: url)
-            defer { try? FileManager.default.removeItem(at: url) }
             let asset = AVURLAsset(url: url)
             let duration = try await asset.load(.duration)
             let seconds = CMTimeGetSeconds(duration)

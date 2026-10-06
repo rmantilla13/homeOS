@@ -130,14 +130,20 @@ struct MediaView: View {
         uploadDone = 0
         for item in picked {
             let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                if isVideo {
-                    let ext = item.supportedContentTypes.first { $0.conforms(to: .movie) }?.preferredFilenameExtension ?? "mov"
-                    let metadata = await MediaTools.videoMetadata(data, fileExtension: ext)
-                    await store.upload(data: data, isVideo: true, fileExtension: ext, metadata: metadata)
-                } else if let photo = MediaTools.preparePhoto(data) {
-                    await store.upload(data: photo.data, isVideo: false, fileExtension: "jpg", metadata: photo.metadata)
+            if isVideo {
+                if let video = try? await item.loadTransferable(type: MediaTools.PickedVideo.self) {
+                    defer { try? FileManager.default.removeItem(at: video.url) }
+                    let ext = video.url.pathExtension.isEmpty ? "mov" : video.url.pathExtension
+                    let metadata = await MediaTools.videoMetadata(at: video.url)
+                    await store.upload(file: video.url, fileExtension: ext, metadata: metadata)
+                } else {
+                    store.errorMessage = "That video couldn't be read. Try another one."
                 }
+            } else if let data = try? await item.loadTransferable(type: Data.self),
+                      let photo = MediaTools.preparePhoto(data) {
+                await store.upload(data: photo.data, isVideo: false, fileExtension: "jpg", metadata: photo.metadata)
+            } else {
+                store.errorMessage = "That photo couldn't be used. Try another one."
             }
             withAnimation(Theme.springy) { uploadDone += 1 }
         }

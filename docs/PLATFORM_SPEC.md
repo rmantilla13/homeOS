@@ -756,12 +756,15 @@ email, sign out.
 
 **Media**
 
-- Photos are re-encoded as JPEG, then uploaded the same way as videos.
+- Photos are re-encoded as JPEG, then uploaded through the same presigned
+  URL as videos.
 - Photos and videos upload only when `Config.mediaAPIURL` is the admin app's
   origin. The app asks `POST /api/media/upload` for a presigned URL, `PUT`s
-  the bytes, and inserts `media_items` with `file_store = 'blob'`. An unset
-  URL fails the upload; family media is not written to Supabase Storage.
-  Profile avatars still use the `avatars` bucket.
+  the bytes, and inserts `media_items` with `file_store = 'blob'`. A video
+  `PUT` streams the movie file from disk (`URLSession.upload(for:fromFile:)`);
+  a photo `PUT` sends the JPEG in memory. An unset URL fails the upload;
+  family media is not written to Supabase Storage. Profile avatars still use
+  the `avatars` bucket.
 - Playback of a `blob` row calls `POST /api/media/urls`. A row still in
   Storage uses a Storage signed URL. Both are cached for an hour.
 - Deleting a blob file calls `POST /api/media/delete` before deleting the row.

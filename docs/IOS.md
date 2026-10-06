@@ -258,8 +258,10 @@ profile screens reuse the glow header, pills and cards.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
   `DateTimeOriginal`. Videos are uploaded as-is, with `duration_seconds`, size
-  and creation date read through `AVURLAsset`. Photos and videos both go to
-  Vercel Blob. `Config.mediaAPIURL` is the admin app's origin; until it's
+  and creation date read through `AVURLAsset` from the file on disk. The picker
+  hands the app a movie file; the upload streams that file to Blob
+  (`URLSession.upload(for:fromFile:)`) instead of reading the whole clip into
+  memory. `Config.mediaAPIURL` is the admin app's origin; until it's
   set, the upload fails and nothing is written to Storage. Photo type sent
   is `image/jpeg`. Video types are `video/quicktime` (`.mov`), `video/mp4`,
   `video/m4v`, `video/webm`, `video/x-matroska`, `video/3gpp`, and
@@ -318,10 +320,10 @@ calls from the first build:
 - Decoding a scalar RPC result (`uuid`) straight into `UUID`,
   `Services/FamilyStore.swift:418` and `:442`.
 - From before: `supabase.storage.from(_:).remove(paths:)`
-  (`Services/FamilyStore.swift:498`, `:923`; it exists in 2.55.3),
+  (`Services/FamilyStore.swift:499`, `:1034`; it exists in 2.55.3),
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
   `Services/Dictation.swift:101`), the `AVAsyncProperty` loads in
-  `MediaTools.videoMetadata` (`Services/MediaTools.swift:183`–`:192`), and
+  `MediaTools.videoMetadata(at:)` (`Services/MediaTools.swift:200`–`:215`), and
   `nonisolated init()` on the `@Observable @MainActor` `Dictation` class
   (`Services/Dictation.swift:20`).
 
@@ -331,5 +333,4 @@ calls from the first build:
 - Sign in with Apple.
 - RRULE expansion for recurring events.
 - Scanning the pairing QR code with `DataScannerViewController`.
-- Streaming large video uploads from disk instead of loading them into memory.
 - A unit-test target (SSE parsing, invite code formatting) once CI runs tests.

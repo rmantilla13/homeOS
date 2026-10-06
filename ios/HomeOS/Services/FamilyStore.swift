@@ -888,31 +888,61 @@ final class FamilyStore {
 
     /// Uploads a photo or video and records it. Both go to the private Blob
     /// store through the admin app. Returns false on failure. Call
-    /// `refreshMedia()` after a batch.
+    /// `refreshMedia()` after a batch. Photos are small JPEGs. Videos stream
+    /// from a file (`upload(file:)`) so a long clip isn't held in memory.
     @discardableResult
     func upload(data: Data, isVideo: Bool, fileExtension: String, metadata: MediaMetadata) async -> Bool {
         guard let family else { return false }
         let contentType = isVideo ? Self.videoContentType(fileExtension) : Self.photoContentType(fileExtension)
-        return await uploadToBlob(data: data, contentType: contentType, kind: isVideo ? "video" : "photo",
-                                  metadata: metadata, familyId: family.id)
+        return await uploadToBlob(bytes: data.count, contentType: contentType, kind: isVideo ? "video" : "photo",
+                                  metadata: metadata, familyId: family.id) { request in
+            try await URLSession.shared.upload(for: request, from: data)
+        }
     }
 
-    private func uploadToBlob(data: Data, contentType: String, kind: String, metadata: MediaMetadata, familyId: UUID) async -> Bool {
+    /// Streams a video file to Blob. The caller deletes `file` afterwards.
+    @discardableResult
+    func upload(file: URL, fileExtension: String, metadata: MediaMetadata) async -> Bool {
+        guard let family else { return false }
+        let bytes: Int
+        do {
+            bytes = try Self.fileByteCount(file)
+        } catch {
+            report(error)
+            return false
+        }
+        let contentType = Self.videoContentType(fileExtension)
+        return await uploadToBlob(bytes: bytes, contentType: contentType, kind: "video",
+                                  metadata: metadata, familyId: family.id) { request in
+            try await URLSession.shared.upload(for: request, fromFile: file)
+        }
+    }
+
+    private static func fileByteCount(_ url: URL) throws -> Int {
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        guard let size, size > 0 else {
+            throw MediaAPIError(message: "That video is empty.")
+        }
+        return size
+    }
+
+    private func uploadToBlob(bytes: Int, contentType: String, kind: String, metadata: MediaMetadata, familyId: UUID,
+                              put: (URLRequest) async throws -> (Data, URLResponse)) async -> Bool {
         do {
             let ticket = try await mediaJSON("upload", [
                 "family_id": familyId.uuidString.lowercased(),
                 "content_type": contentType,
-                "bytes": data.count,
+                "bytes": bytes,
             ])
             guard let idString = ticket["id"] as? String, let id = UUID(uuidString: idString),
                   let path = ticket["pathname"] as? String,
                   let uploadString = ticket["upload_url"] as? String, let uploadURL = URL(string: uploadString) else {
                 throw MediaAPIError(message: "The media service sent an unexpected response.")
             }
-            var put = URLRequest(url: uploadURL)
-            put.httpMethod = "PUT"
-            put.setValue((ticket["content_type"] as? String) ?? contentType, forHTTPHeaderField: "Content-Type")
-            let (_, response) = try await URLSession.shared.upload(for: put, from: data)
+            var request = URLRequest(url: uploadURL)
+            request.httpMethod = "PUT"
+            request.setValue((ticket["content_type"] as? String) ?? contentType, forHTTPHeaderField: "Content-Type")
+            let (_, response) = try await put(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 throw MediaAPIError(message: "The file didn't upload.")
