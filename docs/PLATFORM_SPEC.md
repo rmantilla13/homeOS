@@ -33,11 +33,11 @@ Migrations are added after the existing ones, never edited in place:
   checks (§1.8), on tables from 20261006000001
 - `20261008000001_media_platform.sql`: per-family storage quotas, media path
   binding, device and membership guards, admin media / limits / revoke RPCs (§1.9)
-- `20261008000001_video_blob.sql`: `media_items.file_store` (§1.10)
-- `20261008000002_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
 - `20261008000002_media_storage.sql`: the Storage quota trigger and the
   `family-media` policies (Supabase-only, like 000002 and 000005)
-- `20261008000003_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
+- `20261009000002_video_blob.sql`: `media_items.file_store` (§1.10)
+- `20261009000003_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
+- `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
