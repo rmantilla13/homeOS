@@ -409,6 +409,34 @@ void FamilyStore::startPairing()
                            });
 }
 
+void FamilyStore::unpair()
+{
+    if (m_mode == "demo") {
+        emit notify(tr("Demo mode has nothing to pair"));
+        return;
+    }
+    m_syncTimer.stop();
+    m_settings.remove("device/refreshToken");
+    m_settings.remove("device/familyId");
+    m_settings.remove("device/id");
+    m_client->clearSession();
+
+    // Drop the old family's data so none of it lingers behind the pairing screen.
+    m_familyName.clear();
+    m_rawMembers.clear();
+    m_rawEvents.clear();
+    m_rawTasks.clear();
+    m_rawRewards.clear();
+    m_rawMeals.clear();
+    m_rawLists.clear();
+    m_rawMedia.clear();
+    m_completedToday.clear();
+    m_points.clear();
+    rebuild();
+
+    startPairing();
+}
+
 void FamilyStore::pollPairing()
 {
     m_client->callFunction(

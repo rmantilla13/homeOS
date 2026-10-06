@@ -18,6 +18,8 @@ class SupabaseClient : public QObject
     Q_OBJECT
 public:
     using Callback = std::function<void(const QJsonDocument &result, const QString &error)>;
+    using EventHandler = std::function<void(const QString &event, const QJsonObject &data)>;
+    using FinishedHandler = std::function<void(const QString &error)>;
 
     SupabaseClient(const QUrl &baseUrl, const QString &anonKey, QObject *parent = nullptr);
 
@@ -37,6 +39,15 @@ public:
     void rpc(const QString &function, const QJsonObject &args, Callback cb);
     void callFunction(const QString &name, const QJsonObject &body, Callback cb);
 
+    // Calls an edge function that answers with Server-Sent Events. onEvent runs
+    // for each event as it arrives (data parsed as a JSON object); onFinished
+    // runs once at the end with an empty error, or a message ending in
+    // "(HTTP <status>)" like the other calls. A JSON (non-stream) reply is
+    // passed on as a single "done" event. Abort the returned reply to cancel;
+    // onFinished then reports "canceled".
+    QNetworkReply *streamFunction(const QString &name, const QJsonObject &body,
+                                  EventHandler onEvent, FinishedHandler onFinished);
+
     // Returns signed URLs (absolute) for private storage objects, in order.
     void signUrls(const QString &bucket, const QStringList &paths, int expiresInSec,
                   std::function<void(const QStringList &urls)> done);
@@ -50,6 +61,7 @@ signals:
 private:
     QNetworkRequest request(const QString &path, const QUrlQuery &query = {}) const;
     void handle(QNetworkReply *reply, Callback cb);
+    QString errorMessage(QNetworkReply *reply, const QByteArray &body);
 
     QNetworkAccessManager m_nam;
     QUrl m_baseUrl;

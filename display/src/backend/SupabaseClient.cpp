@@ -1,8 +1,17 @@
 #include "SupabaseClient.h"
 
+#include "SseParser.h"
+
 #include <QJsonArray>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <memory>
+
+namespace {
+// Thinking and tool calls can pause a stream for a while; give up only after
+// this long without a byte.
+constexpr int kStreamIdleTimeoutMs = 90 * 1000;
+} // namespace
 
 SupabaseClient::SupabaseClient(const QUrl &baseUrl, const QString &anonKey, QObject *parent)
     : QObject(parent), m_baseUrl(baseUrl), m_anonKey(anonKey)
@@ -50,21 +59,26 @@ void SupabaseClient::handle(QNetworkReply *reply, Callback cb)
         reply->deleteLater();
         const QByteArray body = reply->readAll();
         const QJsonDocument doc = QJsonDocument::fromJson(body);
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
         if (reply->error() == QNetworkReply::NoError) {
             cb(doc, {});
             return;
         }
-        QString message = doc.object().value("message").toString();
-        if (message.isEmpty())
-            message = doc.object().value("error").toString();
-        if (message.isEmpty())
-            message = reply->errorString();
-        if (status == 401)
-            m_accessToken.clear(); // FamilyStore refreshes and retries on the next sync
-        cb(doc, QStringLiteral("%1 (HTTP %2)").arg(message).arg(status));
+        cb(doc, errorMessage(reply, body));
     });
+}
+
+QString SupabaseClient::errorMessage(QNetworkReply *reply, const QByteArray &body)
+{
+    const QJsonObject o = QJsonDocument::fromJson(body).object();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QString message = o.value("message").toString();
+    if (message.isEmpty())
+        message = o.value("error").toString();
+    if (message.isEmpty())
+        message = reply->errorString();
+    if (status == 401)
+        m_accessToken.clear(); // FamilyStore refreshes and retries on the next sync
+    return QStringLiteral("%1 (HTTP %2)").arg(message).arg(status);
 }
 
 void SupabaseClient::refreshSession(std::function<void(bool)> done)
@@ -122,6 +136,79 @@ void SupabaseClient::rpc(const QString &function, const QJsonObject &args, Callb
 void SupabaseClient::callFunction(const QString &name, const QJsonObject &body, Callback cb)
 {
     handle(m_nam.post(request("/functions/v1/" + name), QJsonDocument(body).toJson(QJsonDocument::Compact)), cb);
+}
+
+QNetworkReply *SupabaseClient::streamFunction(const QString &name, const QJsonObject &body,
+                                              EventHandler onEvent, FinishedHandler onFinished)
+{
+    QNetworkRequest req = request("/functions/v1/" + name);
+    req.setRawHeader("Accept", "text/event-stream");
+    req.setTransferTimeout(kStreamIdleTimeoutMs);
+    QNetworkReply *reply = m_nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+
+    struct State
+    {
+        SseParser parser;
+        bool checked = false;  // looked at status and content type
+        bool isStream = false; // 2xx text/event-stream; otherwise collect the body
+        bool finished = false; // stop delivering once the reply is over (e.g. aborted mid-chunk)
+        QByteArray body;
+    };
+    auto state = std::make_shared<State>();
+
+    auto deliver = [state, onEvent](const QList<SseParser::Event> &events) {
+        for (const SseParser::Event &e : events) {
+            if (state->finished)
+                return;
+            const QJsonDocument doc = QJsonDocument::fromJson(e.data.toUtf8());
+            if (!doc.isObject()) {
+                qWarning() << "ignoring non-JSON stream event" << e.name;
+                continue;
+            }
+            onEvent(e.name, doc.object());
+        }
+    };
+    auto consume = [reply, state, deliver]() {
+        if (!state->checked) {
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const QString type = reply->header(QNetworkRequest::ContentTypeHeader).toString();
+            state->isStream = status >= 200 && status < 300
+                              && type.startsWith(QLatin1String("text/event-stream"), Qt::CaseInsensitive);
+            state->checked = true;
+        }
+        const QByteArray chunk = reply->readAll();
+        if (state->isStream)
+            deliver(state->parser.feed(chunk));
+        else
+            state->body.append(chunk);
+    };
+
+    connect(reply, &QNetworkReply::readyRead, this, consume);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, state, consume, deliver, onEvent, onFinished]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::OperationCanceledError)
+            consume();
+        if (state->isStream)
+            deliver(state->parser.finish());
+        state->finished = true;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            onFinished(errorMessage(reply, state->body));
+            return;
+        }
+        if (!state->isStream) {
+            // A plain JSON reply (stream: false, or an older function): hand it on whole.
+            const QJsonObject o = QJsonDocument::fromJson(state->body).object();
+            if (!o.contains("reply")) {
+                onFinished(QStringLiteral("unexpected response (HTTP %1)")
+                               .arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()));
+                return;
+            }
+            onEvent(QStringLiteral("done"), o);
+        }
+        onFinished({});
+    });
+    return reply;
 }
 
 void SupabaseClient::signUrls(const QString &bucket, const QStringList &paths, int expiresInSec,

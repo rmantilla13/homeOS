@@ -17,6 +17,35 @@ ApplicationWindow {
 
     property int currentScreen: 0
     readonly property real keyboardHeight: keyboard.item ? keyboard.item.visibleHeight : 0
+    // "chat" while push-to-talk is feeding the assistant panel; wake-word
+    // turns go to the quick answer card instead.
+    property string voiceTarget: ""
+
+    function showToast(message) {
+        toastLabel.text = message
+        toastAnim.restart()
+    }
+
+    // Push-to-talk from the assistant panel or the Home card. A second tap stops it.
+    function pushToTalk() {
+        if (!Voice.available) {
+            showToast(qsTr("Voice needs the homeOS voice service (see docs/VOICE.md)"))
+            return false
+        }
+        if (voiceTarget === "chat") {
+            Voice.cancel()
+            voiceTarget = ""
+            return true
+        }
+        dismissKeyboard()
+        Voice.stopSpeaking()
+        voiceTarget = "chat"
+        pttWatchdog.restart()
+        Voice.listen()
+        return true
+    }
+    // The service ends a turn within ~12 s; never leave the mic stuck "on".
+    Timer { id: pttWatchdog; interval: 25000; onTriggered: window.voiceTarget = "" }
 
     // Leaving a screen or going idle closes the on-screen keyboard.
     function dismissKeyboard() {
@@ -30,7 +59,63 @@ ApplicationWindow {
     // Drop back to the home screen after the photo frame has been up.
     Connections {
         target: Device
-        function onIdleChanged() { if (Device.idle) { window.dismissKeyboard(); assistant.open = false; viewer.close(); window.currentScreen = 0 } }
+        function onIdleChanged() {
+            if (Device.idle) {
+                window.dismissKeyboard()
+                assistant.open = false
+                viewer.close()
+                settings.close()
+                window.currentScreen = 0
+            }
+        }
+    }
+
+    // Re-pairing (or a lost session) starts over behind the pairing screen.
+    Connections {
+        target: Store
+        function onModeChanged() {
+            if (Store.mode === "pairing") {
+                assistant.open = false
+                quick.dismiss(true)
+                settings.close()
+            }
+        }
+    }
+
+    // Voice: wake word -> quick answer card; push-to-talk -> the chat.
+    Connections {
+        target: Voice
+        function onWoke(source) {
+            if (window.voiceTarget === "chat" || Store.mode === "pairing")
+                return
+            Device.wake()
+            window.dismissKeyboard()
+            settings.close()
+            quick.start()
+        }
+        function onHeard(text) {
+            if (window.voiceTarget === "chat") {
+                window.voiceTarget = ""
+                pttWatchdog.stop()
+                AI.ask(text)
+            } else if (quick.phase === "listening") {
+                quick.hear(text)
+            }
+        }
+        function onHeardNothing() {
+            if (window.voiceTarget === "chat") {
+                window.voiceTarget = ""
+                pttWatchdog.stop()
+                window.showToast(qsTr("Sorry, I didn't catch that"))
+            } else if (quick.phase === "listening") {
+                quick.miss()
+            }
+        }
+        function onAvailableChanged() {
+            if (!Voice.available)
+                window.voiceTarget = ""
+        }
+        function onErrorOccurred(message) { window.showToast(message) }
     }
 
     RowLayout {
@@ -43,6 +128,7 @@ ApplicationWindow {
             Layout.preferredWidth: Theme.navWidth
             currentIndex: window.currentScreen
             onSelected: index => { assistant.open = false; window.dismissKeyboard(); window.currentScreen = index }
+            onSettingsRequested: { window.dismissKeyboard(); settings.open() }
         }
 
         Item {
@@ -58,6 +144,11 @@ ApplicationWindow {
                         assistant.open = true
                         if (question) AI.ask(question)
                         else assistant.focusInput()
+                    }
+                    onPushToTalk: {
+                        assistant.open = true
+                        if (!window.pushToTalk())
+                            assistant.focusInput() // no voice service: type instead
                     }
                 }
             }
@@ -77,7 +168,13 @@ ApplicationWindow {
         anchors.fill: parent
         anchors.leftMargin: Theme.navWidth
         keyboardHeight: window.keyboardHeight
-        onCloseRequested: { window.dismissKeyboard(); open = false }
+        listening: window.voiceTarget === "chat"
+        onCloseRequested: {
+            window.dismissKeyboard()
+            if (window.voiceTarget === "chat") window.pushToTalk() // stop listening
+            open = false
+        }
+        onPushToTalk: window.pushToTalk()
     }
 
     MediaViewer {
@@ -97,12 +194,24 @@ ApplicationWindow {
         Behavior on opacity { NumberAnimation { duration: 600; easing.type: Easing.InOutQuad } }
     }
 
+    // Wake-word answers float above everything, the screen saver included.
+    QuickAnswer {
+        id: quick
+        anchors.fill: parent
+        onOpenChat: {
+            quick.dismiss(false)
+            assistant.open = true
+        }
+    }
+
+    SettingsSheet { id: settings }
+
     // Toasts from the store (reward redeemed, errors, ...).
     Rectangle {
         id: toast
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 48
+        // Above the quick answer card's spot when that's showing.
+        y: quick.shown ? 48 : parent.height - height - 48
         radius: height / 2
         color: Theme.text
         width: toastLabel.implicitWidth + 64
@@ -122,7 +231,7 @@ ApplicationWindow {
         }
         Connections {
             target: Store
-            function onNotify(message) { toastLabel.text = message; toastAnim.restart() }
+            function onNotify(message) { window.showToast(message) }
         }
     }
 

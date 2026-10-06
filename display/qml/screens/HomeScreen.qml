@@ -9,6 +9,7 @@ Item {
     id: home
     signal openScreen(int index)
     signal openAssistant(string question)
+    signal pushToTalk()
 
     property date now: new Date()
     readonly property string todayIso: Qt.formatDate(now, "yyyy-MM-dd")
@@ -207,10 +208,11 @@ Item {
                             anchors.rightMargin: 8
                             anchors.verticalCenter: parent.verticalCenter
                             width: 60; height: 60
-                            icon: "mic"
+                            icon: Voice.available ? "mic" : "mic-off"
                             fill: Theme.accent
                             ink: Theme.accentInk
-                            onClicked: home.openAssistant("")
+                            // Push-to-talk: the question lands in the chat.
+                            onClicked: home.pushToTalk()
                         }
                         TapHandler { onTapped: home.openAssistant("") }
                     }

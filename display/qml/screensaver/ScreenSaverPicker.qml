@@ -24,12 +24,6 @@ Dialog {
     background: Rectangle { radius: 32; color: Theme.surface }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.35) }
 
-    readonly property var options: [
-        { key: "photos",  icon: "photo", title: qsTr("Photos"),  body: qsTr("One photo at a time, slowly drifting") },
-        { key: "collage", icon: "grid",  title: qsTr("Collage"), body: qsTr("A mosaic of family photos that keeps changing") },
-        { key: "video",   icon: "video", title: qsTr("Video"),   body: qsTr("Family videos full screen, muted") }
-    ]
-
     contentItem: ColumnLayout {
         spacing: 24
         RowLayout {
@@ -42,48 +36,7 @@ Dialog {
             IconButton { icon: "close"; fill: Theme.surfaceAlt; onClicked: picker.close() }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 16
-            Repeater {
-                model: picker.options
-                delegate: Rectangle {
-                    required property var modelData
-                    readonly property bool selected: Device.screensaver === modelData.key
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 230
-                    radius: 24
-                    color: selected ? Theme.accentSoft : Theme.surfaceAlt
-                    border.width: selected ? 3 : 0
-                    border.color: Theme.accent
-                    scale: optTap.pressed ? 0.97 : 1
-                    Behavior on scale { NumberAnimation { duration: Theme.quick } }
-                    Behavior on color { ColorAnimation { duration: Theme.smooth } }
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 22
-                        spacing: 10
-                        Rectangle {
-                            width: 64; height: 64; radius: 32
-                            color: selected ? Theme.accent : Theme.surface
-                            Behavior on color { ColorAnimation { duration: Theme.smooth } }
-                            Icon { anchors.centerIn: parent; name: modelData.icon; size: 30; color: selected ? Theme.accentInk : Theme.text }
-                        }
-                        Item { Layout.fillHeight: true }
-                        Label { text: modelData.title; color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold }
-                        Label {
-                            Layout.fillWidth: true
-                            text: modelData.body
-                            wrapMode: Text.WordWrap
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontXs + 1
-                        }
-                    }
-                    TapHandler { id: optTap; onTapped: Device.screensaver = modelData.key }
-                }
-            }
-        }
+        ScreenSaverOptions { Layout.fillWidth: true }
 
         RowLayout {
             Layout.alignment: Qt.AlignRight

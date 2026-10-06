@@ -1,0 +1,157 @@
+# Checks everything except the iOS app (ios.yml builds that). Each job only
+# runs when its part of the tree, or this workflow, changes. See
+# docs/PLATFORM_SPEC.md §7.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      functions: ${{ steps.filter.outputs.functions }}
+      display: ${{ steps.filter.outputs.display }}
+      admin: ${{ steps.filter.outputs.admin }}
+      voice: ${{ steps.filter.outputs.voice }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workflow: &workflow
+              - ".github/workflows/ci.yml"
+            backend:
+              - *workflow
+              - "backend/supabase/migrations/**"
+              - "backend/supabase/seed.sql"
+              - "backend/tests/**"
+            functions:
+              - *workflow
+              - "backend/supabase/functions/**"
+            display:
+              - *workflow
+              - "display/**"
+            admin:
+              - *workflow
+              - "admin/**"
+            voice:
+              - *workflow
+              - "voice/**"
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-16
+      # run.sh starts its own throwaway cluster on a free port, as the runner user.
+      - name: Run SQL tests
+        env:
+          PG_BIN: /usr/lib/postgresql/16/bin
+        run: backend/tests/run.sh
+
+  functions:
+    needs: changes
+    if: needs.changes.outputs.functions == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check edge functions
+        run: deno check backend/supabase/functions/*/index.ts
+
+  display:
+    needs: changes
+    if: needs.changes.outputs.display == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Same Qt modules the QML imports and install-pi.sh installs.
+      - name: Install Qt 6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake \
+            qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev qt6-qpa-plugins \
+            qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+            qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtqml-workerscript \
+            qml6-module-qtquick-shapes qml6-module-qt5compat-graphicaleffects \
+            qml6-module-qtmultimedia \
+            qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin \
+            qml6-module-qt-labs-folderlistmodel \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+      - name: Build
+        run: |
+          cmake -S display -B build/display -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/display -j"$(nproc)"
+      - name: Unit tests
+        run: ctest --test-dir build/display --output-on-failure
+      - name: Smoke run (--demo, 5 s)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ./build/display/homeos-display --demo > display.log 2>&1 &
+          pid=$!
+          sleep 5
+          if ! kill -0 "$pid" 2>/dev/null; then
+            status=0; wait "$pid" || status=$?
+            echo "homeos-display exited early (status $status)"
+            cat display.log
+            exit 1
+          fi
+          kill "$pid"
+          wait "$pid" || true
+          cat display.log
+
+  admin:
+    needs: changes
+    if: needs.changes.outputs.admin == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  voice:
+    needs: changes
+    if: needs.changes.outputs.voice == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: voice/pyproject.toml
+      - run: pip install -e 'voice[dev]'
+      - run: pytest voice

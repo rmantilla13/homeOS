@@ -4,12 +4,16 @@ import QtQuick.Layouts
 import HomeOS
 import HomeOS.Core
 
-// Full-screen conversation with the family assistant.
+// Full-screen conversation with the family assistant. Replies stream in word
+// by word; the mic is push-to-talk through the voice service.
 Rectangle {
     id: panel
     property bool open: false
     property real keyboardHeight: 0
+    // Push-to-talk is feeding this conversation (set by Main).
+    property bool listening: false
     signal closeRequested()
+    signal pushToTalk()
 
     color: Theme.background
     visible: opacity > 0
@@ -83,52 +87,91 @@ Rectangle {
             clip: true
             spacing: 14
             model: AI.messages
-            onCountChanged: Qt.callLater(positionViewAtEnd)
+            boundsBehavior: Flickable.StopAtBounds
+
+            // Stay pinned to the newest text while a reply grows, unless
+            // someone scrolls up to read.
+            property bool follow: true
+            onMovementEnded: follow = atYEnd
+            onCountChanged: { follow = true; Qt.callLater(positionViewAtEnd) }
+            onContentHeightChanged: if (follow) Qt.callLater(positionViewAtEnd)
+            onHeightChanged: if (follow) Qt.callLater(positionViewAtEnd)
+
             add: Transition {
                 ParallelAnimation {
                     NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.smooth }
                     NumberAnimation { property: "scale"; from: 0.92; to: 1; duration: Theme.smooth; easing.type: Easing.OutBack }
                 }
             }
-            onHeightChanged: Qt.callLater(positionViewAtEnd)
 
             delegate: Item {
                 id: row
-                required property var modelData
-                readonly property bool mine: modelData.role === "user"
+                required property string role
+                required property string text
+                required property var actions
+                required property bool streaming
+                required property bool failed
+                readonly property bool mine: role === "user"
+                readonly property bool typing: streaming && text.length === 0
                 width: ListView.view.width
                 height: bubble.height + (actionsCol.visible ? actionsCol.height + 8 : 0)
+                        + (failedNote.visible ? failedNote.height + 6 : 0)
 
                 Rectangle {
                     id: bubble
                     anchors.right: row.mine ? parent.right : undefined
                     anchors.left: row.mine ? undefined : parent.left
-                    width: Math.min(text.implicitWidth + 44, row.width * 0.75)
-                    height: text.implicitHeight + 32
-                    radius: 26
+                    width: row.typing ? 96 : Math.min(bubbleText.implicitWidth + 44, row.width * 0.75)
+                    height: row.typing ? 54 : bubbleText.implicitHeight + 32
+                    radius: row.typing ? 27 : 26
                     color: row.mine ? Theme.accent : Theme.surface
+
                     Label {
-                        id: text
-                        anchors.fill: parent
-                        anchors.margins: 16
-                        anchors.leftMargin: 22
-                        anchors.rightMargin: 22
-                        text: row.modelData.text
+                        id: bubbleText
+                        visible: !row.typing
+                        // Width only: the bubble's height follows the text, not the reverse.
+                        x: 22
+                        y: 16
+                        width: bubble.width - 44
+                        text: row.text
                         wrapMode: Text.WordWrap
                         color: row.mine ? Theme.accentInk : Theme.text
                         font.pixelSize: Theme.fontMd - 2
                         lineHeight: 1.15
                     }
+
+                    // Typing dots until the first words arrive.
+                    Row {
+                        visible: row.typing
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Repeater {
+                            model: 3
+                            delegate: Rectangle {
+                                required property int index
+                                width: 10; height: 10; radius: 5
+                                color: Theme.textMuted
+                                SequentialAnimation on opacity {
+                                    running: row.typing
+                                    loops: Animation.Infinite
+                                    PauseAnimation { duration: index * 160 }
+                                    NumberAnimation { from: 0.3; to: 1; duration: 320 }
+                                    NumberAnimation { from: 1; to: 0.3; duration: 320 }
+                                    PauseAnimation { duration: (2 - index) * 160 }
+                                }
+                            }
+                        }
+                    }
                 }
                 Column {
                     id: actionsCol
-                    visible: (row.modelData.actions || []).length > 0
+                    visible: (row.actions || []).length > 0
                     anchors.top: bubble.bottom
                     anchors.topMargin: 8
                     anchors.left: parent.left
                     spacing: 6
                     Repeater {
-                        model: row.modelData.actions || []
+                        model: row.actions || []
                         delegate: Rectangle {
                             required property var modelData
                             width: actionLabel.implicitWidth + 56
@@ -147,36 +190,16 @@ Rectangle {
                         }
                     }
                 }
-            }
-
-            footer: Item {
-                width: messages.width
-                height: AI.busy ? 72 : 0
-                Rectangle {
-                    visible: AI.busy
-                    y: 14
-                    width: 96; height: 54; radius: 27
-                    color: Theme.surface
-                    Row {
-                        anchors.centerIn: parent
-                        spacing: 8
-                        Repeater {
-                            model: 3
-                            delegate: Rectangle {
-                                required property int index
-                                width: 10; height: 10; radius: 5
-                                color: Theme.textMuted
-                                SequentialAnimation on opacity {
-                                    running: AI.busy
-                                    loops: Animation.Infinite
-                                    PauseAnimation { duration: index * 160 }
-                                    NumberAnimation { from: 0.3; to: 1; duration: 320 }
-                                    NumberAnimation { from: 1; to: 0.3; duration: 320 }
-                                    PauseAnimation { duration: (2 - index) * 160 }
-                                }
-                            }
-                        }
-                    }
+                Label {
+                    id: failedNote
+                    visible: row.failed
+                    anchors.top: actionsCol.visible ? actionsCol.bottom : bubble.bottom
+                    anchors.topMargin: 6
+                    anchors.left: parent.left
+                    anchors.leftMargin: 12
+                    text: qsTr("The answer was cut short. Try asking again.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontXs
                 }
             }
 
@@ -221,8 +244,8 @@ Rectangle {
             Layout.preferredHeight: 76
             radius: height / 2
             color: Theme.surface
-            border.color: input.activeFocus ? Theme.accent : Theme.divider
-            border.width: input.activeFocus ? 2 : 1
+            border.color: input.activeFocus || panel.listening ? Theme.accent : Theme.divider
+            border.width: input.activeFocus || panel.listening ? 2 : 1
 
             TextField {
                 id: input
@@ -231,10 +254,12 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 24
                 anchors.rightMargin: 8
-                placeholderText: qsTr("Ask homeOS anything")
+                placeholderText: !panel.listening ? qsTr("Ask homeOS anything")
+                               : Voice.state === "listening" ? qsTr("Listening… tap the mic to stop")
+                               : qsTr("Thinking…")
                 font.pixelSize: Theme.fontMd - 2
                 color: Theme.text
-                placeholderTextColor: Theme.textMuted
+                placeholderTextColor: panel.listening ? Theme.accent : Theme.textMuted
                 background: null
                 inputMethodHints: Qt.ImhNoPredictiveText
                 onAccepted: panel.send(text)
@@ -245,13 +270,26 @@ Rectangle {
                 anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
-                IconButton {
+                Item {
                     width: 60; height: 60
-                    icon: "mic"
-                    fill: Theme.surfaceAlt
-                    ink: Theme.text
-                    // TODO(M3): speech-to-text (local whisper.cpp on the Pi or cloud).
-                    onClicked: Store.notify(qsTr("Voice is coming soon. Type for now."))
+                    // Ring that swells with the voice while listening.
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width; height: width; radius: width / 2
+                        color: Theme.accent
+                        opacity: panel.listening ? 0.25 : 0
+                        scale: 1 + (panel.listening ? Math.min(1, Voice.level * 1.6) * 0.45 : 0)
+                        Behavior on scale { NumberAnimation { duration: 110 } }
+                        Behavior on opacity { NumberAnimation { duration: Theme.quick } }
+                    }
+                    IconButton {
+                        anchors.fill: parent
+                        icon: Voice.available ? "mic" : "mic-off"
+                        fill: panel.listening ? Theme.accent : Theme.surfaceAlt
+                        ink: panel.listening ? Theme.accentInk : Voice.available ? Theme.text : Theme.textMuted
+                        Behavior on fill { ColorAnimation { duration: Theme.quick } }
+                        onClicked: panel.pushToTalk()
+                    }
                 }
                 IconButton {
                     width: 60; height: 60

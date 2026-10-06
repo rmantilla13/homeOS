@@ -9,6 +9,7 @@ Rectangle {
     id: rail
     property int currentIndex: 0
     signal selected(int index)
+    signal settingsRequested()
 
     readonly property var items: [
         { icon: "home",     label: qsTr("Home") },
@@ -81,6 +82,14 @@ Rectangle {
         }
 
         Item { Layout.fillHeight: true }
+
+        IconButton {
+            Layout.alignment: Qt.AlignHCenter
+            icon: "settings"
+            fill: Theme.surfaceAlt
+            ink: Theme.textMuted
+            onClicked: rail.settingsRequested()
+        }
 
         // Show the photo frame right away.
         IconButton {

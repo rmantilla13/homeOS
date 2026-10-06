@@ -65,6 +65,8 @@ public:
     Q_INVOKABLE void setListItemDone(const QString &listId, const QString &itemId, bool done);
     Q_INVOKABLE void addListItem(const QString &listId, const QString &text);
     Q_INVOKABLE int pointsFor(const QString &memberId) const { return m_points.value(memberId); }
+    // Forgets this display's session and shows a new pairing code (Settings → Re-pair).
+    Q_INVOKABLE void unpair();
 
     // Exposed for tests: does an RRULE (subset: DAILY, WEEKLY;BYDAY=..) occur on `day`?
     static bool occursOn(const QString &rrule, const QDate &day);
