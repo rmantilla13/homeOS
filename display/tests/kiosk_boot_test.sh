@@ -50,6 +50,14 @@ directive '^Wants=systemd-logind\.service$'
 directive '^Environment=XDG_RUNTIME_DIR=/run/user/@UID@$'
 directive '^User=@USER@$'
 directive '^ExecStart=/usr/local/bin/homeos-display$'
+directive '^SupplementaryGroups=video render input audio tty$'
+directive '^Environment=QT_QPA_PLATFORM=eglfs$'
+directive '^Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms$'
+directive '^Environment=QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json$'
+directive '^Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1$'
+if unit_body | grep -Eq '^After=.*network-online|^Wants=network-online'; then
+    fail "waiting for network-online leaves the panel on the console"
+fi
 
 # Any account the installer is logged in as. The unit must not name a person.
 filled="$(sed -e 's/@USER@/pi/g' -e 's/@UID@/1000/g' "$unit")"
@@ -96,16 +104,44 @@ block="$(awk '/# kiosk-boot-begin/,/# kiosk-boot-end/' "$install")"
 [ -n "$block" ] || fail "kiosk boot block not found in install-pi.sh"
 printf '%s\n' "$block" | grep -q 'systemctl enable --now homeos-display' || fail "boot block does not enable and start the kiosk"
 printf '%s\n' "$block" | grep -q 'systemctl restart homeos-display' || fail "boot block does not reload a running kiosk"
+printf '%s\n' "$block" | grep -q 'systemctl mask getty@tty1.service' || fail "boot block does not mask getty@tty1"
+printf '%s\n' "$block" | grep -q 'systemctl mask.*autovt@tty1.service' || fail "boot block does not mask autovt@tty1"
+# Enabled for boot first, then getty masked (so nothing restarts it), then
+# the kiosk start takes tty1 from getty (Conflicts=) in one systemd job.
+enable_only_at=$(printf '%s\n' "$block" | grep -nE 'systemctl enable homeos-display(;| |$)' | head -1 | cut -d: -f1)
+mask_at=$(printf '%s\n' "$block" | grep -n 'systemctl mask getty@tty1' | head -1 | cut -d: -f1)
+now_at=$(printf '%s\n' "$block" | grep -n 'systemctl enable --now homeos-display' | head -1 | cut -d: -f1)
+[ -n "$enable_only_at" ] && [ -n "$mask_at" ] && [ -n "$now_at" ] \
+    && [ "$enable_only_at" -lt "$mask_at" ] && [ "$mask_at" -lt "$now_at" ] \
+    || fail "the kiosk must be enabled, then getty masked, before the kiosk starts"
+# Stopping getty on its own hangs up a login on the panel (and an installer
+# running in it) before anything has started the kiosk.
+if printf '%s\n' "$block" | grep -q 'systemctl stop getty@tty1'; then
+    fail "boot block stops getty before the kiosk start can take tty1"
+fi
 if printf '%s\n' "$block" | grep -q 'is-active'; then
     fail "boot block still starts the kiosk only when it is already active"
 fi
+grep -q 'mask getty@tty1.service' "$preview" || fail "preview off does not remask getty"
+grep -q 'disable --now homeos-bootscreen' "$preview" || fail "preview on leaves the boot video enabled"
+grep -qE 'systemctl enable homeos-bootscreen( |$)' "$preview" || fail "preview off does not bring the boot video back"
+if grep -q 'enable --now homeos-bootscreen' "$preview"; then
+    fail "preview off starts the boot video over the app"
+fi
 
 # preview_on: is-enabled homeos-preview succeeds. restart_rc: what `restart` returns.
+# hangup=1: the first command that takes tty1 hangs up the console this runs
+# on, which ends the script there (exit 129, as SIGHUP would).
 run_block() {
-    local log="$1" preview_on="$2" restart_rc="$3" enable_rc="${4:-0}"
+    local log="$1" preview_on="$2" restart_rc="$3" enable_rc="${4:-0}" hangup="${5:-0}"
     : >"$log"
     systemctl() {
         printf '%s\n' "$*" >>"$log"
+        if [ "$hangup" = 1 ]; then
+            case "$*" in
+                'enable --now homeos-display'|'restart homeos-display'|stop\ getty@tty1*) exit 129 ;;
+            esac
+        fi
         case "$1" in
             is-enabled)
                 if [ "$preview_on" = 1 ]; then return 0; fi
@@ -127,8 +163,14 @@ trap 'rm -rf "$tmp"' EXIT
 # Not enabled yet (a fresh install, or a previous one that never enabled it).
 run_block "$tmp/log" 0 0
 grep -qx 'unmask homeos-display' "$tmp/log" || fail "fresh install did not unmask"
+grep -qx 'mask getty@tty1.service autovt@tty1.service' "$tmp/log" || fail "fresh install did not mask getty"
 grep -qx 'enable --now homeos-display' "$tmp/log" || fail "fresh install did not enable and start"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "fresh install did not reload the kiosk"
+grep -qx 'enable homeos-display' "$tmp/log" || fail "fresh install did not enable the kiosk for boot"
+grep -qx 'enable homeos-bootscreen' "$tmp/log" || fail "fresh install did not enable the boot video"
+if grep -qx 'enable --now homeos-bootscreen' "$tmp/log"; then
+    fail "fresh install started the boot video over the app"
+fi
 if grep -qx 'disable --now homeos-display' "$tmp/log"; then
     fail "fresh install disabled the kiosk"
 fi
@@ -153,9 +195,17 @@ fi
 grep -qx 'enable --now homeos-display' "$tmp/log" || fail "failed enable was not attempted"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "failed enable skipped the start"
 
+# Run from a login on the panel: taking tty1 hangs up this script. The kiosk
+# must already be enabled for the next boot, and getty masked.
+( run_block "$tmp/log" 0 0 0 1 ) && fail "the hangup stand-in did not end the block"
+grep -qx 'enable homeos-display' "$tmp/log" || fail "a hung-up install left the kiosk disabled"
+grep -qx 'mask getty@tty1.service autovt@tty1.service' "$tmp/log" || fail "a hung-up install left getty unmasked"
+[ "$(tail -1 "$tmp/log")" = 'enable --now homeos-display' ] || fail "something took tty1 before the kiosk start"
+
 # Preview mode is what was enabled: leave the kiosk off.
 run_block "$tmp/log" 1 0
 grep -qx 'disable --now homeos-display' "$tmp/log" || fail "preview mode did not keep the kiosk off"
+grep -qx 'disable --now homeos-bootscreen' "$tmp/log" || fail "preview mode left the boot video on"
 if grep -q 'enable --now homeos-display' "$tmp/log"; then
     fail "preview mode enabled the kiosk"
 fi
@@ -178,9 +228,54 @@ stub_out="$(
 )" || fail "boot block failed under the systemctl stub"
 printf '%s\n' "$stub_out" | grep -q 'systemctl enable --now homeos-display' || fail "stub path did not enable and start"
 printf '%s\n' "$stub_out" | grep -q 'systemctl restart homeos-display' || fail "stub path did not reload the kiosk"
-if printf '%s\n' "$stub_out" | grep -q 'systemctl disable'; then
+if printf '%s\n' "$stub_out" | grep -q 'systemctl disable.*homeos-display'; then
     fail "stub path disabled the kiosk"
 fi
+printf '%s\n' "$stub_out" | grep -qE 'systemctl enable homeos-display$' || fail "stub path did not enable the kiosk for boot"
+
+grep -q 'NAutoVTs=0' "$install" || fail "installer does not stop logind from spawning a login on tty1"
+grep -q 'QT_QPA_EGLFS_ALWAYS_SET_MODE=1' "$install" || fail "installer does not force Qt to set the HDMI mode"
+grep -q 'ensure_display_env QT_QPA_EGLFS_KMS_CONFIG' "$install" || fail "installer does not repair a stale display.env"
+docs="$root/docs/PI_SETUP.md"
+grep -q 'only shows logs' "$docs" || fail "docs do not say journalctl only shows logs"
+grep -q 'sudo systemctl enable --now homeos-display' "$docs" || fail "docs do not say how to put Ohana on HDMI"
+grep -q 'systemctl unmask getty@tty1.service autovt@tty1.service' "$docs" || fail "docs do not say how to get a login prompt back"
+if grep -q 'should not need' "$docs"; then
+    fail "docs still tell them not to start the kiosk"
+fi
+
+pick="$(awk '/# kms-pick-begin/,/# kms-pick-end/' "$install")"
+[ -n "$pick" ] || fail "hdmi pick function not found"
+# shellcheck disable=SC1090
+source /dev/stdin <<<"$pick"
+
+sys="$(mktemp -d)"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx '/dev/dri/card1' || fail "missing DRM nodes did not fall back to card1"
+printf '%s\n' "$out" | grep -qx 'HDMI1' || fail "missing DRM nodes did not fall back to HDMI1"
+
+mkdir -p "$sys/card1-HDMI-A-1" "$sys/card1-HDMI-A-2"
+printf 'disconnected\n' >"$sys/card1-HDMI-A-1/status"
+printf 'connected\n' >"$sys/card1-HDMI-A-2/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx '/dev/dri/card1' || fail "connected HDMI-A-2 used the wrong card"
+printf '%s\n' "$out" | grep -qx 'HDMI2' || fail "connected HDMI-A-2 was not Qt HDMI2"
+
+printf 'connected\n' >"$sys/card1-HDMI-A-1/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx 'HDMI1' || fail "HDMI0 (HDMI-A-1) did not win when both ports are connected"
+
+printf 'disconnected\n' >"$sys/card1-HDMI-A-1/status"
+printf 'disconnected\n' >"$sys/card1-HDMI-A-2/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx 'HDMI1' || fail "panel-off fallback was not HDMI0"
+
+rm -rf "$sys/card1-HDMI-A-1" "$sys/card1-HDMI-A-2"
+mkdir -p "$sys/card0-HDMI-A-1"
+printf 'connected\n' >"$sys/card0-HDMI-A-1/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx '/dev/dri/card0' || fail "HDMI card index was pinned"
+rm -rf "$sys"
 
 quiet="$root/display/deploy/quiet-boot.sh"
 [ -x "$quiet" ] || fail "quiet-boot.sh is not executable"
@@ -194,7 +289,7 @@ got="$(cat "$tmp/cmdline.txt")"
 printf '%s\n' "$got" | grep -q 'console=tty1' || fail "quiet boot moved off tty1, which the kiosk owns"
 printf '%s\n' "$got" | grep -q 'console=serial0,115200' || fail "serial console was dropped"
 printf '%s\n' "$got" | grep -q 'root=PARTUUID=abcd-02' || fail "root device was dropped"
-for opt in quiet loglevel=3 logo.nologo systemd.show_status=false consoleblank=0 vt.global_cursor_default=0; do
+for opt in quiet loglevel=3 logo.nologo systemd.show_status=false plymouth.enable=0 consoleblank=0 vt.global_cursor_default=0; do
     printf '%s\n' "$got" | grep -Fq "$opt" || fail "cmdline missing $opt"
 done
 if printf '%s\n' "$got" | grep -Eq '(^| )splash( |$)'; then
@@ -240,6 +335,18 @@ grep -qx '#keep' "$tmp/config3.txt" || fail "config comment beside boot_delay_ms
 # The ms key must stay the ms key. Matching boot_delay as a prefix would
 # rewrite this line into boot_delay=0.
 [ "$(head -1 "$tmp/config3.txt")" = "boot_delay_ms=0" ] || fail "boot_delay matched boot_delay_ms"
+
+# Stock config.txt ends in model filters. A new key appended after [cm5]
+# would only apply on a CM5, so it has to land above the first filter.
+printf '%s\n' '# stock' 'dtparam=audio=on' '[cm4]' 'otg_mode=1' '[cm5]' 'dtoverlay=dwc2,dr_mode=host' '[all]' >"$tmp/config4.txt"
+printf '%s\n' 'console=tty1' >"$tmp/cmdline4.txt"
+"$quiet" "$tmp/cmdline4.txt" "$tmp/config4.txt" >/dev/null
+filter_at="$(grep -n '^\[cm4\]' "$tmp/config4.txt" | cut -d: -f1)"
+for key in disable_splash=1 boot_delay=0 boot_delay_ms=0; do
+    key_at="$(grep -nx "$key" "$tmp/config4.txt" | head -1 | cut -d: -f1)"
+    [ -n "$key_at" ] && [ "$key_at" -lt "$filter_at" ] || fail "$key landed inside a model filter"
+done
+grep -qx '\[all\]' "$tmp/config4.txt" || fail "config.txt filters were dropped"
 
 # No firmware files: the installer still finishes (a container, or not a Pi).
 "$quiet" "$tmp/missing-cmdline.txt" "$tmp/missing-config.txt" >"$tmp/missing.out"

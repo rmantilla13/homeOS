@@ -14,7 +14,11 @@
 #
 # Safe to re-run, also after an interrupted run: it rebuilds, reinstalls and
 # restarts the app (and updates the voice service if it's installed), and
-# keeps an existing /etc/homeos/display.env.
+# keeps an existing /etc/homeos/display.env. A file at /etc/homeos/boot.mp4
+# replaces the built-in boot video; the next reboot plays it. A video set in
+# the admin console is downloaded in the background, once the network is up,
+# to /var/lib/homeos/boot.mp4, and plays from the next boot when that
+# override is absent.
 set -euo pipefail
 
 if [ "$(uname -s)" != Linux ]; then
@@ -54,6 +58,8 @@ if [ "$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)" = bookworm ]; then
 fi
 # Sound: Qt plays video sound through PulseAudio, which Lite doesn't run;
 # PipeWire provides it. libasound2-plugins lets ALSA programs use it too.
+# Boot video: the ffmpeg package includes ffplay, which draws on the KMS/DRM
+# screen before the app starts. ffmpeg itself is the framebuffer fallback.
 sudo apt-get update
 sudo apt-get install -y \
     build-essential cmake git \
@@ -66,6 +72,7 @@ sudo apt-get install -y \
     qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin qml6-module-qt-labs-folderlistmodel \
     pipewire pipewire-pulse wireplumber libasound2-plugins alsa-utils \
     fonts-inter fonts-noto-color-emoji \
+    ffmpeg curl \
     "${media[@]}"
 
 step "Building homeos-display"
@@ -91,33 +98,78 @@ EOF
 sudo chmod 440 /etc/sudoers.d/homeos-system
 sudo visudo -cf /etc/sudoers.d/homeos-system
 
+# kms-pick-begin
+# Print the DRM card and Qt's eglfs output name for the panel.
+# The kernel calls the Pi's HDMI0 port (next to USB-C) HDMI-A-1. Qt's
+# eglfs_kms calls that same connector HDMI1, and HDMI-A-2 is HDMI2.
+# A connected connector wins. HDMI-A-1 wins a tie, and it is the fallback
+# when the panel is still off, so the app opens that port once it comes on.
+homeos_pick_hdmi() {
+    local sysroot="${1:-/sys/class/drm}"
+    local connector base dev name qt status
+    local preferred_card="" preferred_output="" fallback_card="" fallback_output=""
+    local card="/dev/dri/card1" output="HDMI1"
+    for connector in "$sysroot"/card*-HDMI-A-*; do
+        [ -e "$connector" ] || continue
+        base=$(basename "$connector")
+        dev="/dev/dri/${base%%-*}"
+        name="${base#*-}"
+        case "$name" in
+            HDMI-A-*) qt="HDMI${name#HDMI-A-}" ;;
+            *) qt="HDMI1" ;;
+        esac
+        status=""
+        if [ -f "$connector/status" ]; then
+            status=$(cat "$connector/status" 2>/dev/null || true)
+        fi
+        if [ "$name" = "HDMI-A-1" ]; then
+            fallback_card=$dev
+            fallback_output=$qt
+        elif [ -z "$fallback_card" ]; then
+            fallback_card=$dev
+            fallback_output=$qt
+        fi
+        if [ "$status" = "connected" ]; then
+            if [ -z "$preferred_card" ] || [ "$name" = "HDMI-A-1" ]; then
+                preferred_card=$dev
+                preferred_output=$qt
+            fi
+        fi
+    done
+    if [ -n "$preferred_card" ]; then
+        card=$preferred_card
+        output=$preferred_output
+    elif [ -n "$fallback_card" ]; then
+        card=$fallback_card
+        output=$fallback_output
+    fi
+    printf '%s\n%s\n' "$card" "$output"
+}
+# kms-pick-end
+
 step "Configuring the display"
 # On the Pi 5 the GPU (render only) and the display controller are separate DRM
 # devices, and their card numbers can swap between boots. Qt has to open the
 # one that drives HDMI, so use its stable /dev/dri/by-path name.
-card=""
-for connector in /sys/class/drm/card*-HDMI-A-*; do
-    [ -e "$connector" ] || continue
-    card="/dev/dri/$(basename "$connector" | cut -d- -f1)"
-    break
-done
-card="${card:-/dev/dri/card1}"
+mapfile -t picked < <(homeos_pick_hdmi /sys/class/drm)
+card="${picked[0]}"
+output="${picked[1]}"
 for link in /dev/dri/by-path/*-card; do
     if [ -e "$link" ] && [ "$(readlink -f "$link")" = "$(readlink -f "$card")" ]; then
         card="$link"
         break
     fi
 done
-echo "Using $card for HDMI output"
+echo "Using $card ($output) for HDMI output"
 
-# HDMI1 is Qt's name for the HDMI0 port. 1920x1200 is the panel's resolution;
-# a screen that doesn't offer it gets its own preferred mode instead.
+# 1920x1200 is the panel's resolution; a screen that doesn't offer it gets
+# its own preferred mode instead.
 sudo mkdir -p /etc/homeos
 sudo tee /etc/homeos/kms.json >/dev/null <<JSON
 {
   "device": "$card",
   "hwcursor": false,
-  "outputs": [ { "name": "HDMI1", "mode": "1920x1200" } ]
+  "outputs": [ { "name": "$output", "mode": "1920x1200" } ]
 }
 JSON
 
@@ -128,6 +180,7 @@ QT_QPA_PLATFORM=eglfs
 QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
 QT_QPA_EGLFS_HIDECURSOR=1
+QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 QT_IM_MODULE=qtvirtualkeyboard
 # Keyboard layout, date and time formats (Raspberry Pi OS defaults to en_GB).
 LANG=en_US.UTF-8
@@ -147,12 +200,51 @@ ENV
 else
     echo "Keeping existing /etc/homeos/display.env"
 fi
+# A file left by an older install can omit the KMS lines. Qt then never opens
+# HDMI and the service stays up on a text console. Fill those keys in place
+# and leave scale, language and Supabase settings alone.
+ensure_display_env() {
+    local key="$1" value="$2" file=/etc/homeos/display.env
+    if sudo grep -qE "^${key}=" "$file"; then
+        sudo sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+        printf '%s=%s\n' "$key" "$value" | sudo tee -a "$file" >/dev/null
+    fi
+}
+ensure_display_env QT_QPA_PLATFORM eglfs
+ensure_display_env QT_QPA_EGLFS_INTEGRATION eglfs_kms
+ensure_display_env QT_QPA_EGLFS_KMS_CONFIG /etc/homeos/kms.json
+ensure_display_env QT_QPA_EGLFS_HIDECURSOR 1
+ensure_display_env QT_QPA_EGLFS_ALWAYS_SET_MODE 1
 
 step "Configuring the console"
 # Hide the rainbow splash and the kernel log, and keep the console from
 # blanking or showing a cursor behind the app. The panel then stays dark
-# until Ohana paints, instead of scrolling boot text. Takes effect on reboot.
+# until the boot video (or Ohana) draws, instead of scrolling boot text.
+# SSH is unchanged. Takes effect on reboot.
 "$repo/display/deploy/quiet-boot.sh"
+
+# cloud-init prints "Completed socket interaction for boot stage final" on
+# the HDMI console after quiet boot. The kernel command line does not stop
+# it: those units use StandardOutput=journal+console. Send that to the
+# journal, and keep cloud-init's own log off the console. A reboot applies it.
+sudo mkdir -p /etc/cloud/cloud.cfg.d
+sudo tee /etc/cloud/cloud.cfg.d/99-homeos-quiet.cfg >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh. Boot-stage text stays in the log.
+output: {all: ">> /var/log/cloud-init-output.log"}
+EOF
+for unit in cloud-init-local.service cloud-init.service cloud-config.service cloud-final.service; do
+    if [ ! -f "/lib/systemd/system/$unit" ] && [ ! -f "/usr/lib/systemd/system/$unit" ]; then
+        continue
+    fi
+    sudo mkdir -p "/etc/systemd/system/${unit}.d"
+    sudo tee "/etc/systemd/system/${unit}.d/homeos-quiet.conf" >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh. Do not paint the HDMI console.
+[Service]
+StandardOutput=journal
+StandardError=journal
+EOF
+done
 
 step "Setting up sound (the panel's speakers, over HDMI)"
 # PipeWire runs as $user's own service. Lingering starts it at boot, without
@@ -251,6 +343,15 @@ if systemctl is-active --quiet ssh; then
     sudo systemctl reload ssh
 fi
 
+step "Installing the boot video"
+sudo install -d -m 755 /var/lib/homeos
+sudo install -D -m 755 "$repo/display/deploy/boot/homeos-bootscreen" /usr/local/libexec/homeos-bootscreen
+sudo install -D -m 755 "$repo/display/deploy/boot/homeos-stop-bootscreen" /usr/local/libexec/homeos-stop-bootscreen
+sudo install -D -m 644 "$repo/display/deploy/boot/boot.mp4" /usr/local/share/homeos/boot.mp4
+sudo install -D -m 644 "$repo/display/deploy/homeos-bootscreen.service" /etc/systemd/system/homeos-bootscreen.service
+sudo install -m 644 "$repo/display/deploy/homeos-boot-video-sync.service" /etc/systemd/system/homeos-boot-video-sync.service
+sudo install -m 644 "$repo/display/deploy/homeos-boot-video-sync.timer" /etc/systemd/system/homeos-boot-video-sync.timer
+
 step "Installing the kiosk service"
 sed -e "s/@USER@/$user/g" -e "s/@UID@/$uid/g" "$repo/display/deploy/homeos-display.service" \
     | sudo tee /etc/systemd/system/homeos-display.service >/dev/null
@@ -266,11 +367,30 @@ if [ "$(systemctl get-default)" = "graphical.target" ]; then
     echo "Switching boot target from desktop to console (the app replaces the desktop)"
     sudo systemctl set-default multi-user.target
 fi
+# logind starts a login on tty1 when it thinks the console is idle. The kiosk
+# holds that console; a prompt must not come back between restarts. Do not
+# restart logind here: that drops the SSH session this script is running in.
+# The file applies on the next boot. This boot stops getty below.
+sudo mkdir -p /etc/systemd/logind.conf.d
+sudo tee /etc/systemd/logind.conf.d/homeos.conf >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh.
+# The kiosk owns tty1. Do not start a login prompt when the console looks idle.
+[Login]
+NAutoVTs=0
+ReserveVT=0
+EOF
 sudo systemctl daemon-reload
+# The admin's boot video downloads after boot, never during it. Fetch it now
+# too, in the background, so the reboot below can already play it.
+if ! sudo systemctl enable --now homeos-boot-video-sync.timer; then
+    echo "The boot video download timer did not start; the built-in or cached video still plays." >&2
+fi
+sudo systemctl start --no-block homeos-boot-video-sync.service || true
 # kiosk-boot-begin
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on, so the kiosk stays off (./display/deploy/preview.sh off switches back)"
     sudo systemctl disable --now homeos-display 2>/dev/null || true
+    sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
 else
     # A previous install may have left this disabled or masked. enable writes
     # the multi-user.target.wants symlink, which is what a reboot starts.
@@ -280,6 +400,31 @@ else
     # skip this when the unit is inactive: that is a fresh install, and a
     # unit systemd dropped from the previous boot transaction.
     sudo systemctl unmask homeos-display
+    sudo systemctl unmask homeos-bootscreen 2>/dev/null || true
+    # Enabled for the next reboot only. Starting it now would fight the app
+    # this restart is about to put on the screen. A failure here must not
+    # skip enabling the kiosk.
+    if ! sudo systemctl enable homeos-bootscreen; then
+        echo "Boot video was not enabled. The app still starts; re-run the installer to try the video again." >&2
+    fi
+    # Enable before anything touches tty1. Run from a login on the panel, this
+    # script is hung up with that console below, and the next boot must still
+    # start the kiosk.
+    if ! sudo systemctl enable homeos-display; then
+        echo "homeos-display could not be enabled yet; enable --now below tries again." >&2
+    fi
+    # Mask the console login on tty1. Conflicts= in the unit usually wins, but
+    # if the kiosk is slow or exits once before DRM is ready, getty can paint
+    # a login prompt and stay there. Masking leaves SSH as the way in; the
+    # PI_SETUP recovery path unmasks when you want a local prompt. A mask
+    # does not stop a prompt that is already up. The kiosk start below does
+    # (Conflicts=) in the same transaction, so systemd still hands tty1 over
+    # if that hangs up the login this script runs in. A failure here must not
+    # skip the kiosk.
+    sudo systemctl mask getty@tty1.service autovt@tty1.service 2>/dev/null || true
+    # An older unit may have exhausted its start limit and will refuse --now
+    # until that failure is cleared.
+    sudo systemctl reset-failed homeos-display || true
     if ! sudo systemctl enable --now homeos-display; then
         echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
     fi
@@ -316,11 +461,20 @@ fi
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on; the panel kiosk stays off."
 else
-    echo "Ohana is enabled and started. On every boot it takes the screen (no login prompt)."
+    state="$(systemctl is-active homeos-display 2>/dev/null || true)"
+    echo "Ohana is enabled and started. On every boot it takes HDMI (no login prompt)."
+    echo "systemctl is-active homeos-display: ${state:-unknown}"
+    echo "active means the app has the panel. A terminal on the panel means it does not."
+    echo "To put Ohana on HDMI:  sudo systemctl enable --now homeos-display"
     echo "Reboot so the console settings apply:  sudo reboot"
+    echo "That reboot hides boot text and plays a short video until the app is up."
+    if [ "$state" != "active" ]; then
+        echo "The service is not active. Logs (this does not start the screen):" >&2
+        echo "  journalctl -u homeos-display -b --no-pager" >&2
+    fi
 fi
 echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."
-echo "Logs:                    journalctl -u homeos-display -f"
+echo "Logs only (does not start the screen):  journalctl -u homeos-display -f"
 if [ "$with_voice" = "1" ]; then
     echo "Voice logs:              journalctl -u homeos-voice -f"
 fi

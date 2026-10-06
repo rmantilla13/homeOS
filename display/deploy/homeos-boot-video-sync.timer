@@ -1,0 +1,12 @@
+# Checks for a new boot video a couple of minutes after boot, then every six
+# hours. An unchanged video is a 304 and nothing is downloaded.
+[Unit]
+Description=Check for a new Ohana boot video
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

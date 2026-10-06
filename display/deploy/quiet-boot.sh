@@ -42,11 +42,14 @@ keep_options=(
     loglevel=3
     logo.nologo
     systemd.show_status=false
+    plymouth.enable=0
     consoleblank=0
     vt.global_cursor_default=0
 )
 # Plymouth holds the display until it quits, so the Pi logo sits there
-# instead of Ohana. Drop the flag that starts it.
+# instead of the boot video or Ohana, and the video player can't open the
+# screen. Drop the flag that starts it; plymouth.enable=0 above keeps it off
+# if something adds splash back.
 drop_options=(splash)
 
 apply_cmdline() {
@@ -104,8 +107,18 @@ set_config_key() {
     local key="$1" value="$2" file="$3"
     [ -f "$file" ] || return 0
     local tmp found=0 updated=0 line
+    # A new key goes above the first [pi4] / [cm4] / [all] filter, so it
+    # applies to every model instead of only the last section in the file.
+    if grep -qE "^[[:space:]]*${key}=" "$file"; then
+        found=1
+    fi
     tmp="$(mktemp)"
     while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$found" -eq 0 ] && [[ "$line" =~ ^[[:space:]]*\[ ]]; then
+            printf '%s=%s\n' "$key" "$value"
+            found=1
+            updated=1
+        fi
         if [[ "$line" =~ ^[[:space:]]*${key}= ]]; then
             found=1
             if [ "$line" = "${key}=${value}" ]; then

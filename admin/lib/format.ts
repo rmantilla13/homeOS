@@ -80,6 +80,8 @@ const ACTIONS: Record<string, string> = {
   delete_family: "Deleted family",
   delete_family_files: "Removed family files",
   update_settings: "Updated settings",
+  set_boot_video: "Set boot video",
+  remove_boot_video: "Removed boot video",
   set_admin: "Changed admin access",
   ban_user: "Banned user",
   unban_user: "Unbanned user",
