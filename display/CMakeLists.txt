@@ -49,7 +49,11 @@ qt_add_qml_module(homeos-display
         qml/screens/MediaScreen.qml
         qml/screens/MediaViewer.qml
         qml/screens/PlannerScreen.qml
-        qml/screens/PhotoFrame.qml
+        qml/screensaver/ScreenSaver.qml
+        qml/screensaver/SlideshowSaver.qml
+        qml/screensaver/CollageSaver.qml
+        qml/screensaver/VideoSaver.qml
+        qml/screensaver/ScreenSaverPicker.qml
         qml/screens/PairingScreen.qml
         qml/screens/AssistantPanel.qml
     RESOURCES

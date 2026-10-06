@@ -27,6 +27,8 @@ Item {
         return out
     }
 
+    ScreenSaverPicker { id: saverPicker }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.pageMargin
@@ -50,9 +52,8 @@ Item {
                 onSelected: index => media.filter = index
             }
             PillButton {
-                text: qsTr("Slideshow")
-                enabled: Store.photos.length > 0
-                onClicked: Device.sleepNow()
+                text: qsTr("Screen saver")
+                onClicked: saverPicker.open()
             }
         }
 

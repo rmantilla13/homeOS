@@ -90,7 +90,7 @@ ApplicationWindow {
         visible: Store.mode === "pairing"
     }
 
-    PhotoFrame {
+    ScreenSaver {
         anchors.fill: parent
         visible: opacity > 0
         opacity: Device.idle && Store.mode !== "pairing" ? 1 : 0

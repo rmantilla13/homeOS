@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QSettings>
 #include <QTime>
 
 namespace {
@@ -32,6 +33,11 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
         });
         m_moodCycle.start();
     }
+
+    // HOMEOS_SCREENSAVER overrides the saved choice (handy for demos).
+    m_screensaver = qEnvironmentVariable("HOMEOS_SCREENSAVER");
+    if (m_screensaver.isEmpty())
+        m_screensaver = QSettings().value("display/screensaver", "photos").toString();
 
     const QDir backlights(QStringLiteral("/sys/class/backlight"));
     const QStringList devices = backlights.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -139,4 +145,14 @@ void DisplayController::applyBacklight()
     QFile out(m_backlightPath + "/brightness");
     if (out.open(QIODevice::WriteOnly))
         out.write(QByteArray::number(qRound(level * m_maxBacklight)));
+}
+
+void DisplayController::setScreensaver(const QString &style)
+{
+    static const QStringList styles{"photos", "collage", "video"};
+    if (!styles.contains(style) || style == m_screensaver)
+        return;
+    m_screensaver = style;
+    QSettings().setValue("display/screensaver", style);
+    emit screensaverChanged();
 }

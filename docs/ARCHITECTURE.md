@@ -59,6 +59,22 @@ functions (`approve_completion`, `redeem_reward`), so balances can't drift.
   highlight springs between items, the assistant slides up, chat messages pop
   in, chores celebrate when ticked, and point totals count up or down.
 
+## Screen savers
+
+After two minutes without a touch (`HOMEOS_IDLE_SECONDS`), or when someone
+taps the moon, the display switches to a screen saver. The style is chosen on
+Media → Screen saver and remembered on the device (`HOMEOS_SCREENSAVER`
+overrides it):
+
+- **Photos:** one photo at a time, cross-fading, with a slow zoom and drift.
+- **Collage:** one large and four small tiles; a random tile swaps to a new
+  photo every few seconds.
+- **Video:** family videos full screen and muted, one after another. Falls
+  back to Photos if there are no videos.
+
+Every style shows the clock, the date and the next event over a shade in the
+colors of what's on screen. The first touch only wakes the screen.
+
 ## Media
 
 The Media page shows photos and videos newest first: a featured photo, then a

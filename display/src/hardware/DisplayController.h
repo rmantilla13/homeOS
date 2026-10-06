@@ -19,6 +19,8 @@ class DisplayController : public QObject
     Q_PROPERTY(int idleTimeoutSec READ idleTimeoutSec WRITE setIdleTimeoutSec NOTIFY idleTimeoutChanged)
     Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness NOTIFY brightnessChanged)
     Q_PROPERTY(bool hasBacklight READ hasBacklight CONSTANT)
+    // Idle screen style: photos | collage | video. Remembered across restarts.
+    Q_PROPERTY(QString screensaver READ screensaver WRITE setScreensaver NOTIFY screensaverChanged)
 
 public:
     explicit DisplayController(QObject *parent = nullptr);
@@ -31,6 +33,8 @@ public:
     qreal brightness() const { return m_brightness; }
     void setBrightness(qreal level);
     bool hasBacklight() const { return !m_backlightPath.isEmpty(); }
+    QString screensaver() const { return m_screensaver; }
+    void setScreensaver(const QString &style);
 
     Q_INVOKABLE void wake();
     Q_INVOKABLE void sleepNow();
@@ -44,6 +48,7 @@ signals:
     void moodChanged();
     void idleTimeoutChanged();
     void brightnessChanged();
+    void screensaverChanged();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -63,4 +68,5 @@ private:
     qreal m_brightness = 1.0;
     QString m_backlightPath; // /sys/class/backlight/<dev>
     int m_maxBacklight = 0;
+    QString m_screensaver;
 };
