@@ -147,26 +147,10 @@ else
 fi
 
 step "Configuring the console"
-# The text console sits behind the app and shows whenever it (re)starts: keep
-# it from blanking the screen and hide its blinking cursor. Kernel options all
-# go on the one line of cmdline.txt; each is added only if it isn't there yet.
-cmdline=/boot/firmware/cmdline.txt
-add_kernel_option() {
-    local option="$1" words=() word
-    read -ra words <"$cmdline" || true   # (fails without a final newline, but still reads)
-    for word in "${words[@]}"; do
-        [ "${word%%=*}" = "${option%%=*}" ] && return 0
-    done
-    [ -f "$cmdline.homeos-backup" ] || sudo cp "$cmdline" "$cmdline.homeos-backup"
-    sudo sed -i "1s|\$| $option|" "$cmdline"
-    echo "Added $option to $cmdline (takes effect after a reboot)"
-}
-if [ -f "$cmdline" ]; then
-    add_kernel_option consoleblank=0
-    add_kernel_option vt.global_cursor_default=0
-else
-    echo "$cmdline not found (not a Raspberry Pi?); skipping"
-fi
+# Hide the rainbow splash and the kernel log, and keep the console from
+# blanking or showing a cursor behind the app. The panel then stays dark
+# until Ohana paints, instead of scrolling boot text. Takes effect on reboot.
+"$repo/display/deploy/quiet-boot.sh"
 
 step "Setting up sound (the panel's speakers, over HDMI)"
 # PipeWire runs as $user's own service. Lingering starts it at boot, without
