@@ -137,6 +137,15 @@ the installer. Remove it to go back to the built-in video. 1920×1200 (or
 1920×1080), a few seconds, silent or very quiet: the screen's speakers hiss
 if a soundtrack plays at boot.
 
+The admin console (Settings → Boot video) can set one short silent MP4 for
+every display. On boot, if `/etc/homeos/display.env` has `HOMEOS_SUPABASE_URL`
+and `HOMEOS_SUPABASE_ANON_KEY`, the player spends a few seconds downloading
+that file to `/var/lib/homeos/boot.mp4` and plays the cache. A file you copied
+to `/etc/homeos/boot.mp4` still wins, and the player does not overwrite it.
+If the download fails and there is no cache yet, the built-in clip plays. A
+failed refresh keeps the last cache. Removing the video in admin deletes the
+cache on the next boot, and the built-in clip plays again.
+
 Tap the chores and rewards to try it. Videos under **Media** play with sound
 from the screen's speakers. After two minutes without a touch, the photo
 frame starts; a tap wakes it.
@@ -182,7 +191,7 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 | Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
 | Update to the latest code | `cd ~/homeOS && git pull && ./display/deploy/install-pi.sh` (updates the voice service too, if installed) |
 | Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl start getty@tty1` |
-| Use your own boot video | `sudo cp my-video.mp4 /etc/homeos/boot.mp4`, then `sudo reboot`. Delete that file to use the built-in video again |
+| Use your own boot video | Set it under **Settings → Boot video** in the admin console, then reboot the Pi. Or `sudo cp my-video.mp4 /etc/homeos/boot.mp4` and reboot; that file wins over the admin video. Delete it to use the admin video, or remove the admin video to use the built-in clip |
 | Check power and temperature | `vcgencmd get_throttled` (`0x0` is good) and `vcgencmd measure_temp` |
 
 ## Troubleshooting

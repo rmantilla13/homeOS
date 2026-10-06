@@ -512,8 +512,12 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. |
 | `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. |
 | `revoke_device` | `device_id` | `admin_revoke_device` with the admin's own JWT (404 `device not found`). If SQL couldn't delete the auth user, calls `auth.admin.deleteUser`. Returns `{ ok, auth_user_removed }`, or `{ error, auth_user_removed: false }` with 502 when Auth refuses. |
+| `get_boot_video` | — | Reads `platform_boot_video` with the service role and, when a row exists, signs `boot-video/current.mp4` for 10 minutes. Returns `{ video: null }` or `{ video: { byte_size, duration_ms, updated_at, preview_url } }`. Not audited. |
+| `create_boot_video_upload` | — | Returns `{ path, signed_url, token }` for a new `boot-video/pending/<uuid>.mp4`. The browser PUTs the file there. The service role key stays in the function. |
+| `commit_boot_video` | `path` | `path` must be that pending object. Downloads it, requires a silent MP4 of 0.5–12 seconds and at most 20 MB, copies it to `current.mp4`, and upserts `platform_boot_video`. Anything else is deleted and answered 400. Audits `set_boot_video`. |
+| `remove_boot_video` | — | Deletes `current.mp4` and the row. Displays fall back to the built-in clip. Audits `remove_boot_video`. |
 
-Every action except `sign_media` writes `admin_audit_log` with the service
+Every action except `sign_media` and `get_boot_video` writes `admin_audit_log` with the service
 role (`delete_family` writes `delete_family_files`, `delete_media` writes
 `delete_media_files`, `revoke_device` writes `revoke_device_auth`; the RPCs
 write their own rows). Responses are `{ ok: true, ... }`, or `{ error }` with
@@ -558,9 +562,11 @@ the session. Every page except `/login` requires a session and
 - `/invites`: create a platform invite (email optional, note, max uses,
   expiry), optionally emailing it (`admin` → `invite_email`). The list shows
   status and has copy-code and revoke actions.
-- `/settings`: invite-only toggle, assistant enabled, daily limit. Saving
-  sends only the values this form changed (null leaves the others), so a
-  stale form can't undo another admin's change.
+- `/settings`: invite-only toggle, assistant enabled, daily limit, and the
+  platform boot video (preview, upload, remove). Saving settings sends only
+  the values this form changed (null leaves the others), so a stale form
+  can't undo another admin's change. The boot video is one silent MP4 for
+  every display, stored in the private `boot-video` bucket.
 - `/audit`: paginated audit log.
 
 **Env:** `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.

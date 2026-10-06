@@ -13,7 +13,7 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 | `/families/[id]` | Members, displays, family invites and 30-day usage. Suspend (with a reason), reactivate, delete (type the name to confirm) |
 | `/users` | Search accounts by email or name. Make or remove admin, ban, unban, delete |
 | `/invites` | Create platform invites (optional email lock, note, max uses, expiry), optionally email them; copy, revoke, see status |
-| `/settings` | Invite-only sign-up, assistant on/off, requests per family per day |
+| `/settings` | Invite-only sign-up, assistant on/off, requests per family per day, and the display boot video |
 | `/audit` | Every admin action, newest first |
 
 ## How it works

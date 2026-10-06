@@ -10,6 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   Admin,
   AuditEntry,
+  BootVideo,
   FamilyDetail,
   FamilyInvite,
   FamilyInviteStatus,
@@ -315,6 +316,20 @@ export async function revokePlatformInvite(id: string): Promise<void> {
   await rpc(src.db, "admin_revoke_platform_invite", { invite: id });
 }
 
+export async function getBootVideo(): Promise<BootVideo | null> {
+  const src = await source();
+  if (src.demo) return demo.demoBootVideo();
+  const result = await adminFunction<{ video: BootVideo | null }>(src.db, { action: "get_boot_video" });
+  const video = result?.video;
+  if (!video) return null;
+  return {
+    byte_size: num(video.byte_size),
+    duration_ms: num(video.duration_ms),
+    updated_at: video.updated_at,
+    preview_url: typeof video.preview_url === "string" ? video.preview_url : null,
+  };
+}
+
 export async function updateSettings(
   patch: Partial<Pick<Settings, "invite_only" | "assistant_enabled" | "assistant_daily_limit">>,
 ): Promise<void> {
@@ -328,6 +343,37 @@ export async function updateSettings(
     assistant_enabled: patch.assistant_enabled ?? null,
     assistant_daily_limit: patch.assistant_daily_limit ?? null,
   });
+}
+
+export async function createBootVideoUpload(): Promise<{ path: string; signedUrl: string; token: string }> {
+  const src = await source();
+  if (src.demo) throw new DataError("Demo mode doesn't upload to storage.");
+  const result = await adminFunction<{ path?: string; signed_url?: string; token?: string }>(src.db, {
+    action: "create_boot_video_upload",
+  });
+  if (!result?.path || !result.signed_url || !result.token) throw new DataError("The upload didn't start.");
+  return { path: result.path, signedUrl: result.signed_url, token: result.token };
+}
+
+export async function commitBootVideo(path: string): Promise<void> {
+  const src = await source();
+  if (src.demo) throw new DataError("Demo mode doesn't upload to storage.");
+  await adminFunction(src.db, { action: "commit_boot_video", path });
+}
+
+export async function setDemoBootVideo(byteSize: number, durationMs: number): Promise<void> {
+  const src = await source();
+  if (!src.demo) throw new DataError("That action is only for demo mode.");
+  demo.demoSetBootVideo(byteSize, durationMs);
+}
+
+export async function removeBootVideo(): Promise<void> {
+  const src = await source();
+  if (src.demo) {
+    demo.demoRemoveBootVideo();
+    return;
+  }
+  await adminFunction(src.db, { action: "remove_boot_video" });
 }
 
 export async function setAdmin(userId: string, makeAdmin: boolean): Promise<void> {

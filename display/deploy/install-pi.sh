@@ -15,7 +15,9 @@
 # Safe to re-run, also after an interrupted run: it rebuilds, reinstalls and
 # restarts the app (and updates the voice service if it's installed), and
 # keeps an existing /etc/homeos/display.env. A file at /etc/homeos/boot.mp4
-# replaces the built-in boot video; the next reboot plays it.
+# replaces the built-in boot video; the next reboot plays it. A video set in
+# the admin console is cached at /var/lib/homeos/boot.mp4 and plays when that
+# override is absent.
 set -euo pipefail
 
 if [ "$(uname -s)" != Linux ]; then
@@ -69,7 +71,7 @@ sudo apt-get install -y \
     qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin qml6-module-qt-labs-folderlistmodel \
     pipewire pipewire-pulse wireplumber libasound2-plugins alsa-utils \
     fonts-inter fonts-noto-color-emoji \
-    ffmpeg \
+    ffmpeg curl \
     "${media[@]}"
 
 step "Building homeos-display"
@@ -295,6 +297,7 @@ NM
 fi
 
 step "Installing the boot video"
+sudo install -d -m 755 /var/lib/homeos
 sudo install -D -m 755 "$repo/display/deploy/boot/homeos-bootscreen" /usr/local/libexec/homeos-bootscreen
 sudo install -D -m 755 "$repo/display/deploy/boot/homeos-stop-bootscreen" /usr/local/libexec/homeos-stop-bootscreen
 sudo install -D -m 644 "$repo/display/deploy/boot/boot.mp4" /usr/local/share/homeos/boot.mp4

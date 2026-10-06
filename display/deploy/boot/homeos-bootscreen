@@ -2,19 +2,125 @@
 # Play the homeOS boot video on the HDMI panel until this process is stopped.
 # homeos-display does that itself, before it opens the screen (see
 # homeos-stop-bootscreen). Silent on purpose: the panel's speakers hiss.
+#
+# A file at /etc/homeos/boot.mp4 (HOMEOS_BOOT_CUSTOM) is a local override and
+# is never written here. Otherwise, when /etc/homeos/display.env names
+# HOMEOS_SUPABASE_URL and HOMEOS_SUPABASE_ANON_KEY, this downloads the
+# platform boot video (boot-video/current.mp4) with that anon key into
+# /var/lib/homeos/boot.mp4 and plays the cache. The download gives up after a
+# few seconds. HTTP 404 (removed in admin) deletes the cache. Any other
+# failure keeps the last cache so a slow network at boot still shows the
+# video you set. With no cache, the built-in clip plays.
 set -euo pipefail
 
 custom="${HOMEOS_BOOT_CUSTOM:-/etc/homeos/boot.mp4}"
 installed="${HOMEOS_BOOT_INSTALLED:-/usr/local/share/homeos/boot.mp4}"
+cache="${HOMEOS_BOOT_CACHE:-/var/lib/homeos/boot.mp4}"
+env_file="${HOMEOS_DISPLAY_ENV:-/etc/homeos/display.env}"
+
+log() { printf 'homeos-bootscreen: %s\n' "$*" >&2; }
+
+load_display_env() {
+    HOMEOS_SUPABASE_URL=""
+    HOMEOS_SUPABASE_ANON_KEY=""
+    [ -f "$env_file" ] || return 0
+    local line key val
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        case "$line" in
+            ''|\#*) continue ;;
+            HOMEOS_SUPABASE_URL=*|HOMEOS_SUPABASE_ANON_KEY=*)
+                key=${line%%=*}
+                val=${line#*=}
+                case "$val" in
+                    \"*\") val=${val#\"}; val=${val%\"} ;;
+                    \'*\') val=${val#\'}; val=${val%\'} ;;
+                esac
+                printf -v "$key" '%s' "$val"
+                ;;
+        esac
+    done <"$env_file"
+}
+
+supabase_ready() {
+    [ -n "${HOMEOS_SUPABASE_URL:-}" ] && [ -n "${HOMEOS_SUPABASE_ANON_KEY:-}" ] || return 1
+    case "$HOMEOS_SUPABASE_URL" in
+        http://*|https://*) ;;
+        *) return 1 ;;
+    esac
+    case "${HOMEOS_SUPABASE_URL}${HOMEOS_SUPABASE_ANON_KEY}" in
+        *[[:space:]]*) return 1 ;;
+    esac
+}
+
+is_mp4() {
+    [ -f "$1" ] || return 1
+    [ "$(wc -c <"$1")" -ge 8 ] || return 1
+    local magic
+    magic=$(dd if="$1" bs=1 skip=4 count=4 2>/dev/null || true)
+    [ "$magic" = "ftyp" ]
+}
+
+# 0 = play $cache. 1 = play the built-in clip. Does not touch $custom.
+sync_remote_boot() {
+    local base tmp code dir
+    load_display_env
+    supabase_ready || return 1
+    base=${HOMEOS_SUPABASE_URL%/}
+    dir=$(dirname "$cache")
+    mkdir -p "$dir" 2>/dev/null || return 1
+    tmp=$(mktemp "$dir/.boot.XXXXXX") || return 1
+    code=000
+    if [ -n "${HOMEOS_BOOT_FETCH:-}" ]; then
+        if code=$("$HOMEOS_BOOT_FETCH" "$tmp" "$base/storage/v1/object/boot-video/current.mp4"); then
+            :
+        else
+            code=000
+        fi
+    elif command -v curl >/dev/null 2>&1; then
+        if code=$(curl -sS --max-time "${HOMEOS_BOOT_FETCH_TIMEOUT:-4}" --connect-timeout 2 \
+            -o "$tmp" -w '%{http_code}' \
+            -H "apikey: ${HOMEOS_SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${HOMEOS_SUPABASE_ANON_KEY}" \
+            "$base/storage/v1/object/boot-video/current.mp4"); then
+            :
+        else
+            code=000
+        fi
+    fi
+    case "$code" in
+        200)
+            if is_mp4 "$tmp"; then
+                chmod 644 "$tmp" 2>/dev/null || true
+                if mv -f "$tmp" "$cache"; then
+                    return 0
+                fi
+            fi
+            ;;
+        404)
+            rm -f "$tmp" "$cache"
+            log "no boot video is set; using the built-in clip"
+            return 1
+            ;;
+    esac
+    rm -f "$tmp"
+    if [ -f "$cache" ]; then
+        log "couldn't refresh the boot video; using the cached file"
+        return 0
+    fi
+    log "couldn't download the boot video; using the built-in clip"
+    return 1
+}
+
 if [ -n "${HOMEOS_BOOT_VIDEO:-}" ]; then
     video=$HOMEOS_BOOT_VIDEO
 elif [ -f "$custom" ]; then
     video=$custom
+elif sync_remote_boot; then
+    video=$cache
 else
     video=$installed
 fi
-
-log() { printf 'homeos-bootscreen: %s\n' "$*" >&2; }
 
 if [ ! -f "$video" ]; then
     log "no video at $video"

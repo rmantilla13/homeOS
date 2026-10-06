@@ -7,6 +7,10 @@
 //   { action: "sign_media", family_id, media_ids } -> { urls: [{ id, url }] }  (no audit; 10 min)
 //   { action: "delete_media", media_id } -> { ok, files_removed, files_error? }
 //   { action: "revoke_device", device_id } -> { ok, auth_user_removed, auth_error? }
+//   { action: "get_boot_video" } -> { video: { byte_size, duration_ms, updated_at, preview_url } | null }
+//   { action: "create_boot_video_upload" } -> { path, signed_url, token }
+//   { action: "commit_boot_video", path } -> { ok, video }
+//   { action: "remove_boot_video" } -> { ok }
 //
 // Errors are { error } with 400 (bad body), 401 (no session), 403 (not a
 // platform admin), 404 (no such user or family), 413 (body too big), 503
@@ -19,6 +23,7 @@
 
 import { type AuthError, createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { authenticate, bearerToken, json, preflight, readJson } from "../_shared/http.ts";
+import { commitBootVideo, createBootVideoUpload, getBootVideo, removeBootVideo } from "./boot.ts";
 import { removeFolder, removePaths } from "./files.ts";
 import { mediaObjectPath, signableMediaPath } from "./media.ts";
 import { type AdminRequest, parseAdminRequest } from "./request.ts";
@@ -263,6 +268,10 @@ Deno.serve(async (req) => {
     if (request.action === "sign_media") return await signMedia(request);
     if (request.action === "delete_media") return await deleteMedia(db, user.id, request.mediaId);
     if (request.action === "revoke_device") return await revokeDevice(db, user.id, request.deviceId);
+    if (request.action === "get_boot_video") return await getBootVideo(service, SUPABASE_URL);
+    if (request.action === "create_boot_video_upload") return await createBootVideoUpload(service, SUPABASE_URL);
+    if (request.action === "commit_boot_video") return await commitBootVideo(service, user.id, request.path, audit);
+    if (request.action === "remove_boot_video") return await removeBootVideo(service, user.id, audit);
     return await userAction(user.id, request);
   } catch (err) {
     console.error(`admin ${request.action} failed:`, err);

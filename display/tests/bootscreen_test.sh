@@ -67,7 +67,7 @@ grep -q 'systemd.show_status=false' "$install" || fail "installer does not hide 
 grep -q 'loglevel=3' "$install" || fail "installer does not set loglevel"
 grep -q 'add_kernel_option quiet' "$install" || fail "installer does not set quiet"
 grep -q 'plymouth.enable=0' "$install" || fail "installer does not disable plymouth"
-grep -q 'ffmpeg' "$install" || fail "installer does not install ffmpeg"
+grep -q 'ffmpeg curl' "$install" || fail "installer does not install ffmpeg and curl"
 grep -q '/etc/homeos/boot.mp4' "$install" || fail "installer does not document the custom video path"
 grep -q 'enable homeos-bootscreen' "$install" || fail "installer does not enable the video"
 
@@ -75,6 +75,9 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 printf 'not a video' >"$tmp/custom.mp4"
 printf 'not a video' >"$tmp/installed.mp4"
+# Keep the real display env and any cache on this machine out of the test.
+export HOMEOS_DISPLAY_ENV="$tmp/missing.env"
+export HOMEOS_BOOT_CACHE="$tmp/cache.mp4"
 out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 \
     HOMEOS_BOOT_CUSTOM="$tmp/custom.mp4" \
     HOMEOS_BOOT_INSTALLED="$tmp/installed.mp4" \
@@ -92,6 +95,81 @@ mkdir -p "$tmp/my video"
 printf 'x' >"$tmp/my video/boot.mp4"
 out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 HOMEOS_BOOT_VIDEO="$tmp/my video/boot.mp4" "$player")
 printf '%s\n' "$out" | grep -qx "video=$tmp/my video/boot.mp4" || fail "video path with a space was split"
+
+# Remote boot video. The fetch stand-in writes a body and prints an HTTP code.
+cat >"$tmp/fetch" <<'EOF'
+#!/bin/bash
+dest=$1
+url=$2
+printf '%s\n' "$url" >"${HOMEOS_FETCH_URL_FILE:?}"
+case "${HOMEOS_FAKE_HTTP:-000}" in
+    200)
+        printf 'xxxxftypiso' >"$dest"
+        printf '200'
+        ;;
+    404)
+        printf '{"status":"404"}' >"$dest"
+        printf '404'
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+EOF
+chmod +x "$tmp/fetch"
+printf 'HOMEOS_SUPABASE_URL="https://example.supabase.co"\n#HOMEOS_SUPABASE_ANON_KEY=ignored\nHOMEOS_SUPABASE_ANON_KEY='"'"'test-anon-key'"'"'\n' >"$tmp/display.env"
+export HOMEOS_DISPLAY_ENV="$tmp/display.env"
+export HOMEOS_BOOT_FETCH="$tmp/fetch"
+export HOMEOS_FETCH_URL_FILE="$tmp/url.txt"
+
+# A missing remote video deletes a stale cache and plays the built-in file.
+printf 'xxxxftypiso' >"$tmp/cache.mp4"
+rm -f "$tmp/url.txt"
+out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 HOMEOS_FAKE_HTTP=404 \
+    HOMEOS_BOOT_CUSTOM="$tmp/custom.mp4" \
+    HOMEOS_BOOT_INSTALLED="$tmp/installed.mp4" \
+    "$player")
+printf '%s\n' "$out" | grep -qx "video=$tmp/installed.mp4" || fail "missing remote video did not fall back to the built-in file"
+[ ! -f "$tmp/cache.mp4" ] || fail "missing remote video left the cache in place"
+grep -q '/storage/v1/object/boot-video/current.mp4$' "$tmp/url.txt" || fail "download URL is wrong"
+if grep -q 'test-anon-key' "$tmp/url.txt" || printf '%s\n' "$out" | grep -q 'test-anon-key'; then
+    fail "the anon key was printed"
+fi
+
+# A downloaded file wins over the built-in clip.
+rm -f "$tmp/url.txt"
+out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 HOMEOS_FAKE_HTTP=200 \
+    HOMEOS_BOOT_CUSTOM="$tmp/custom.mp4" \
+    HOMEOS_BOOT_INSTALLED="$tmp/installed.mp4" \
+    "$player")
+printf '%s\n' "$out" | grep -qx "video=$tmp/cache.mp4" || fail "downloaded boot video was not used"
+[ "$(dd if="$tmp/cache.mp4" bs=1 skip=4 count=4 2>/dev/null || true)" = "ftyp" ] || fail "cache is not the downloaded mp4"
+
+# A failed refresh keeps the cache.
+out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 HOMEOS_FAKE_HTTP=000 \
+    HOMEOS_BOOT_CUSTOM="$tmp/custom.mp4" \
+    HOMEOS_BOOT_INSTALLED="$tmp/installed.mp4" \
+    "$player")
+printf '%s\n' "$out" | grep -qx "video=$tmp/cache.mp4" || fail "a failed download discarded the cache"
+
+# No cache and no video: built-in.
+rm -f "$tmp/cache.mp4"
+out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 HOMEOS_FAKE_HTTP=000 \
+    HOMEOS_BOOT_CUSTOM="$tmp/custom.mp4" \
+    HOMEOS_BOOT_INSTALLED="$tmp/installed.mp4" \
+    "$player")
+printf '%s\n' "$out" | grep -qx "video=$tmp/installed.mp4" || fail "failed download with no cache did not use the built-in file"
+
+# A file someone copied to the override path wins, and is not replaced.
+printf 'local-override' >"$tmp/custom.mp4"
+rm -f "$tmp/url.txt"
+out=$(HOMEOS_BOOTSCREEN_DRY_RUN=1 HOMEOS_FAKE_HTTP=200 \
+    HOMEOS_BOOT_CUSTOM="$tmp/custom.mp4" \
+    HOMEOS_BOOT_INSTALLED="$tmp/installed.mp4" \
+    "$player")
+printf '%s\n' "$out" | grep -qx "video=$tmp/custom.mp4" || fail "local override did not win"
+[ ! -f "$tmp/url.txt" ] || fail "local override still downloaded a remote video"
+[ "$(cat "$tmp/custom.mp4")" = "local-override" ] || fail "local override was overwritten"
 
 # The stop helper must end the player without asking systemd for a job.
 sleep 30 &
