@@ -24,6 +24,7 @@ Item {
         taskTitle.forceActiveFocus()
     }
     function submitTask() {
+        Qt.inputMethod.commit()
         const title = taskTitle.text.trim()
         if (!title.length || !draftAssignee.length) return
         // Wall / device isn't a parent: points always require approval (tasks_guard).
@@ -218,7 +219,7 @@ Item {
         FormField {
             id: taskTitle
             placeholderText: qsTr("Chore")
-            onAccepted: tasksScreen.submitTask()
+            onAccepted: addTask.requestSubmit()
         }
         Flow {
             Layout.fillWidth: true
