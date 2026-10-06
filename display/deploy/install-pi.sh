@@ -280,6 +280,11 @@ else
     # skip this when the unit is inactive: that is a fresh install, and a
     # unit systemd dropped from the previous boot transaction.
     sudo systemctl unmask homeos-display
+    # Mask the console login on tty1. Conflicts= in the unit usually wins, but
+    # if the kiosk is slow or exits once before DRM is ready, getty can paint
+    # a login prompt and stay there. Masking leaves SSH as the way in; the
+    # PI_SETUP recovery path unmasks when you want a local prompt.
+    sudo systemctl mask getty@tty1.service autovt@tty1.service 2>/dev/null || true
     if ! sudo systemctl enable --now homeos-display; then
         echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
     fi

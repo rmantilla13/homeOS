@@ -96,9 +96,12 @@ block="$(awk '/# kiosk-boot-begin/,/# kiosk-boot-end/' "$install")"
 [ -n "$block" ] || fail "kiosk boot block not found in install-pi.sh"
 printf '%s\n' "$block" | grep -q 'systemctl enable --now homeos-display' || fail "boot block does not enable and start the kiosk"
 printf '%s\n' "$block" | grep -q 'systemctl restart homeos-display' || fail "boot block does not reload a running kiosk"
+printf '%s\n' "$block" | grep -q 'systemctl mask getty@tty1.service' || fail "boot block does not mask getty@tty1"
+printf '%s\n' "$block" | grep -q 'systemctl mask.*autovt@tty1.service' || fail "boot block does not mask autovt@tty1"
 if printf '%s\n' "$block" | grep -q 'is-active'; then
     fail "boot block still starts the kiosk only when it is already active"
 fi
+grep -q 'mask getty@tty1.service' "$preview" || fail "preview off does not remask getty"
 
 # preview_on: is-enabled homeos-preview succeeds. restart_rc: what `restart` returns.
 run_block() {
@@ -127,6 +130,7 @@ trap 'rm -rf "$tmp"' EXIT
 # Not enabled yet (a fresh install, or a previous one that never enabled it).
 run_block "$tmp/log" 0 0
 grep -qx 'unmask homeos-display' "$tmp/log" || fail "fresh install did not unmask"
+grep -qx 'mask getty@tty1.service autovt@tty1.service' "$tmp/log" || fail "fresh install did not mask getty"
 grep -qx 'enable --now homeos-display' "$tmp/log" || fail "fresh install did not enable and start"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "fresh install did not reload the kiosk"
 if grep -qx 'disable --now homeos-display' "$tmp/log"; then

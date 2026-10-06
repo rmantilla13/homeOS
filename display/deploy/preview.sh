@@ -98,6 +98,8 @@ off)
     sudo systemctl disable --now homeos-preview 2>/dev/null || true
     sudo rm -f /etc/homeos/preview.env /etc/homeos/preview.passwd
     sudo systemctl unmask homeos-display 2>/dev/null || true
+    # Same as install-pi.sh: keep the login prompt off the panel.
+    sudo systemctl mask getty@tty1.service autovt@tty1.service 2>/dev/null || true
     if ! sudo systemctl enable --now homeos-display; then
         echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
     fi
