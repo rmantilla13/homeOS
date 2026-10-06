@@ -1,4 +1,4 @@
-# homeOS platform spec: accounts, invites, assistant v2, voice, admin
+# Ohana platform spec: accounts, invites, assistant v2, voice, admin
 
 This is the contract between the database, the edge functions, the admin
 console, the display, the voice service and the iOS app. Names here are
@@ -538,7 +538,7 @@ still can't pair a suspended family. Device users must not get profiles
 
 Next.js (App Router, TypeScript, current stable release) with
 `@supabase/ssr` and `@supabase/supabase-js`. Styling uses CSS modules plus a
-`globals.css` with the homeOS tokens: canvas `#F1EFEB`, white cards with
+`globals.css` with the Ohana tokens: canvas `#F1EFEB`, white cards with
 radius 20–28, accent `#4F7CF7`, glow gradient `#5B7CF5 → #F07F5A → #F6B94A`,
 and Inter, with a dark-mode variant. There's no UI kit dependency.
 
@@ -588,7 +588,7 @@ transcribed text leaves it, sent by the display to the assistant.
 - **Mic:** `sounddevice`, 16 kHz mono int16, in 80 ms frames (1280 samples).
 - **Wake word:** `openwakeword` with a configurable model (name or `.onnx`/
   `.tflite` path, threshold 0.5, 2 s refractory). The default is the
-  built-in `hey_jarvis` until a custom "Hey homeOS" model is trained;
+  built-in `hey_jarvis` until a custom "Hey Ohana" model is trained;
   `docs/VOICE.md` explains training one. The wake word can be disabled, in
   which case only push-to-talk works.
 - **End of speech:** `webrtcvad` (aggressiveness 2), with an energy-based
@@ -714,7 +714,7 @@ port configurable). JSON text frames:
 **Push-to-talk:** the mic button in the AssistantPanel and on the Home card
 calls `Voice.listen()`. The transcript is sent as a chat message, not quick
 mode (a reply still streaming is stopped first). If `!Voice.available`, show
-the toast "Voice needs the homeOS voice service (see docs/VOICE.md)"; if the
+the toast "Voice needs the Ohana voice service (see docs/VOICE.md)"; if the
 service has no speech-to-text (`hello.stt` false, e.g. no mic), show "Voice
 needs a microphone (see docs/VOICE.md)".
 

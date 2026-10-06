@@ -1,4 +1,4 @@
-"""homeOS voice service.
+"""Ohana voice service.
 
 Listens for the wake word on a USB mic, records one utterance, transcribes it
 on the device and hands the text to the display over a local WebSocket. The

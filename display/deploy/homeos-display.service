@@ -1,9 +1,9 @@
-# Runs the homeOS display as a kiosk on boot, straight to the panel via EGLFS.
+# Runs the Ohana display as a kiosk on boot, straight to the panel via EGLFS.
 # There's no desktop: this service owns tty1, and the video, render, input,
 # audio and tty groups give it the screen, GPU, touch, sound and console.
 # Installed by display/deploy/install-pi.sh, which fills in the user and their UID.
 [Unit]
-Description=homeOS wall display
+Description=Ohana wall display
 # After logins are allowed, logind is up, and any boot splash has let go of
 # the screen. The user manager (lingering) creates the runtime dir and PipeWire.
 After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.service

@@ -78,7 +78,7 @@ Item {
                     height: Theme.compact ? 280 : 360
                     radius: Theme.radius
                     color: media.featured ? media.featured.tintDeep : Theme.surface
-                    Behavior on color { ColorAnimation { duration: 600 } }
+                    Behavior on color { ColorAnimation { duration: Theme.quick } }
 
                     PhotoTile {
                         anchors.fill: parent
@@ -178,7 +178,7 @@ Item {
             Label {
                 anchors.centerIn: parent
                 visible: media.items.length === 0
-                text: qsTr("Nothing here yet. Add photos and videos from the homeOS iPhone app.")
+                text: qsTr("Nothing here yet. Add photos and videos from the Ohana iPhone app.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMd
             }

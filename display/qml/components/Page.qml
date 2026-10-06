@@ -22,14 +22,14 @@ Item {
         transform: [
             Translate {
                 y: page.active ? 0 : 24
-                Behavior on y { NumberAnimation { duration: Theme.smooth + 80; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
             },
             Scale {
                 origin.x: holder.width / 2
                 origin.y: holder.height / 2
                 xScale: page.active ? 1 : 0.985
                 yScale: xScale
-                Behavior on xScale { NumberAnimation { duration: Theme.smooth + 80; easing.type: Easing.OutCubic } }
+                Behavior on xScale { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
             }
         ]
     }

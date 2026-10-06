@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as a homeOS display:
+# Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as an Ohana display:
 # installs dependencies, builds and installs the app, and starts it now and
-# on every boot. The service takes the console, so a reboot shows homeOS
+# on every boot. The service takes the console, so a reboot shows Ohana
 # instead of the login prompt.
 #
 #   git clone https://github.com/rmantilla13/homeOS && cd homeOS
@@ -91,7 +91,7 @@ step "Letting this display change Wi-Fi and reboot"
 # sudo will run without asking. It changes Wi-Fi and reboots, and nothing else.
 sudo install -D -m 755 "$repo/display/deploy/homeos-system" /usr/local/libexec/homeos-system
 sudo tee /etc/sudoers.d/homeos-system >/dev/null <<EOF
-# homeOS display: Wi-Fi and reboot only.
+# Ohana display: Wi-Fi and reboot only.
 $user ALL=(root) NOPASSWD: /usr/local/libexec/homeos-system
 EOF
 sudo chmod 440 /etc/sudoers.d/homeos-system
@@ -174,7 +174,7 @@ JSON
 
 if [ ! -f /etc/homeos/display.env ]; then
     sudo tee /etc/homeos/display.env >/dev/null <<'ENV'
-# homeOS display settings. Restart after editing: sudo systemctl restart homeos-display
+# Ohana display settings. Restart after editing: sudo systemctl restart homeos-display
 QT_QPA_PLATFORM=eglfs
 QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
@@ -280,6 +280,28 @@ if [ -f "$config" ]; then
     fi
 fi
 
+# cloud-init prints "Completed socket interaction for boot stage final" on
+# the HDMI console after quiet boot. The kernel command line does not stop
+# it: those units use StandardOutput=journal+console. Send that to the
+# journal, and keep cloud-init's own log off the console. A reboot applies it.
+sudo mkdir -p /etc/cloud/cloud.cfg.d
+sudo tee /etc/cloud/cloud.cfg.d/99-homeos-quiet.cfg >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh. Boot-stage text stays in the log.
+output: {all: ">> /var/log/cloud-init-output.log"}
+EOF
+for unit in cloud-init-local.service cloud-init.service cloud-config.service cloud-final.service; do
+    if [ ! -f "/lib/systemd/system/$unit" ] && [ ! -f "/usr/lib/systemd/system/$unit" ]; then
+        continue
+    fi
+    sudo mkdir -p "/etc/systemd/system/${unit}.d"
+    sudo tee "/etc/systemd/system/${unit}.d/homeos-quiet.conf" >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh. Do not paint the HDMI console.
+[Service]
+StandardOutput=journal
+StandardError=journal
+EOF
+done
+
 step "Setting up sound (the panel's speakers, over HDMI)"
 # PipeWire runs as $user's own service. Lingering starts it at boot, without
 # anyone logging in. (Without logind, as in a container, write the flag file
@@ -356,6 +378,25 @@ if [ -d /etc/NetworkManager/conf.d ]; then
 [connection]
 wifi.powersave = 2
 NM
+fi
+
+step "Keeping SSH typing responsive"
+# OpenSSH sets IP_TOS to low-delay (IPTOS_LOWDELAY). Many access points
+# mishandle those packets, so keystrokes stutter over Wi-Fi even when the
+# Pi is idle. cs0 leaves them unmarked. UseDNS skips a reverse lookup that
+# only slows login. This file is homeOS-owned and rewritten on every run.
+# A reload applies it in the current session; a reboot is not required.
+sudo mkdir -p /etc/ssh/sshd_config.d
+sudo tee /etc/ssh/sshd_config.d/homeos.conf >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh.
+IPQoS cs0 cs0
+UseDNS no
+EOF
+sudo chmod 644 /etc/ssh/sshd_config.d/homeos.conf
+# Debian and Raspberry Pi OS name the unit ssh.service. Reload does not
+# drop the session. If ssh is not running, the drop-in applies when it starts.
+if systemctl is-active --quiet ssh; then
+    sudo systemctl reload ssh
 fi
 
 step "Installing the boot video"
@@ -461,10 +502,10 @@ if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on; the panel kiosk stays off."
 else
     state="$(systemctl is-active homeos-display 2>/dev/null || true)"
-    echo "homeOS is enabled. On every boot it takes HDMI (no login prompt)."
+    echo "Ohana is enabled and started. On every boot it takes HDMI (no login prompt)."
     echo "systemctl is-active homeos-display: ${state:-unknown}"
     echo "active means the app has the panel. A terminal on the panel means it does not."
-    echo "To put homeOS on HDMI:  sudo systemctl enable --now homeos-display"
+    echo "To put Ohana on HDMI:  sudo systemctl enable --now homeos-display"
     echo "Reboot so the console settings apply:  sudo reboot"
     echo "That reboot hides boot text and plays a short video until the app is up."
     if [ "$state" != "active" ]; then

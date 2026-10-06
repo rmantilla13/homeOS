@@ -1,6 +1,6 @@
 # Admin console
 
-`admin/` is the web console for running homeOS as a platform: families,
+`admin/` is the web console for running Ohana as a platform: families,
 accounts, invites, assistant usage and platform settings. It's a Next.js app
 (App Router, React 19) that talks to the same Supabase project as the display
 and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
@@ -45,7 +45,7 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 - **Rendering.** Every page renders per request and reads the environment at
   request time, so one build works with any project, and `next build` needs no
   environment at all.
-- **Look.** CSS modules plus the homeOS tokens in `app/globals.css`: warm
+- **Look.** CSS modules plus the Ohana tokens in `app/globals.css`: warm
   canvas, white cards, accent `#4F7CF7`, the blue → coral → amber glow, Inter
   (self-hosted from `@fontsource-variable/inter`), and a dark variant that
   follows the system setting. No UI kit, no chart library: the usage chart is
@@ -207,7 +207,7 @@ hook, the assistant).
 | Symptom | Likely cause |
 |---|---|
 | Sign-in page says Supabase isn't configured | One of the two `NEXT_PUBLIC_SUPABASE_*` variables is missing or not a URL. They are read at request time, so restart (or redeploy) after setting them. |
-| "That account isn't a homeOS platform admin" | The account has no `platform_admins` row (see above). |
+| "That account isn't an Ohana platform admin" | The account has no `platform_admins` row (see above). |
 | "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The server log has the database error. |
 | Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
 | A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its files are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |

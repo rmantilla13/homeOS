@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Connects this display to your Supabase project. It asks for the project URL
 # and the publishable key, checks them with Supabase, saves them in
-# /etc/homeos/display.env and restarts homeOS (the kiosk, or preview mode).
+# /etc/homeos/display.env and restarts Ohana (the kiosk, or preview mode).
 #
 #   ./display/deploy/connect-backend.sh
 #

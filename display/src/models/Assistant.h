@@ -12,7 +12,7 @@ class QNetworkReply;
 class SupabaseClient;
 class VoiceClient;
 
-// The family assistant behind the "Ask homeOS" card and the wake word.
+// The family assistant behind the "Ask Ohana" card and the wake word.
 //
 // Live mode streams from the `assistant` edge function (v2), which grounds
 // Claude in the family's data, keeps the conversation in a thread and can add

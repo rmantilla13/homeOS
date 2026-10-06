@@ -21,7 +21,7 @@ export default async function OverviewPage() {
       <PageHeader
         eyebrow={formatDate(new Date().toISOString())}
         title="Overview"
-        subtitle="Families, people and assistant use across homeOS."
+        subtitle="Families, people and assistant use across Ohana."
       />
 
       <div className={styles.tiles}>

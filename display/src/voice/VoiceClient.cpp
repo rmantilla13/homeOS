@@ -190,7 +190,7 @@ void VoiceClient::setSpeakReplies(bool on)
 
 QString VoiceClient::wakewordLabel() const
 {
-    // "hey_jarvis", "hey_jarvis_v0.1" or "/etc/homeos/hey_homeos.onnx" -> "Hey Jarvis" / "Hey homeOS"
+    // "hey_jarvis", "hey_jarvis_v0.1" or "/etc/homeos/hey_homeos.onnx" -> "Hey Jarvis" / "Hey Ohana"
     QString name = m_wakewordName.section('/', -1);
     static const QRegularExpression ext(QStringLiteral("\\.(onnx|tflite)$"), QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression version(QStringLiteral("[_-]v\\d+(\\.\\d+)*$"));
@@ -199,7 +199,7 @@ QString VoiceClient::wakewordLabel() const
     QStringList words = name.split(QRegularExpression(QStringLiteral("[_\\-\\s]+")), Qt::SkipEmptyParts);
     for (QString &w : words) {
         if (w.compare(QLatin1String("homeos"), Qt::CaseInsensitive) == 0)
-            w = QStringLiteral("homeOS");
+            w = QStringLiteral("Ohana");
         else
             w[0] = w.at(0).toUpper();
     }

@@ -1,4 +1,4 @@
-# homeOS admin console
+# Ohana admin console
 
 The web console for platform admins: families, accounts, invites, assistant
 usage and settings. Next.js (App Router) + Supabase.

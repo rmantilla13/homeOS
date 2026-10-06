@@ -26,7 +26,7 @@ final class Dictation {
     func start() async {
         errorMessage = nil
         guard await Self.authorize() else {
-            errorMessage = "Allow microphone and speech recognition in Settings to talk to homeOS."
+            errorMessage = "Allow microphone and speech recognition in Settings to talk to Ohana."
             return
         }
         guard let recognizer, recognizer.isAvailable else {

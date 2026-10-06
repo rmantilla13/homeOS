@@ -18,13 +18,13 @@ targets:
     info:
       path: HomeOS/Info.plist
       properties:
-        CFBundleDisplayName: homeOS
+        CFBundleDisplayName: Ohana
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSPhotoLibraryUsageDescription: Pick photos and videos to show on your family display, and your profile photo.
         NSCameraUsageDescription: Scan the pairing code on your family display.
-        NSMicrophoneUsageDescription: Talk to the homeOS assistant instead of typing.
-        NSSpeechRecognitionUsageDescription: Turn what you say to the homeOS assistant into text.
+        NSMicrophoneUsageDescription: Talk to the Ohana assistant instead of typing.
+        NSSpeechRecognitionUsageDescription: Turn what you say to the Ohana assistant into text.
         # homeos://invite/<CODE> (invite links) and homeos://auth-callback (email links).
         CFBundleURLTypes:
           - CFBundleURLName: com.homeos.app

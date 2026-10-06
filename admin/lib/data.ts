@@ -38,7 +38,7 @@ type Source = { demo: true } | { demo: false; db: SupabaseClient };
 
 const NOT_CONFIGURED =
   "Supabase isn't configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (see docs/ADMIN.md).";
-export const NOT_ADMIN = "That account isn't a homeOS platform admin.";
+export const NOT_ADMIN = "That account isn't an Ohana platform admin.";
 
 // One source per request. connection() keeps every caller out of static
 // prerendering, so the environment is always read at request time.

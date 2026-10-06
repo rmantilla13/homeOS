@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral(HOMEOS_VERSION));
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("homeOS wall display");
+    parser.setApplicationDescription("Ohana wall display");
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption windowed("windowed", "Run in a window instead of full screen (development).");

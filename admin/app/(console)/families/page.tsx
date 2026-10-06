@@ -32,7 +32,7 @@ export default async function FamiliesPage({ searchParams }: Props) {
     <>
       <PageHeader
         title="Families"
-        subtitle="Every household on homeOS. Open one to see its people, displays and invites."
+        subtitle="Every household on Ohana. Open one to see its people, displays and invites."
         actions={<SearchForm label="Search families" placeholder="Search by name or id" defaultValue={q} />}
       />
       {deleted ? (

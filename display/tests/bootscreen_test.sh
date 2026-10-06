@@ -70,6 +70,9 @@ grep -q 'plymouth.enable=0' "$install" || fail "installer does not disable plymo
 grep -q 'ffmpeg curl' "$install" || fail "installer does not install ffmpeg and curl"
 grep -q '/etc/homeos/boot.mp4' "$install" || fail "installer does not document the custom video path"
 grep -q 'enable homeos-bootscreen' "$install" || fail "installer does not enable the video"
+grep -q '99-homeos-quiet.cfg' "$install" || fail "installer does not silence cloud-init logs"
+grep -q 'cloud-final.service' "$install" || fail "installer does not override cloud-final"
+grep -q 'StandardOutput=journal' "$install" || fail "installer does not take cloud-init off the console"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

@@ -3,8 +3,8 @@ import { inter } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "homeOS Admin", template: "%s · homeOS Admin" },
-  description: "Platform administration for homeOS.",
+  title: { default: "Ohana Admin", template: "%s · Ohana Admin" },
+  description: "Platform administration for Ohana.",
   robots: { index: false, follow: false },
 };
 

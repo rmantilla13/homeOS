@@ -20,7 +20,7 @@ log = logging.getLogger("homeos_voice")
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m homeos_voice",
-        description="homeOS voice service: wake word, speech to text and spoken replies "
+        description="Ohana voice service: wake word, speech to text and spoken replies "
                     "for the display, over a local WebSocket.",
     )
     p.add_argument("--config", metavar="PATH",

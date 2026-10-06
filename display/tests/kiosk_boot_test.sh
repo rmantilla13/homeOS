@@ -74,6 +74,12 @@ grep -q 'homeos-display.pam' "$install" || fail "install script does not install
 grep -q 'loginctl enable-linger' "$install" || fail "install script dropped linger"
 grep -Fq 'systemctl start "user@${uid}.service"' "$install" || fail "install script does not start the user manager"
 grep -q 'set-default multi-user.target' "$install" || fail "install script no longer forces the console target"
+grep -Fq '/etc/ssh/sshd_config.d/homeos.conf' "$install" || fail "install script dropped the sshd drop-in"
+grep -Fq 'IPQoS cs0 cs0' "$install" || fail "install script dropped IPQoS cs0 cs0"
+grep -Fq 'UseDNS no' "$install" || fail "install script dropped UseDNS no"
+grep -Fq 'chmod 644 /etc/ssh/sshd_config.d/homeos.conf' "$install" || fail "sshd drop-in is not mode 644"
+grep -Fq 'systemctl reload ssh' "$install" || fail "install script does not reload ssh"
+grep -Fq 'wifi.powersave = 2' "$install" || fail "install script dropped Wi-Fi power save"
 
 grep -q 'Conflicts=homeos-display.service' "$preview_unit" || fail "preview no longer conflicts with the kiosk"
 grep -q 'disable --now homeos-display' "$preview" || fail "preview on does not stop the kiosk"

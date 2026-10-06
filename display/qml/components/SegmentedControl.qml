@@ -24,8 +24,8 @@ Rectangle {
         readonly property Item target: repeater.count > 0 && row.width > 0 ? repeater.itemAt(seg.currentIndex) : null
         x: row.x + (target ? target.x : 0)
         width: target ? target.width : 0
-        Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on x { NumberAnimation { duration: Theme.quick; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: Theme.quick; easing.type: Easing.OutCubic } }
     }
 
     Row {

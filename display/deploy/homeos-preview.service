@@ -1,8 +1,8 @@
-# Shows homeOS on a virtual screen you open in a web browser, for using the Pi
+# Shows Ohana on a virtual screen you open in a web browser, for using the Pi
 # before the panel is connected. Installed by display/deploy/preview.sh (which
 # fills in @USER@); it replaces the kiosk service while it runs.
 [Unit]
-Description=homeOS preview (virtual screen in a browser)
+Description=Ohana preview (virtual screen in a browser)
 After=network-online.target homeos-bootscreen.service
 Wants=network-online.target
 Conflicts=homeos-display.service
