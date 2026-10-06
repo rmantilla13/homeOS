@@ -56,7 +56,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    Text("Your name in Ohana. Parents can also rename you on the family screen.")
+                    Text("Your name in Ohana Display. Parents can also rename you on the family screen.")
                 }
                 Section("Photo") {
                     PhotosPicker(selection: $photoItem, matching: .images) {
@@ -94,7 +94,7 @@ struct ProfileView: View {
                     }
                 }
                 Section {
-                    SiriTipView(intent: AskHomeOSIntent())
+                    SiriTipView(intent: AskOhanaOSIntent())
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 } header: {
@@ -122,7 +122,7 @@ struct ProfileView: View {
                 guard let item else { return }
                 Task { await upload(item) }
             }
-            .confirmationDialog("Sign out of Ohana?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+            .confirmationDialog("Sign out of Ohana Display?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) {
                     dismiss()
                     Task { await store.signOut() }

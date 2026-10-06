@@ -70,7 +70,7 @@ final class FamilyStore {
     var invites: [FamilyInvite] = []
 
     // Invite-only onboarding.
-    /// A code from a `homeos://invite` link or typed on the welcome screen.
+    /// A code from an `ohanaos://invite` link or typed on the welcome screen.
     /// Survives relaunches (e.g. while confirming an email) until it's used.
     private(set) var pendingInviteCode: String? = UserDefaults.standard.string(forKey: Keys.pendingInvite)
     /// What `preview_invite` said about `pendingInviteCode`.
@@ -97,8 +97,8 @@ final class FamilyStore {
     @ObservationIgnored private var signedURLs: [String: (url: URL, expires: Date)] = [:]
 
     private enum Keys {
-        static let pendingInvite = "homeos.pendingInviteCode"
-        static let familyId = "homeos.familyId"
+        static let pendingInvite = "ohanaos.pendingInviteCode"
+        static let familyId = "ohanaos.familyId"
     }
 
     var me: Member? {
@@ -310,7 +310,7 @@ final class FamilyStore {
         // Closing a screen or ending pull-to-refresh cancels requests; that's no error.
         if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
         errorMessage = Self.message(for: error)
-        print("homeOS error:", error)
+        print("OhanaOS error:", error)
     }
 
     /// The RPCs raise short lowercase sentences meant for people ("invite code expired").
@@ -365,14 +365,14 @@ final class FamilyStore {
         try? await supabase.auth.signOut()
     }
 
-    /// `homeos://invite/<CODE>` prefills the invite; `homeos://auth-callback`
+    /// `ohanaos://invite/<CODE>` prefills the invite; `ohanaos://auth-callback`
     /// finishes an email confirmation or an admin's email invite.
     func handleOpenURL(_ url: URL) {
         if let code = InviteCode.from(url: url) {
             setPendingInvite(code)
             return
         }
-        guard url.scheme?.lowercased() == "homeos", url.host?.lowercased() == "auth-callback" else { return }
+        guard url.scheme?.lowercased() == Config.urlScheme, url.host?.lowercased() == "auth-callback" else { return }
         Task { await self.completeAuthCallback(url) }
     }
 
@@ -387,7 +387,7 @@ final class FamilyStore {
             errorMessage = problem.replacingOccurrences(of: "+", with: " ")
             return
         }
-        // Any app or web page can open a homeos:// link, so tokens in one must
+        // Any app or web page can open an ohanaos:// link, so tokens in one must
         // never quietly swap the account already signed in on this iPhone.
         if value("access_token") != nil, supabase.auth.currentSession != nil {
             errorMessage = "You're already signed in. Sign out first to use that link."
@@ -1264,7 +1264,7 @@ final class FamilyStore {
             }
         } catch {
             if !Task.isCancelled {
-                print("homeOS assistant error:", error)
+                print("OhanaOS assistant error:", error)
                 let message = (error as? AssistantError ?? AssistantError.unreachable).message
                 updateReply(placeholder.id, generation: generation) {
                     $0.text = message

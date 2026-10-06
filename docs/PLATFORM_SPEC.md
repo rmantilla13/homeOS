@@ -816,7 +816,7 @@ files still play.
 **Onboarding** (invite-only)
 
 - The welcome screen has an invite code field. A deep link
-  `homeos://invite/<CODE>` prefills it; register the URL scheme in
+  `ohanaos://invite/<CODE>` prefills it; register the URL scheme in
   `project.yml`.
 - "Check invite" calls `preview_invite` and shows "You're invited to
   {family} as {role}" or "This code lets you start a new family".
@@ -844,7 +844,7 @@ through the media API and Storage paths through Storage.
   anyone can edit their own name and color.
 - Invites, for parents: create (role, optional "for an existing member"
   picker listing members without accounts, optional email), share (share
-  sheet text including the code and the `homeos://invite/CODE` link), revoke,
+  sheet text including the code and the `ohanaos://invite/CODE` link), revoke,
   and see pending and accepted invites.
 - Leave family.
 
@@ -872,7 +872,7 @@ through the media API and Storage paths through Storage.
   Storage uses a Storage signed URL. Both are cached for an hour.
 - Deleting a blob file calls `POST /api/media/delete` before deleting the row.
 
-**Siri:** `AskHomeOSIntent: AppIntent`
+**Siri:** `AskOhanaOSIntent: AppIntent`
 
 - `@Parameter question: String`.
 - `perform()` calls the assistant with `mode: quick`, `stream: false`, and no
@@ -880,11 +880,11 @@ through the media API and Storage paths through Storage.
 - An `AppShortcutsProvider` adds phrases such as "Ask \(.applicationName)"
   and "Ask \(.applicationName) a question"; Siri then asks for the question.
 
-**CI:** `.github/workflows/ios.yml` builds the checked-in `HomeOS.xcodeproj`
+**CI:** `.github/workflows/ios.yml` builds the checked-in `OhanaOS.xcodeproj`
 for the simulator on `macos-15` with `CODE_SIGNING_ALLOWED=NO`.
 
 **TestFlight:** the checked-in Xcode project is signed for team `92X9CP6C6D`,
-version 1.0.0 (build 1), bundle id `com.homeos.app`. The archive reads the
+version 1.0.0 (build 1), bundle id `com.ohanaos.ohana`. The archive reads the
 Supabase URL, anon key and media API origin from `ios/Config/Local.xcconfig`.
 `ios/scripts/archive-for-testflight.sh` exports an App Store Connect IPA.
 Details are in [IOS.md](IOS.md).
@@ -894,7 +894,7 @@ Details are in [IOS.md](IOS.md).
 ## 7. CI (`.github/workflows/`)
 
 - **`ios.yml`:** on push and PR, when `ios/**` or the workflow changes:
-  `xcodebuild -project ios/HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
+  `xcodebuild -project ios/OhanaOS.xcodeproj -scheme OhanaOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
   Pick the newest Xcode 16+ with `maxim-lobanov/setup-xcode` or `xcode-select`.
 - **`ci.yml`:** jobs on `ubuntu-24.04`
   - `backend`: install PostgreSQL 16 from apt and run `backend/tests/run.sh`

@@ -33,7 +33,7 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        ScreenHeader(title: store.family?.name ?? "Ohana",
+        ScreenHeader(title: store.family?.name ?? "Ohana Display",
                      subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
             Button { showingProfile = true } label: {
                 MemberAvatar(member: store.me, size: 44)

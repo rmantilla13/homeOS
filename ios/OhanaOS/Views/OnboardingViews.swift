@@ -150,7 +150,7 @@ struct WelcomeView: View {
     var body: some View {
         Form {
             Section {
-                OnboardingHeader(title: "Ohana", subtitle: "Your family's calendar, chores and photos — on the wall and in your pocket.")
+                OnboardingHeader(title: "Ohana Display", subtitle: "Your family's calendar, chores and photos — on the wall and in your pocket.")
             }
             Section {
                 InviteCodeField(code: $code)
@@ -170,7 +170,7 @@ struct WelcomeView: View {
             } header: {
                 Text("Invite code")
             } footer: {
-                Text("Ohana is invite-only. Your code came with your invite, or from someone in your family.")
+                Text("Ohana Display is invite-only. Your code came with your invite, or from someone in your family.")
             }
 
             Section {
@@ -216,7 +216,7 @@ struct WelcomeView: View {
         .animation(Theme.springy, value: invite)
         .showsStoreErrors()
         .task(id: store.pendingInviteCode) {
-            // A homeos://invite link prefills and checks the code.
+            // An ohanaos://invite link prefills and checks the code.
             guard let pending = store.pendingInviteCode else { return }
             if code != pending { code = pending }
             if store.pendingPreview == nil && !checking { await check() }
@@ -290,7 +290,7 @@ struct EnterInviteView: View {
         Form {
             Section {
                 OnboardingHeader(title: "Enter an invite code",
-                                 subtitle: "Ohana is invite-only. Ask someone in your family for a code, or use the one from your invite email.")
+                                 subtitle: "Ohana Display is invite-only. Ask someone in your family for a code, or use the one from your invite email.")
             }
             Section {
                 InviteCodeField(code: $code)
@@ -442,7 +442,7 @@ struct InviteLink: Identifiable {
     var id: String { code }
 }
 
-/// Opened by a homeos://invite link when you're already in a family.
+/// Opened by an ohanaos://invite link when you're already in a family.
 struct InviteLinkSheet: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -510,7 +510,7 @@ struct InviteLinkSheet: View {
             }
             .buttonStyle(.pill())
             .disabled(working)
-            Text("Ohana will switch to that family. Switch back any time from your profile.")
+            Text("Ohana Display will switch to that family. Switch back any time from your profile.")
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.muted)

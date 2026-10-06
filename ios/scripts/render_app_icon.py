@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rasterize the homeOS mark (admin/app/icon.svg) to the iOS app icon.
+"""Rasterize the Ohana mark (admin/app/icon.svg) to the iOS app icon.
 
 The glyph is the same house stroke on the same blue → coral → amber gradient.
 iOS masks the corners, so this image is a full-bleed square with no alpha.
@@ -85,7 +85,7 @@ def main() -> None:
                     g = round(g + (255 - g) * t)
                     b = round(b + (255 - b) * t)
             buf[row + x * 3:row + x * 3 + 3] = bytes((r, g, b))
-    out = Path(__file__).resolve().parents[1] / "HomeOS" / "Assets.xcassets" / "AppIcon.appiconset" / "AppIcon.png"
+    out = Path(__file__).resolve().parents[1] / "OhanaOS" / "Assets.xcassets" / "AppIcon.appiconset" / "AppIcon.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     data = png(bytes(buf))
     out.write_bytes(data)

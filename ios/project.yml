@@ -1,26 +1,32 @@
-# The Xcode project is checked in at HomeOS.xcodeproj (team 92X9CP6C6D).
+# App name: Ohana Display. Project, software, and company: OhanaOS.
+# The Xcode project is checked in at OhanaOS.xcodeproj (team 92X9CP6C6D).
 # Open that. xcodegen generate replaces it.
 # TestFlight: fill ios/Config/Local.xcconfig, then ios/scripts/archive-for-testflight.sh
-name: HomeOS
+name: OhanaOS
 options:
-  bundleIdPrefix: com.homeos
+  bundleIdPrefix: com.ohanaos
   deploymentTarget:
     iOS: "17.0"
+settings:
+  base:
+    ORGANIZATIONNAME: OhanaOS
 packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: 2.20.0
 targets:
-  HomeOS:
+  OhanaOS:
     type: application
     platform: iOS
-    sources: [HomeOS]
+    sources: [OhanaOS]
     dependencies:
       - package: Supabase
     info:
-      path: HomeOS/Info.plist
+      path: OhanaOS/Info.plist
       properties:
-        CFBundleDisplayName: Ohana
+        CFBundleDisplayName: Ohana Display
+        CFBundleName: OhanaOS
+        NSHumanReadableCopyright: Copyright © OhanaOS. All rights reserved.
         LSApplicationCategoryType: public.app-category.lifestyle
         # Standard HTTPS only, so App Store Connect skips the export question.
         ITSAppUsesNonExemptEncryption: false
@@ -35,17 +41,18 @@ targets:
         SupabaseURL: "$(SUPABASE_URL)"
         SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
         MediaAPIURL: "$(MEDIA_API_URL)"
-        # homeos://invite/<CODE> (invite links) and homeos://auth-callback (email links).
+        # ohanaos://invite/<CODE> (invite links) and ohanaos://auth-callback (email links).
         CFBundleURLTypes:
-          - CFBundleURLName: com.homeos.app
-            CFBundleURLSchemes: [homeos]
+          - CFBundleURLName: com.ohanaos.ohana
+            CFBundleURLSchemes: [ohanaos]
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: "$(HOMEOS_BUNDLE_ID)"
-        DEVELOPMENT_TEAM: "$(HOMEOS_TEAM_ID)"
+        PRODUCT_NAME: Ohana
+        PRODUCT_BUNDLE_IDENTIFIER: "$(OHANAOS_BUNDLE_ID)"
+        DEVELOPMENT_TEAM: "$(OHANAOS_TEAM_ID)"
         CODE_SIGN_STYLE: Automatic
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -55,12 +62,12 @@ targets:
       configs:
         Release:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
-# A shared scheme, so `xcodebuild -scheme HomeOS` works on a fresh checkout (CI).
+# A shared scheme, so `xcodebuild -scheme OhanaOS` works on a fresh checkout (CI).
 schemes:
-  HomeOS:
+  OhanaOS:
     build:
       targets:
-        HomeOS: all
+        OhanaOS: all
     run:
       config: Debug
     archive:

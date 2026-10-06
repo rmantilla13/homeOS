@@ -20,7 +20,9 @@ enum Config {
     /// Where email confirmations and admin email invites send people back to
     /// the app. Add it under Supabase → Authentication → URL Configuration →
     /// Redirect URLs.
-    static let authCallbackURL = URL(string: "homeos://auth-callback")!
+    /// Software URL scheme. The app people see is Ohana Display.
+    static let urlScheme = "ohanaos"
+    static let authCallbackURL = URL(string: "\(urlScheme)://auth-callback")!
 
     static var isConfigured: Bool {
         let host = supabaseURL.host?.lowercased() ?? ""

@@ -127,7 +127,7 @@ See [docs/VOICE.md](docs/VOICE.md).
 ### iOS app
 
 ```bash
-open ios/HomeOS.xcodeproj
+open ios/OhanaOS.xcodeproj
 ```
 
 Put your Supabase URL and anon key in `ios/Config/Local.xcconfig` (see

@@ -208,10 +208,11 @@ SystemController ─ Wi-Fi, screen speakers (mute and volume), restart, reboot
 ## iOS app: `ios/`
 
 SwiftUI with the `supabase-swift` SDK. Open the checked-in
-`ios/HomeOS.xcodeproj` (team `92X9CP6C6D`). `xcodegen generate` replaces it.
+`ios/OhanaOS.xcodeproj` (team `92X9CP6C6D`). The app name is Ohana Display;
+the project and company are OhanaOS. `xcodegen generate` replaces it.
 
 - Tabs: Today, Calendar, Chores, Rewards and Photos.
-- Invite-only onboarding: enter an invite code or open a `homeos://invite/<CODE>`
+- Invite-only onboarding: enter an invite code or open an `ohanaos://invite/<CODE>`
   link, then create an account and start or join a family.
 - Profile (name, photo), family management (members, roles, invites) and the
   assistant with saved threads. Siri: say "Ask Ohana", then the question.

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct HomeOSApp: App {
+struct OhanaOSApp: App {
     @State private var store = FamilyStore()
 
     var body: some Scene {
@@ -10,7 +10,7 @@ struct HomeOSApp: App {
                 .environment(store)
                 .providesMood()
                 .task { await store.start() }
-                // homeos://invite/<CODE> and homeos://auth-callback (URL scheme in project.yml).
+                // ohanaos://invite/<CODE> and ohanaos://auth-callback (URL scheme in project.yml).
                 .onOpenURL { store.handleOpenURL($0) }
         }
     }

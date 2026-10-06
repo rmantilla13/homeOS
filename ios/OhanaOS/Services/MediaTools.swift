@@ -223,7 +223,7 @@ enum MediaTools {
                 metadata.thumbnail = thumbnailJPEG(frame)
             }
         } catch {
-            print("homeOS video metadata:", error)
+            print("OhanaOS video metadata:", error)
         }
         return metadata
     }

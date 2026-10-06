@@ -3,7 +3,7 @@ import AppIntents
 /// "Ask Ohana": a quick, spoken-style answer from the family assistant,
 /// without opening the app. Uses `mode: quick` and no thread, so the server
 /// starts a fresh one (it shows up in the app's chat history).
-struct AskHomeOSIntent: AppIntent {
+struct AskOhanaOSIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask Ohana"
     static let description: IntentDescription? = IntentDescription("Ask your family assistant a quick question about the calendar, chores, meals or lists.")
     /// Family plans aren't for whoever picks up a locked phone.
@@ -36,10 +36,10 @@ struct AskHomeOSIntent: AppIntent {
 
 /// Siri phrases. A String parameter can't appear in a phrase, so Siri asks
 /// for the question after "Ask Ohana".
-struct HomeOSShortcuts: AppShortcutsProvider {
+struct OhanaOSShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
-            intent: AskHomeOSIntent(),
+            intent: AskOhanaOSIntent(),
             phrases: [
                 "Ask \(.applicationName)",
                 "Ask \(.applicationName) a question",
