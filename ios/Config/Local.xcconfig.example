@@ -1,0 +1,12 @@
+// Copy to Local.xcconfig (that file stays uncommitted).
+// Team ID: developer.apple.com → Membership Details → Team ID (10 characters).
+HOMEOS_TEAM_ID = YOURTEAMID
+
+// Register this identifier under Certificates, Identifiers & Profiles, then
+// pick the same one when you create the app in App Store Connect.
+HOMEOS_BUNDLE_ID = com.homeos.app
+
+// xcconfig treats // as a comment. Write the scheme as https:/$()/
+SUPABASE_URL = https:/$()/YOUR-PROJECT.supabase.co
+SUPABASE_ANON_KEY = YOUR-ANON-KEY
+MEDIA_API_URL = https:/$()/your-admin-app.vercel.app

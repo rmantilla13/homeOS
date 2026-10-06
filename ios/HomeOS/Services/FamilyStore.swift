@@ -101,6 +101,10 @@ final class FamilyStore {
     // MARK: Lifecycle
 
     func start() async {
+        guard Config.isConfigured else {
+            errorMessage = Config.unconfiguredMessage
+            return
+        }
         for await (event, session) in supabase.auth.authStateChanges {
             guard [.initialSession, .signedIn, .signedOut].contains(event) else { continue }
             var signedIn = session != nil
@@ -148,6 +152,10 @@ final class FamilyStore {
 
     /// Picks the family to show (or the setup screens when there's none) and loads it.
     func loadFamily() async {
+        guard Config.isConfigured else {
+            errorMessage = Config.unconfiguredMessage
+            return
+        }
         do {
             let all: [Family] = try await supabase.from("families").select().order("created_at").execute().value
             families = all

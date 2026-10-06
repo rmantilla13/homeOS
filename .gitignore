@@ -8,6 +8,7 @@ ios/*.xcodeproj/
 ios/*.xcworkspace/
 xcuserdata/
 DerivedData/
+ios/Config/Local.xcconfig
 
 # Supabase local state
 backend/supabase/.temp/

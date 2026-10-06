@@ -14,7 +14,9 @@ brew install xcodegen
 cd ios && xcodegen && open HomeOS.xcodeproj
 ```
 
-1. Put your Supabase URL and anon key in `ios/HomeOS/App/Config.swift`.
+1. Put your Supabase URL and anon key in `ios/Config/Local.xcconfig`
+   (copy `Local.xcconfig.example`) or, for a simulator-only run, in
+   `ios/HomeOS/App/Config.swift`. `Local.xcconfig` wins when it is filled in.
 2. Apply the migrations and deploy the `pair-device` and `assistant` edge
    functions (see the README).
 3. In Supabase → Authentication → URL Configuration, add
@@ -38,7 +40,7 @@ ios/HomeOS/
 ├── App/
 │   ├── HomeOSApp.swift       RootView: loading (with retry) / welcome / family setup / tabs; deep links
 │   ├── AskHomeOSIntent.swift Siri: AskHomeOSIntent + HomeOSShortcuts (App Shortcuts)
-│   └── Config.swift          Supabase URL and key, bucket names, auth callback URL
+│   └── Config.swift          Supabase URL and key (Local.xcconfig or the fallbacks), bucket names, auth callback URL
 ├── Models/       Codable rows mirroring the migrations (snake_case keys), invites, profiles,
 │                 assistant threads and messages, chat types, InviteCode, DayKey
 ├── Services/
@@ -212,6 +214,57 @@ Swift packages are checked out into `.spm` and cached on the hash of
 newest supabase-swift 2.x). When the build fails, the full `xcodebuild` log is
 uploaded as the `xcodebuild-log` artifact.
 
+## TestFlight
+
+The project is set up to archive. Uploading still happens on a Mac, signed in
+to Xcode with an Apple Developer account. Version **1.0.0** and build **1**
+come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`.
+Each upload needs a new build number there; then run `xcodegen` again.
+
+1. Join the Apple Developer Program. In Membership Details, copy the
+   10-character Team ID.
+2. Copy `ios/Config/Local.xcconfig.example` to `ios/Config/Local.xcconfig`
+   (that copy is gitignored). Set the team id, the bundle id, the Supabase
+   URL and anon key, and the admin app origin (`MEDIA_API_URL`). Write URLs as
+   `https:/$()/host` so xcconfig does not treat `//` as a comment.
+3. On the developer site, register that bundle id (no extra capabilities).
+   In App Store Connect, create an iOS app named homeOS with the same bundle
+   id. The primary category is Lifestyle.
+4. Sign in to Xcode with that Apple ID. From `ios/`:
+
+```bash
+./scripts/archive-for-testflight.sh
+```
+
+   The script refuses to archive while the team id or Supabase values are
+   still placeholders. It writes `ios/build/HomeOS.xcarchive` and an IPA under
+   `ios/build/export`. In Xcode you can do the same thing with Product →
+   Archive, then Distribute App → TestFlight & App Store. Drag the IPA into
+   the Transporter app if you are not using the Organizer.
+5. In App Store Connect → TestFlight, add internal testers (people on the
+   team). They can install from the TestFlight app once the build finishes
+   processing. External testers need a beta review and a privacy policy URL.
+
+What the binary already answers, so the upload is not blocked on them:
+
+- App icon, the same house-on-gradient mark as `admin/app/icon.svg`, full
+  bleed at 1024 px with no transparency (`HomeOS/Assets.xcassets`).
+- Launch screen color, the warm canvas `#F1EFEB` (night `#121317`).
+- Export compliance: only standard HTTPS, so `ITSAppUsesNonExemptEncryption`
+  is false and App Store Connect does not ask again on each build.
+- Privacy manifest (`HomeOS/PrivacyInfo.xcprivacy`). The app reads
+  `UserDefaults` for the pending invite and the family on screen (reason
+  `CA92.1`). It does not track. Data linked to the account, for the app to
+  function: email, name, user id, photos and videos, and other content
+  (events, chores, lists, meals, memory, chat). Use those same answers in the
+  App Store Connect privacy questionnaire. Dictation uses Apple's speech
+  recognizer and is not stored by homeOS.
+- A build with no Supabase URL stays on the loading screen and says it is
+  not connected, instead of opening Welcome against a placeholder host.
+
+Signing is automatic. `CODE_SIGNING_ALLOWED=NO` simulator CI does not need a
+team. A device run uses the team in `Local.xcconfig`.
+
 ## Design
 
 The colors match the wall display (`display/qml/Theme.qml`): a warm off-white
@@ -318,9 +371,9 @@ calls from the first build:
 - The `@Observable` stored property with a `private(set)` initializer reading
   `UserDefaults` (`pendingInviteCode`), `Services/FamilyStore.swift:45`.
 - Decoding a scalar RPC result (`uuid`) straight into `UUID`,
-  `Services/FamilyStore.swift:418` and `:442`.
+  `Services/FamilyStore.swift:427` and `:451`.
 - From before: `supabase.storage.from(_:).remove(paths:)`
-  (`Services/FamilyStore.swift:499`, `:1034`; it exists in 2.55.3),
+  (`Services/FamilyStore.swift:507`, `:1042`; it exists in 2.55.3),
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
   `Services/Dictation.swift:101`), the `AVAsyncProperty` loads in
   `MediaTools.videoMetadata(at:)` (`Services/MediaTools.swift:200`–`:215`), and

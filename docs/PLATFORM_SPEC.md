@@ -780,6 +780,13 @@ email, sign out.
 **CI:** `.github/workflows/ios.yml` builds for the simulator on `macos-15`
 with xcodegen and `CODE_SIGNING_ALLOWED=NO`.
 
+**TestFlight:** version 1.0.0 (build 1) in `ios/project.yml`. The archive
+reads the team id, bundle id, Supabase URL, anon key and media API origin
+from `ios/Config/Local.xcconfig`. `ios/scripts/archive-for-testflight.sh`
+exports an App Store Connect IPA. The app icon, privacy manifest and
+`ITSAppUsesNonExemptEncryption = false` ship in the binary. Details are in
+[IOS.md](IOS.md).
+
 ---
 
 ## 7. CI (`.github/workflows/`)

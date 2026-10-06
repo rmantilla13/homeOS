@@ -131,8 +131,10 @@ brew install xcodegen
 cd ios && xcodegen && open HomeOS.xcodeproj
 ```
 
-Put your Supabase URL and anon key in `ios/HomeOS/App/Config.swift`. The anon
-key is meant to ship in client apps; row-level security protects the data.
+Put your Supabase URL and anon key in `ios/Config/Local.xcconfig` (see
+`Local.xcconfig.example`). The anon key is meant to ship in client apps;
+row-level security protects the data. TestFlight steps are in
+[docs/IOS.md](docs/IOS.md).
 
 ## Docs
 
