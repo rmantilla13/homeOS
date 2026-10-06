@@ -117,7 +117,7 @@ function UserActions({ user, self }: { user: UserRow; self: boolean }) {
             label="Remove admin"
             trigger="small"
             title={`Remove admin access for ${who}?`}
-            description="They can keep using homeOS, but can't open this console or call admin functions."
+            description="They can keep using Ohana, but can't open this console or call admin functions."
             confirmLabel="Remove admin"
           />
         ) : (

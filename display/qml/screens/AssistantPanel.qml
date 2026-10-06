@@ -62,7 +62,7 @@ Rectangle {
             }
             Column {
                 Layout.fillWidth: true
-                Label { text: qsTr("homeOS Assistant"); color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold }
+                Label { text: qsTr("Ohana Assistant"); color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold }
                 Label {
                     text: Store.mode === "live" ? qsTr("Knows your family's calendar, chores, meals and lists")
                                                 : qsTr("Demo mode · answers from sample data")
@@ -255,7 +255,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 24
                 anchors.rightMargin: 8
-                placeholderText: !panel.listening ? qsTr("Ask homeOS anything")
+                placeholderText: !panel.listening ? qsTr("Ask Ohana anything")
                                : Voice.state === "listening" ? qsTr("Listening… tap the mic to stop")
                                : qsTr("Thinking…")
                 font.pixelSize: Theme.fontMd - 2

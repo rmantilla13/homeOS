@@ -1,4 +1,4 @@
-# Setting up the homeOS display (Raspberry Pi 5 + 10.1" touchscreen)
+# Setting up the Ohana display (Raspberry Pi 5 + 10.1" touchscreen)
 
 This takes about an hour, most of it waiting for downloads and the build.
 
@@ -18,7 +18,7 @@ More about the parts: [HARDWARE.md](HARDWARE.md).
    (<https://www.raspberrypi.com/software/>).
 2. **Device:** Raspberry Pi 5, then **Next**.
 3. **OS:** *Raspberry Pi OS (other)* → **Raspberry Pi OS Lite (64-bit)**, then
-   **Next**. Lite has no desktop, so homeOS is the only thing on the screen.
+   **Next**. Lite has no desktop, so Ohana is the only thing on the screen.
 4. **Storage:** your microSD card, then **Next**.
 5. **Customisation:**
    - **Hostname:** `homeos`
@@ -50,14 +50,14 @@ More about the parts: [HARDWARE.md](HARDWARE.md).
    between all USB devices.
 6. **Pi power:** plug in the 27 W supply last. The Pi starts by itself.
 
-Turn the screen on before the Pi when you can. If it comes on later, homeOS
+Turn the screen on before the Pi when you can. If it comes on later, Ohana
 appears a few seconds after it does, but its sound may not work until the Pi
 restarts (see [Troubleshooting](#troubleshooting)).
 
 Mount the screen in landscape. Portrait or upside-down mounting isn't
 supported yet.
 
-## 3. Install homeOS
+## 3. Install Ohana
 
 The first boot takes a few minutes, and the Pi may restart once by itself.
 Then, from a terminal on your computer (Terminal on a Mac, PowerShell on
@@ -78,11 +78,11 @@ cd homeOS
 ```
 
 The script enables `homeos-display` and starts it before it exits. The screen
-should show homeOS without a reboot, and without
+should show Ohana without a reboot, and without
 `sudo systemctl enable --now homeos-display`.
 
 Reboot once after that. A reboot applies the console options from the script,
-and it is the check that a later power-on brings homeOS back by itself:
+and it is the check that a later power-on brings Ohana back by itself:
 
 ```bash
 sudo reboot
@@ -111,13 +111,13 @@ The script takes 20–30 minutes. It:
   screen's own buttons still work), and turns off Wi-Fi power saving, which
   makes Wi-Fi drop out
 - enables and starts the `homeos-display` service, which takes the console on
-  every boot so the screen shows homeOS instead of a login prompt
+  every boot so the screen shows Ohana instead of a login prompt
 - warns at the end if the Pi has been short of power
 
 ## 4. What you should see
 
-When the install script finishes, homeOS should already be on the screen.
-After a reboot, boot messages scroll by for about half a minute, then homeOS
+When the install script finishes, Ohana should already be on the screen.
+After a reboot, boot messages scroll by for about half a minute, then Ohana
 fills the screen with sample data. The console login prompt does not stay up,
 and you do not run `systemctl` to bring it back. Tap the chores and rewards to
 try it. Videos under **Media** play with sound from the screen's speakers.
@@ -148,7 +148,7 @@ This downloads about 220 MB of speech models and starts the voice service on
 every boot, as the same user as the display. Spoken replies use the screen
 speakers: the gear menu's **Screen speakers** switch and **Volume** apply to
 them. Without a microphone yet, check the speakers with
-`/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from homeOS"`.
+`/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from Ohana"`.
 Once a USB mic is plugged in, say "Hey Jarvis" and ask a question. You can
 also install voice together with the display:
 `./display/deploy/install-pi.sh --with-voice` (add `--skip-models` to fetch the
@@ -201,7 +201,7 @@ QT_SCALE_FACTOR=1 ./build/display/homeos-display --windowed   # 1280×800 window
 
 ### On the Pi, before the screen is connected
 
-`./display/deploy/preview.sh on` shows homeOS on a virtual screen that you open
+`./display/deploy/preview.sh on` shows Ohana on a virtual screen that you open
 in a web browser; the script prints the address. `./display/deploy/preview.sh
 off` switches back to the real screen.
 

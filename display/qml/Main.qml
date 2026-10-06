@@ -11,7 +11,7 @@ ApplicationWindow {
     height: startWindowed ? 800 : Screen.height
     visible: true
     visibility: startWindowed ? Window.Windowed : Window.FullScreen
-    title: "homeOS"
+    title: "Ohana"
     color: Theme.background
     font.family: Theme.fontFamily
 
@@ -29,7 +29,7 @@ ApplicationWindow {
     // Push-to-talk from the assistant panel or the Home card. A second tap stops it.
     function pushToTalk() {
         if (!Voice.available) {
-            showToast(qsTr("Voice needs the homeOS voice service (see docs/VOICE.md)"))
+            showToast(qsTr("Voice needs the Ohana voice service (see docs/VOICE.md)"))
             return false
         }
         if (voiceTarget === "chat") {

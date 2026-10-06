@@ -13,7 +13,7 @@ export function Brand() {
         <FamilyIcon size={20} strokeWidth={2.2} />
       </span>
       <span className={styles.brandText}>
-        <span className={styles.brandName}>homeOS</span>
+        <span className={styles.brandName}>Ohana</span>
         <span className={styles.brandRole}>Admin</span>
       </span>
     </Link>

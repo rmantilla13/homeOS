@@ -308,7 +308,7 @@ private slots:
         QCOMPARE(rig->store.mode(), QStringLiteral("live"));
         const QString text = rig->ai.messages()->at(1).text;
         QVERIFY2(!text.contains("pair"), qPrintable(text));
-        QCOMPARE(text, QStringLiteral("I couldn't reach homeOS cloud just now. Try again in a moment."));
+        QCOMPARE(text, QStringLiteral("I couldn't reach Ohana cloud just now. Try again in a moment."));
     }
 
     void refreshTokenIsSavedPrivately()

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "homeos-voice"
 version = "0.1.0"
-description = "homeOS voice service: wake word, speech to text and spoken replies for the wall display"
+description = "Ohana voice service: wake word, speech to text and spoken replies for the wall display"
 readme = "README.md"
 requires-python = ">=3.11"
 # The core (server, protocol, simulate mode) needs only websockets. Audio and

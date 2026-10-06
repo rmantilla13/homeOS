@@ -23,8 +23,8 @@ struct AssistantError: LocalizedError, Equatable {
     let message: String
     var errorDescription: String? { message }
 
-    static let unreachable = AssistantError(message: "I couldn't reach homeOS just now. Check your connection and try again.")
-    static let signedOut = AssistantError(message: "Sign in to homeOS on your iPhone first.")
+    static let unreachable = AssistantError(message: "I couldn't reach Ohana just now. Check your connection and try again.")
+    static let signedOut = AssistantError(message: "Sign in to Ohana on your iPhone first.")
 }
 
 /// Calls the `assistant` edge function over URLSession rather than
@@ -129,13 +129,13 @@ struct AssistantClient {
         let serverMessage = (try? JSONDecoder().decode(ErrorBody.self, from: body))?.error
         switch status {
         case 401:
-            return AssistantError(message: "Your session ended. Sign in to homeOS again.")
+            return AssistantError(message: "Your session ended. Sign in to Ohana again.")
         case 403:
-            return AssistantError(message: (serverMessage ?? "homeOS can't answer for this account right now.").sentenceCased)
+            return AssistantError(message: (serverMessage ?? "Ohana can't answer for this account right now.").sentenceCased)
         case 400..<500:
-            return AssistantError(message: (serverMessage ?? "homeOS didn't understand that request.").sentenceCased)
+            return AssistantError(message: (serverMessage ?? "Ohana didn't understand that request.").sentenceCased)
         case 500...:
-            return AssistantError(message: serverMessage.map { $0.sentenceCased } ?? "homeOS is having trouble right now. Try again in a moment.")
+            return AssistantError(message: serverMessage.map { $0.sentenceCased } ?? "Ohana is having trouble right now. Try again in a moment.")
         default:
             return .unreachable
         }
@@ -158,7 +158,7 @@ struct AssistantClient {
             return (try? decoder.decode(AssistantAction.self, from: data)).map { AssistantEvent.action($0) }
         case "done":
             guard let reply = try? decoder.decode(AssistantReply.self, from: data) else {
-                return .error("homeOS sent a reply I couldn't read.")
+                return .error("Ohana sent a reply I couldn't read.")
             }
             return .done(reply)
         case "error":

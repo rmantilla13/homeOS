@@ -248,7 +248,7 @@ Popup {
                             SettingRow {
                                 icon: Voice.available ? "mic" : "mic-off"
                                 title: qsTr("Wake word")
-                                detail: !Voice.available ? qsTr("Needs the homeOS voice service")
+                                detail: !Voice.available ? qsTr("Needs the Ohana voice service")
                                       : Voice.wakewordLabel ? qsTr("Say “%1” to ask a quick question").arg(Voice.wakewordLabel)
                                       : qsTr("Ask a quick question hands-free")
                                 Toggle {
@@ -380,7 +380,7 @@ Popup {
                                      : (System.wifiSsid || qsTr("Not connected"))
                             }
                             Fact { name: qsTr("Address"); value: System.ipAddress || "—" }
-                            Fact { name: qsTr("Version"); value: "homeOS " + Qt.application.version }
+                            Fact { name: qsTr("Version"); value: "Ohana " + Qt.application.version }
                             Fact {
                                 name: qsTr("Voice service")
                                 value: Voice.available ? qsTr("Connected") : qsTr("Not running")
@@ -450,7 +450,7 @@ Popup {
                                 text: sheet.confirmingPower === "reboot"
                                       ? qsTr("Reboot the Pi? The screen stays dark for about a minute.")
                                       : sheet.confirmingPower === "restart"
-                                      ? qsTr("Restart homeOS? The screen goes blank for a few seconds.")
+                                      ? qsTr("Restart Ohana? The screen goes blank for a few seconds.")
                                       : qsTr("Restart the app, or reboot the Pi, without unplugging it.")
                                 color: sheet.confirmingPower === "" ? Theme.textMuted : Theme.text
                                 font.pixelSize: Theme.fontXs + 1

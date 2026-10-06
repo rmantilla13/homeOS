@@ -66,7 +66,7 @@ def test_values_are_read_and_ints_become_floats():
         [wakeword]
         enabled = false
         model = "/opt/models/hey_homeos.onnx"
-        name = "Hey homeOS"
+        name = "Hey Ohana"
         threshold = 0.6
         refractory = 3
         [vad]
@@ -82,7 +82,7 @@ def test_values_are_read_and_ints_become_floats():
     assert cfg.audio.input_device == 2
     assert cfg.audio.output_device == "default:CARD=vc4hdmi0"
     assert cfg.wakeword.enabled is False
-    assert cfg.wakeword.name == "Hey homeOS"
+    assert cfg.wakeword.name == "Hey Ohana"
     assert cfg.wakeword.refractory == 3.0 and isinstance(cfg.wakeword.refractory, float)
     assert cfg.vad.silence == 1.0 and isinstance(cfg.vad.silence, float)
     assert cfg.stt.initial_prompt == "Leo, Maya"

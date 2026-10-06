@@ -22,7 +22,7 @@ from websockets.exceptions import InvalidStatus
 @asynccontextmanager
 async def service_process(tmp_path) -> AsyncIterator[tuple[subprocess.Popen[str], str]]:
     config = tmp_path / "voice.toml"
-    config.write_text('[wakeword]\nname = "Hey homeOS"\n')
+    config.write_text('[wakeword]\nname = "Hey Ohana"\n')
     proc = subprocess.Popen(
         [sys.executable, "-m", "homeos_voice", "--simulate", "--config", str(config),
          "--port", "0", "--log-level", "info"],
@@ -58,7 +58,7 @@ async def test_simulate_end_to_end_over_stdin_and_websocket(tmp_path):
     async with service_process(tmp_path) as (proc, url), connect(url) as ws:
         c = Client(ws)
         hello = await c.recv()
-        assert hello["type"] == "hello" and hello["wakeword_name"] == "Hey homeOS"
+        assert hello["type"] == "hello" and hello["wakeword_name"] == "Hey Ohana"
         assert await c.recv() == {"type": "state", "state": "idle"}
 
         send_line(proc, "wake what's for dinner")

@@ -1,6 +1,6 @@
 # homeos-voice
 
-The homeOS voice service. It runs on the Pi next to the display, listens for
+The Ohana voice service. It runs on the Pi next to the display, listens for
 the wake word on a USB mic, transcribes what you say on the device, and speaks
 the assistant's replies. The display talks to it over a local WebSocket
 (`ws://127.0.0.1:8765`).

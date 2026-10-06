@@ -48,7 +48,7 @@ Item {
             ColumnLayout {
                 spacing: 2
                 Label {
-                    text: Store.familyName || "homeOS"
+                    text: Store.familyName || "Ohana"
                     color: Theme.text
                     font.pixelSize: Theme.fontLg
                     font.weight: Font.DemiBold
@@ -214,7 +214,7 @@ Item {
                     }
                     Item { Layout.fillHeight: true }
 
-                    // "Ask homeOS anything" bar.
+                    // "Ask Ohana anything" bar.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 76
@@ -226,7 +226,7 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: 28
                             anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("Ask homeOS anything")
+                            text: qsTr("Ask Ohana anything")
                             color: assistantCard.inkMuted
                             font.pixelSize: Theme.fontMd - 2
                         }

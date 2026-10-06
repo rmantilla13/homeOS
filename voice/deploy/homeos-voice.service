@@ -1,9 +1,9 @@
-# Runs the homeOS voice service (wake word, speech to text, spoken replies)
+# Runs the Ohana voice service (wake word, speech to text, spoken replies)
 # next to the display. Installed by voice/deploy/install-voice.sh, which fills
 # in @USER@ and @UID@: the same user as homeos-display, so they share the
 # screen speakers.
 [Unit]
-Description=homeOS voice service
+Description=Ohana voice service
 After=sound.target
 
 [Service]

@@ -22,7 +22,7 @@ export default async function InvitesPage({ searchParams }: Props) {
     <>
       <PageHeader
         title="Invites"
-        subtitle="homeOS is invite-only. A platform invite lets someone start a new family; families invite their own people from the app."
+        subtitle="Ohana is invite-only. A platform invite lets someone start a new family; families invite their own people from the app."
       />
       <div className={ui.stack}>
         <Card title="New platform invite">
