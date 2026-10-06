@@ -220,6 +220,7 @@ def test_aplay_defaults_to_the_panel(fake_aplay, tmp_path, monkeypatch):
     monkeypatch.delenv("ALSA_CARD", raising=False)
     monkeypatch.delenv("ALSA_PCM_CARD", raising=False)
     monkeypatch.setattr(audio, "ASOUND_DIR", tmp_path / "asound")
+    monkeypatch.setattr(audio, "pipewire_ready", lambda: False)
     played_on = args.parent / "alsa_card.txt"
 
     AplayPlayer().play(16000, iter([pcm.silence(0.05)]), threading.Event())
@@ -234,6 +235,42 @@ def test_aplay_defaults_to_the_panel(fake_aplay, tmp_path, monkeypatch):
     assert audio.aplay_env("plughw:2,0") is None
     monkeypatch.setenv("ALSA_CARD", "Headphones")
     assert audio.aplay_env("") is None
+
+
+def test_aplay_uses_pipewire_for_the_screen(fake_aplay, tmp_path, monkeypatch):
+    _, args = fake_aplay
+    runtime = tmp_path / "run"
+    (runtime / "pulse").mkdir(parents=True)
+    (runtime / "pulse" / "native").touch()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.delenv("ALSA_CARD", raising=False)
+    monkeypatch.delenv("ALSA_PCM_CARD", raising=False)
+    monkeypatch.setattr(audio, "ASOUND_DIR", tmp_path / "asound")
+    (tmp_path / "asound" / "vc4hdmi0").mkdir(parents=True)
+
+    env = audio.aplay_env("")
+    assert env is not None
+    assert "ALSA_CARD" not in env
+    assert env["XDG_RUNTIME_DIR"] == str(runtime)
+    AplayPlayer().play(16000, iter([pcm.silence(0.05)]), threading.Event())
+    assert (args.parent / "alsa_card.txt").read_text() == ""
+
+
+def test_mute_line():
+    assert audio.sink_is_muted(0, "Volume: 0.50 [MUTED]\n")
+    assert not audio.sink_is_muted(0, "Volume: 0.50\n")
+    assert not audio.sink_is_muted(1, "Volume: 1.00 [MUTED]\n")
+
+
+def test_muted_screen_does_not_open_the_speakers(fake_aplay, monkeypatch):
+    out, args = fake_aplay
+    monkeypatch.setattr(audio, "speakers_muted", lambda: True)
+    AplayPlayer().play(16000, iter([pcm.silence(0.05)]), threading.Event())
+    assert not args.exists()
+    assert not out.exists()
+    # A configured output is some other device; the screen switch doesn't own it.
+    AplayPlayer("default:CARD=vc4hdmi0").play(16000, iter([pcm.silence(0.05)]), threading.Event())
+    assert args.exists()
 
 
 def test_aplay_player_stops_quickly(fake_aplay):

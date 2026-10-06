@@ -1,6 +1,7 @@
 # Runs the homeOS voice service (wake word, speech to text, spoken replies)
 # next to the display. Installed by voice/deploy/install-voice.sh, which fills
-# in @USER@: the same user as homeos-display, so they share the audio devices.
+# in @USER@ and @UID@: the same user as homeos-display, so they share the
+# screen speakers.
 [Unit]
 Description=homeOS voice service
 After=sound.target
@@ -8,7 +9,14 @@ After=sound.target
 [Service]
 User=@USER@
 SupplementaryGroups=audio
+# The display user's lingering session owns PipeWire, and the screen speakers
+# with it. Replies go there (mute and volume from the gear menu) instead of
+# opening HDMI on their own.
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 # Reads /etc/homeos/voice.toml; models live in ~/.local/share/homeos-voice.
+# Give PipeWire a moment at boot. A missing socket is fine: replies fall back
+# to the panel, and the microphone still works.
+ExecStartPre=/bin/sh -c 'i=0; while [ "$i" -lt 15 ] && [ ! -S /run/user/@UID@/pulse/native ]; do i=$((i+1)); sleep 1; done'
 ExecStart=/opt/homeos-voice/bin/python -m homeos_voice
 # Models are fetched only by `--download-models`, never while running.
 Environment=HF_HUB_OFFLINE=1

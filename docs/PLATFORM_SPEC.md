@@ -516,7 +516,10 @@ transcribed text leaves it, sent by the display to the assistant.
   compute, loaded once. `language="en"` is configurable.
 - **Text to speech:** `piper` (the `piper-tts` package, voice
   `en_US-amy-medium`, configurable), falling back to the `espeak-ng` CLI.
-  Playback through `sounddevice` or `aplay`.
+  Playback through `sounddevice` or `aplay`. With the display user's PipeWire
+  session up, replies use its default sink, so the gear menu's screen-speaker
+  switch and volume apply, and a muted sink is not opened. Otherwise playback
+  falls back to the panel's HDMI card.
 - Heavy dependencies are optional extras (`.[audio]`, `.[stt]`, `.[tts]`,
   `.[wake]`). The core package and the tests need only `websockets` and the
   standard library.

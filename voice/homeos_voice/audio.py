@@ -218,19 +218,60 @@ PANEL_CARD = "vc4hdmi0"
 ASOUND_DIR = Path("/proc/asound")
 
 
+def runtime_dir() -> Path:
+    raw = os.environ.get("XDG_RUNTIME_DIR", "")
+    if raw:
+        return Path(raw)
+    return Path(f"/run/user/{os.getuid()}")
+
+
+def pipewire_ready() -> bool:
+    """The display user's PipeWire session, which owns the screen speakers."""
+    return (runtime_dir() / "pulse" / "native").exists()
+
+
+def sink_is_muted(returncode: int, output: str) -> bool:
+    return returncode == 0 and "MUTED" in output
+
+
+def speakers_muted() -> bool:
+    """True when the gear menu has turned the screen speakers off.
+
+    Opening HDMI anyway would keep the panel's amplifier awake, which is the
+    hiss, and the reply would be thrown away."""
+    wpctl = shutil.which("wpctl")
+    if wpctl is None or not pipewire_ready():
+        return False
+    env = os.environ.copy()
+    env["XDG_RUNTIME_DIR"] = str(runtime_dir())
+    try:
+        proc = subprocess.run(
+            [wpctl, "get-volume", "@DEFAULT_AUDIO_SINK@"],
+            check=False, capture_output=True, text=True, timeout=2, env=env,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return sink_is_muted(proc.returncode, proc.stdout)
+
+
 def aplay_env(device: str) -> dict[str, str] | None:
-    """With no device given, ALSA plays on card 0. A USB mic plugged in at
-    boot sometimes gets that number before the panel does, and has no
-    speaker, so name the panel's card instead (ALSA_CARD). ALSA's own default
-    device reads it before `defaults.pcm.card`, so it wins over that setting
-    too; a config that replaces the default device (the display installer's
-    PipeWire one, raspi-config's ~/.asoundrc) ignores it. Other outputs need
-    output_device."""
+    """With no device given, play on the screen.
+
+    When the display user's PipeWire session is up, replies go to its default
+    sink: the same one the gear menu mutes and turns down. Naming the HDMI
+    card in that case opens the panel directly, so the switch does nothing
+    and the speakers hiss. Without PipeWire, ALSA's card 0 is sometimes the
+    USB mic (which has no speaker), so name the panel's card instead."""
     if device or "ALSA_CARD" in os.environ or "ALSA_PCM_CARD" in os.environ:
         return None
+    env = os.environ.copy()
+    if pipewire_ready():
+        env["XDG_RUNTIME_DIR"] = str(runtime_dir())
+        return env
     if not (ASOUND_DIR / PANEL_CARD).exists():
         return None
-    return {**os.environ, "ALSA_CARD": PANEL_CARD}
+    env["ALSA_CARD"] = PANEL_CARD
+    return env
 
 
 class AplayPlayer:
@@ -244,6 +285,12 @@ class AplayPlayer:
         self._lock = threading.Lock()
 
     def play(self, rate: int, chunks: Iterable[bytes], stop: threading.Event) -> None:
+        # An explicit output_device is left alone: it may be a speaker other
+        # than the screen. The default path is the screen, and it stays shut
+        # while the gear menu has the speakers off.
+        if not self.device and speakers_muted():
+            log.info("screen speakers are off; not playing")
+            return
         cmd = ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-c", "1", "-r", str(rate)]
         if self.device:
             cmd += ["-D", self.device]
@@ -288,6 +335,9 @@ class SoundDevicePlayer:
         self.device = _as_device(device)
 
     def play(self, rate: int, chunks: Iterable[bytes], stop: threading.Event) -> None:
+        if self.device is None and speakers_muted():
+            log.info("screen speakers are off; not playing")
+            return
         sd = load_sounddevice()
         piece = rate // 10 * 2  # 100 ms, so a stop takes effect quickly
         with portaudio_in_use, sd.RawOutputStream(samplerate=rate, channels=1, dtype="int16",

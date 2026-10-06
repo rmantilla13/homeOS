@@ -78,7 +78,14 @@ if [ "$skip_models" -eq 0 ]; then
 fi
 
 step "Installing the voice service"
-sed "s/@USER@/$user/" "$repo/voice/deploy/homeos-voice.service" \
+# PipeWire is this user's own service. Lingering starts it at boot, which is
+# what spoken replies play through. The display installer does this too.
+if ! sudo loginctl enable-linger "$user" 2>/dev/null; then
+    sudo mkdir -p /var/lib/systemd/linger
+    sudo touch "/var/lib/systemd/linger/$user"
+fi
+uid="$(id -u)"
+sed -e "s/@USER@/$user/g" -e "s/@UID@/$uid/g" "$repo/voice/deploy/homeos-voice.service" \
     | sudo tee /etc/systemd/system/homeos-voice.service >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable homeos-voice
