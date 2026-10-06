@@ -14,7 +14,8 @@
 #
 # Safe to re-run, also after an interrupted run: it rebuilds, reinstalls and
 # restarts the app (and updates the voice service if it's installed), and
-# keeps an existing /etc/homeos/display.env.
+# keeps an existing /etc/homeos/display.env. A file at /etc/homeos/boot.mp4
+# replaces the built-in boot video; the next reboot plays it.
 set -euo pipefail
 
 if [ "$(uname -s)" != Linux ]; then
@@ -54,6 +55,8 @@ if [ "$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)" = bookworm ]; then
 fi
 # Sound: Qt plays video sound through PulseAudio, which Lite doesn't run;
 # PipeWire provides it. libasound2-plugins lets ALSA programs use it too.
+# Boot video: the ffmpeg package includes ffplay, which draws on the KMS/DRM
+# screen before the app starts. ffmpeg itself is the framebuffer fallback.
 sudo apt-get update
 sudo apt-get install -y \
     build-essential cmake git \
@@ -66,6 +69,7 @@ sudo apt-get install -y \
     qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin qml6-module-qt-labs-folderlistmodel \
     pipewire pipewire-pulse wireplumber libasound2-plugins alsa-utils \
     fonts-inter fonts-noto-color-emoji \
+    ffmpeg \
     "${media[@]}"
 
 step "Building homeos-display"
@@ -147,9 +151,11 @@ else
 fi
 
 step "Configuring the console"
-# The text console sits behind the app and shows whenever it (re)starts: keep
-# it from blanking the screen and hide its blinking cursor. Kernel options all
-# go on the one line of cmdline.txt; each is added only if it isn't there yet.
+# Hide kernel and systemd text on the panel, and keep the console from
+# blanking or blinking a cursor behind the app. SSH is unchanged. A login
+# prompt on the panel is still `systemctl start getty@tty1` after stopping
+# the app. Kernel options all go on the one line of cmdline.txt; each is
+# added only if that setting isn't there yet.
 cmdline=/boot/firmware/cmdline.txt
 add_kernel_option() {
     local option="$1" words=() word
@@ -161,11 +167,53 @@ add_kernel_option() {
     sudo sed -i "1s|\$| $option|" "$cmdline"
     echo "Added $option to $cmdline (takes effect after a reboot)"
 }
+remove_kernel_option() {
+    local option="$1" words=() word kept=() found=0
+    read -ra words <"$cmdline" || true
+    for word in "${words[@]}"; do
+        if [ "$word" = "$option" ]; then
+            found=1
+            continue
+        fi
+        kept+=("$word")
+    done
+    [ "$found" = 1 ] || return 0
+    [ -f "$cmdline.homeos-backup" ] || sudo cp "$cmdline" "$cmdline.homeos-backup"
+    printf '%s\n' "${kept[*]}" | sudo tee "$cmdline" >/dev/null
+    echo "Removed $option from $cmdline (takes effect after a reboot)"
+}
 if [ -f "$cmdline" ]; then
+    # Plymouth's splash holds the screen and can't play this video. Quiet
+    # boot leaves the panel dark until the video (or the app) draws.
+    remove_kernel_option splash
+    add_kernel_option quiet
+    add_kernel_option logo.nologo
+    add_kernel_option loglevel=3
+    add_kernel_option systemd.show_status=false
+    add_kernel_option plymouth.enable=0
     add_kernel_option consoleblank=0
     add_kernel_option vt.global_cursor_default=0
 else
     echo "$cmdline not found (not a Raspberry Pi?); skipping"
+fi
+config=/boot/firmware/config.txt
+if [ ! -f "$config" ] && [ -f /boot/config.txt ]; then
+    config=/boot/config.txt
+fi
+if [ -f "$config" ]; then
+    # Firmware option. It has to sit outside [pi4] / [cm4] filters, so it
+    # goes at the top. Skip when a disable_splash line is already present.
+    if ! sudo grep -qE '^[[:space:]]*disable_splash=' "$config"; then
+        [ -f "$config.homeos-backup" ] || sudo cp "$config" "$config.homeos-backup"
+        tmp="$(mktemp)"
+        {
+            printf '%s\n' '# homeOS: hide the rainbow splash on the panel.' 'disable_splash=1' ''
+            sudo cat "$config"
+        } >"$tmp"
+        sudo cp "$tmp" "$config"
+        rm -f "$tmp"
+        echo "Set disable_splash=1 in $config (takes effect after a reboot)"
+    fi
 fi
 
 step "Setting up sound (the panel's speakers, over HDMI)"
@@ -246,6 +294,12 @@ wifi.powersave = 2
 NM
 fi
 
+step "Installing the boot video"
+sudo install -D -m 755 "$repo/display/deploy/boot/homeos-bootscreen" /usr/local/libexec/homeos-bootscreen
+sudo install -D -m 755 "$repo/display/deploy/boot/homeos-stop-bootscreen" /usr/local/libexec/homeos-stop-bootscreen
+sudo install -D -m 644 "$repo/display/deploy/boot/boot.mp4" /usr/local/share/homeos/boot.mp4
+sudo install -D -m 644 "$repo/display/deploy/homeos-bootscreen.service" /etc/systemd/system/homeos-bootscreen.service
+
 step "Installing the kiosk service"
 sed -e "s/@USER@/$user/g" -e "s/@UID@/$uid/g" "$repo/display/deploy/homeos-display.service" \
     | sudo tee /etc/systemd/system/homeos-display.service >/dev/null
@@ -266,12 +320,20 @@ sudo systemctl daemon-reload
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on, so the kiosk stays off (./display/deploy/preview.sh off switches back)"
     sudo systemctl disable --now homeos-display 2>/dev/null || true
+    sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
 else
     # A previous install may have left this disabled or masked. enable alone
     # does not start it, and a reboot only starts units that are enabled, so
     # enable and restart (restart starts it when it was stopped). A screen that
     # is still off makes the process exit; Restart= in the unit keeps trying.
     sudo systemctl unmask homeos-display
+    sudo systemctl unmask homeos-bootscreen 2>/dev/null || true
+    # Enabled for the next reboot only. Starting it now would fight the app
+    # this restart is about to put on the screen. A failure here must not
+    # skip enabling the kiosk.
+    if ! sudo systemctl enable homeos-bootscreen; then
+        echo "Boot video was not enabled. The app still starts; re-run the installer to try the video again." >&2
+    fi
     sudo systemctl enable homeos-display
     if ! sudo systemctl restart homeos-display; then
         echo "homeos-display did not stay up yet. It will keep retrying, including on the next boot." >&2
@@ -308,6 +370,7 @@ if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
 else
     echo "homeOS is enabled and started. On every boot it takes the screen (no login prompt)."
     echo "Reboot so the console settings apply:  sudo reboot"
+    echo "That reboot hides boot text and plays a short video until the app is up."
 fi
 echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."
 echo "Logs:                    journalctl -u homeos-display -f"

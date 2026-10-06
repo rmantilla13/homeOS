@@ -103,7 +103,8 @@ jobs:
             qml6-module-qtmultimedia \
             qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin \
             qml6-module-qt-labs-folderlistmodel \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            ffmpeg
       - name: Build
         run: |
           cmake -S display -B build/display -DCMAKE_BUILD_TYPE=Release

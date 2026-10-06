@@ -70,6 +70,7 @@ on)
     # The kiosk needs the panel; without one it would just keep restarting.
     sudo systemctl daemon-reload
     sudo systemctl disable --now homeos-display 2>/dev/null || true
+    sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
     sudo systemctl enable homeos-preview
     sudo systemctl restart homeos-preview
 
@@ -90,6 +91,7 @@ on)
 off)
     sudo systemctl disable --now homeos-preview 2>/dev/null || true
     sudo rm -f /etc/homeos/preview.env /etc/homeos/preview.passwd
+    sudo systemctl enable homeos-bootscreen 2>/dev/null || true
     sudo systemctl enable homeos-display
     sudo systemctl restart homeos-display
     echo "Preview is off; homeOS runs on the panel again."

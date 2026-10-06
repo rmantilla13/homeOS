@@ -89,13 +89,15 @@ drops, the command stops part-way. Then log in again, run
 the command that was cut off again. Everything here is safe to re-run.
 
 The script takes 20–30 minutes. It:
-- installs Qt 6, PipeWire (for sound) and fonts, then builds and installs the
-  app to `/usr/local/bin/homeos-display`
+- installs Qt 6, ffmpeg (for the boot video), PipeWire (for sound) and fonts,
+  then builds and installs the app to `/usr/local/bin/homeos-display`
 - finds the HDMI output (`/etc/homeos/kms.json`) and writes the settings file
   `/etc/homeos/display.env` (kept when you re-run it)
-- stops the text console from blanking the screen or showing a cursor behind
-  the app (in `/boot/firmware/cmdline.txt`; the original is saved as
-  `cmdline.txt.homeos-backup`)
+- quiets the panel for the next reboot: no rainbow splash, no kernel text,
+  no Plymouth splash, and no blinking cursor (`/boot/firmware/cmdline.txt`
+  and `disable_splash=1` in `/boot/firmware/config.txt`; the originals are
+  saved next to them as `*.homeos-backup`). A short silent video plays until
+  the app takes the screen. SSH is unchanged
 - sends sound to the screen's speakers at half volume (full volume on this
   panel is mostly hiss; the gear menu turns the speakers off or up, and the
   screen's own buttons still work), and turns off Wi-Fi power saving, which
@@ -106,11 +108,28 @@ The script takes 20–30 minutes. It:
 
 ## 4. What you should see
 
-After the reboot, boot messages scroll by for about half a minute, then
-homeOS fills the screen with sample data. The console login prompt does not
-stay up. Tap the chores and rewards to try it. Videos under **Media** play
-with sound from the screen's speakers. After two minutes without a touch, the
-photo frame starts; a tap wakes it.
+When the install script finishes, homeOS should already be on the screen.
+Reboot once after that. The reboot applies the quiet-boot settings, and it
+is the check that a later power-on brings homeOS back by itself.
+
+After the reboot, the panel does not scroll kernel text or sit on a login
+prompt. A short silent video plays (warm background, the homeOS wordmark)
+until the app is ready, then homeOS fills the screen with sample data. The
+app stops that video before it opens the screen, so the two don't share it.
+You do not run `systemctl` to bring the app back. SSH works the whole time.
+A login prompt on the panel is still
+`sudo systemctl stop homeos-display && sudo systemctl start getty@tty1`.
+
+The video shipped with homeOS is `display/deploy/boot/boot.mp4`. The installer
+copies it to `/usr/local/share/homeos/boot.mp4`. To play your own file, copy
+it to `/etc/homeos/boot.mp4` and reboot. That file is kept when you re-run
+the installer. Remove it to go back to the built-in video. 1920×1200 (or
+1920×1080), a few seconds, silent or very quiet: the screen's speakers hiss
+if a soundtrack plays at boot.
+
+Tap the chores and rewards to try it. Videos under **Media** play with sound
+from the screen's speakers. After two minutes without a touch, the photo
+frame starts; a tap wakes it.
 
 ## 5. Connect it to your family
 
@@ -153,6 +172,7 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 | Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
 | Update to the latest code | `cd ~/homeOS && git pull && ./display/deploy/install-pi.sh` (updates the voice service too, if installed) |
 | Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl start getty@tty1` |
+| Use your own boot video | `sudo cp my-video.mp4 /etc/homeos/boot.mp4`, then `sudo reboot`. Delete that file to use the built-in video again |
 | Check power and temperature | `vcgencmd get_throttled` (`0x0` is good) and `vcgencmd measure_temp` |
 
 ## Troubleshooting
@@ -161,7 +181,9 @@ Start with the logs: `journalctl -u homeos-display -b`.
 
 | Symptom | Fix |
 |---|---|
-| A login prompt is on the screen after reboot | The kiosk is not holding the console. Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
+| A login prompt is on the screen after reboot | Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1 now and on every later boot. You should not need `sudo systemctl enable --now homeos-display`. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
+| Kernel text still scrolls during boot | Re-run `./display/deploy/install-pi.sh` and `sudo reboot`. Quiet boot is a few words in `/boot/firmware/cmdline.txt`, and `disable_splash=1` in `/boot/firmware/config.txt`. |
+| The boot video never appears, or stays up over homeOS | `journalctl -u homeos-bootscreen -b`. The app stops that service before it uses the screen. `sudo systemctl stop homeos-bootscreen` releases it if you need to. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio`. Re-run the install script, then `sudo reboot`. |
