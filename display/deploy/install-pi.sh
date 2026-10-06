@@ -139,6 +139,8 @@ HOMEOS_IDLE_SECONDS=120
 # Uncomment to connect to your Supabase project (otherwise it runs with demo data):
 #HOMEOS_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 #HOMEOS_SUPABASE_ANON_KEY=YOUR-ANON-KEY
+# Admin app that signs private video playback URLs (Vercel Blob).
+#HOMEOS_MEDIA_URL=https://YOUR-ADMIN.vercel.app
 # The on-device voice service (install with install-pi.sh --with-voice).
 #HOMEOS_VOICE_URL=ws://127.0.0.1:8765
 ENV

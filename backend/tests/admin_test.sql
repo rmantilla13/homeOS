@@ -75,17 +75,17 @@ select tests.eq((select count(*)::int from platform_settings), 1, 'admins read p
 
 select tests.eq(admin_get_settings() - 'updated_at',
                 jsonb_build_object('invite_only', true, 'assistant_enabled', true, 'assistant_daily_limit', 200,
-                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 536870912, 'media_item_limit', 5000,
+                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 2147483648, 'media_item_limit', 5000,
                                    'updated_by', null), 'default settings');
 select tests.eq(admin_update_settings(assistant_daily_limit => 50) - 'updated_at',
                 jsonb_build_object('invite_only', true, 'assistant_enabled', true, 'assistant_daily_limit', 50,
-                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 536870912, 'media_item_limit', 5000,
+                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 2147483648, 'media_item_limit', 5000,
                                    'updated_by', :'admin'),
                 'one setting changed, the rest kept');
 select tests.eq(admin_update_settings(invite_only => false, assistant_enabled => false)->>'assistant_daily_limit', '50', 'nulls leave values alone');
 select tests.eq(admin_update_settings() - 'updated_at' - 'updated_by',
                 jsonb_build_object('invite_only', false, 'assistant_enabled', false, 'assistant_daily_limit', 50,
-                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 536870912, 'media_item_limit', 5000),
+                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 2147483648, 'media_item_limit', 5000),
                 'no arguments: no change');
 select tests.throws($$select admin_update_settings(assistant_daily_limit => -1)$$, 'assistant_daily_limit must be 0 or more', 'negative limit');
 select admin_update_settings(true, true, 200);

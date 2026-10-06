@@ -44,6 +44,9 @@ public:
     FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent = nullptr);
 
     void start();
+    // Origin of the admin app that signs private photo and video URLs.
+    // Empty means Blob files have no playback URL. Rows still in Supabase play.
+    void setMediaApiUrl(const QString &url);
 
     QString mode() const { return m_mode; }
     bool online() const { return m_online; }
@@ -84,6 +87,7 @@ private:
     void setOnline(bool online, const QString &error = {});
     void loadDemo();
     void loadLive();
+    void attachMediaUrls(const QVariantList &rows, int generation);
     void withSession(std::function<void()> fn);
     void checkIn();
     void startPairing();
@@ -93,6 +97,7 @@ private:
     static QString demoMediaDir();
 
     SupabaseClient *m_client;
+    QString m_mediaApiUrl;
     QSettings m_settings;
     bool m_forceDemo;
     QString m_mode = QStringLiteral("demo");

@@ -67,7 +67,7 @@ select tests.throws(format(
   'storage limit reached', 'row bytes count toward the quota');
 select tests.throws(format(
   $$insert into media_items (family_id, storage_path, kind, byte_size, content_type)
-    values (%L, %L, 'video', 536870913, 'video/mp4')$$, :'fam', :'fam' || '/huge.mp4'),
+    values (%L, %L, 'video', 2147483649, 'video/mp4')$$, :'fam', :'fam' || '/huge.mp4'),
   'file is too large', 'one row cannot claim more than the per-file cap');
 select tests.eq(tests.affected(format(
   $$insert into media_items (family_id, storage_path, kind, byte_size, content_type)

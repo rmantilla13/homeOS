@@ -52,6 +52,10 @@ public:
     void signUrls(const QString &bucket, const QStringList &paths, int expiresInSec,
                   std::function<void(const QStringList &urls)> done);
 
+    // POST JSON to an absolute URL with the device's access token. A failure
+    // here does not clear the Supabase session (a 401 from Storage does).
+    void postAbsolute(const QUrl &url, const QJsonObject &body, Callback cb);
+
 signals:
     // The refresh token rotated; persist it so the device stays signed in.
     void sessionChanged();

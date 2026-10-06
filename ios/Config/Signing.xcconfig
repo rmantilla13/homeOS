@@ -1,0 +1,4 @@
+// Included files are applied in order, and the last assignment wins.
+// Local.xcconfig is optional so a checkout still builds for the simulator.
+#include "Defaults.xcconfig"
+#include? "Local.xcconfig"

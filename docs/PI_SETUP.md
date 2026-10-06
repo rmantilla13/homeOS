@@ -135,7 +135,9 @@ Until the backend is set up, the display shows sample data. Once there's a
 Supabase project (see the main README):
 
 1. Run `sudo nano /etc/homeos/display.env` and set `HOMEOS_SUPABASE_URL` and
-   `HOMEOS_SUPABASE_ANON_KEY` (remove the `#` in front of each).
+   `HOMEOS_SUPABASE_ANON_KEY` (remove the `#` in front of each). Set
+   `HOMEOS_MEDIA_URL` to the admin app's origin so videos stored in Blob can
+   play; photos play without it.
 2. Run `sudo systemctl restart homeos-display`. The screen shows a 6-digit
    code.
 3. In the iOS app, go to **Family → Pair a display** and enter the code.

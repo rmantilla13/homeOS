@@ -42,19 +42,12 @@ jobs:
             exit 1
           fi
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate project
-        working-directory: ios
-        run: xcodegen generate
-
-      # Package checkouts, keyed on project.yml (there's no committed Package.resolved).
+      # Package checkouts, keyed on the committed Package.resolved.
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
           path: ${{ env.SPM_DIR }}
-          key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/HomeOS.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
       - name: Build

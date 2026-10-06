@@ -1,4 +1,6 @@
-# Generate the Xcode project with: brew install xcodegen && xcodegen
+# The Xcode project is checked in at HomeOS.xcodeproj (team 92X9CP6C6D).
+# Open that. xcodegen generate replaces it.
+# TestFlight: fill ios/Config/Local.xcconfig, then ios/scripts/archive-for-testflight.sh
 name: HomeOS
 options:
   bundleIdPrefix: com.homeos
@@ -19,21 +21,40 @@ targets:
       path: HomeOS/Info.plist
       properties:
         CFBundleDisplayName: Ohana
-        UILaunchScreen: {}
+        LSApplicationCategoryType: public.app-category.lifestyle
+        # Standard HTTPS only, so App Store Connect skips the export question.
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSPhotoLibraryUsageDescription: Pick photos and videos to show on your family display, and your profile photo.
         NSCameraUsageDescription: Scan the pairing code on your family display.
         NSMicrophoneUsageDescription: Talk to the Ohana assistant instead of typing.
         NSSpeechRecognitionUsageDescription: Turn what you say to the Ohana assistant into text.
+        # Filled from ios/Config/Signing.xcconfig (Local.xcconfig overrides).
+        SupabaseURL: "$(SUPABASE_URL)"
+        SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
+        MediaAPIURL: "$(MEDIA_API_URL)"
         # homeos://invite/<CODE> (invite links) and homeos://auth-callback (email links).
         CFBundleURLTypes:
           - CFBundleURLName: com.homeos.app
             CFBundleURLSchemes: [homeos]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.homeos.app
+        PRODUCT_BUNDLE_IDENTIFIER: "$(HOMEOS_BUNDLE_ID)"
+        DEVELOPMENT_TEAM: "$(HOMEOS_TEAM_ID)"
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
 # A shared scheme, so `xcodebuild -scheme HomeOS` works on a fresh checkout (CI).
 schemes:
   HomeOS:

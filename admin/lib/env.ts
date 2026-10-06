@@ -37,6 +37,16 @@ export function supabaseProjectUrl(): string | null {
   return url;
 }
 
+// Private Blob store for family photos and videos. On Vercel, OIDC plus BLOB_STORE_ID is
+// enough. A read-write token is what local dev and presigned uploads use when
+// OIDC isn't present. Either pair counts as configured.
+export function blobReady(): boolean {
+  const token = read("BLOB_READ_WRITE_TOKEN")?.trim();
+  const storeId = read("BLOB_STORE_ID")?.trim();
+  const oidc = read("VERCEL_OIDC_TOKEN")?.trim();
+  return Boolean(token || (storeId && oidc));
+}
+
 export function supabaseConfig(): SupabaseConfig | null {
   const url = supabaseProjectUrl();
   const anonKey = read("NEXT_PUBLIC_SUPABASE_ANON_KEY")?.trim();

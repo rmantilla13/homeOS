@@ -1,0 +1,9 @@
+// Simulator defaults. ios/Config/Local.xcconfig overrides these for a device
+// or TestFlight archive. A URL must be written https:/$()/host because
+// xcconfig treats // as a comment.
+
+HOMEOS_TEAM_ID = 92X9CP6C6D
+HOMEOS_BUNDLE_ID = com.homeos.app
+SUPABASE_URL =
+SUPABASE_ANON_KEY =
+MEDIA_API_URL =

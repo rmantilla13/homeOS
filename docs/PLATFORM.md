@@ -221,7 +221,7 @@ is skipped.
 | A different storage limit for one family | `families.storage_limit_bytes` (null means the platform default; 0 means nothing new) | null |
 | Items per family | `platform_settings.media_item_limit` | 5,000 |
 | A different item cap for one family | `families.media_item_limit` (same null / 0 rules) | null |
-| Largest single file | `platform_settings.media_max_bytes` | 512 MiB |
+| Largest single file | `platform_settings.media_max_bytes` | 2 GiB |
 
 Set a family's overrides with `admin_set_family_limits`. Pass
 `use_platform_storage_limit => true` (or the matching flag for the assistant
@@ -366,11 +366,15 @@ action (`set_family_status`, `delete_family`, `create_platform_invite`,
 target and details. Signing a thumbnail URL is not logged. Admins read it on the
 console's Audit page (`admin_list_audit`).
 
-SQL can't remove files from Storage. The console deletes a family through the
-`admin` function's `delete_family`, which runs `admin_delete_family` and then
-empties `family-media/<family_id>/`; deleting a user empties
-`avatars/<user_id>/`. Calling `admin_delete_family` or `admin_delete_media`
-directly (SQL editor) leaves the files; remove them in Storage yourself.
+SQL can't remove files from Storage, and it can't remove Blob objects either.
+The console deletes a family through the `admin` function's `delete_family`,
+which runs `admin_delete_family` and then empties `family-media/<family_id>/`
+(files uploaded before Blob). The console then deletes photos and videos
+from the private Blob store under the same prefix. Deleting one item runs
+`admin_delete_media` and then removes that row's Storage objects. Deleting a
+user empties `avatars/<user_id>/`. Calling `admin_delete_family` or
+`admin_delete_media` directly (SQL editor) leaves the files; remove them in
+Storage, and the family's folder in Blob, yourself.
 
 The `admin` edge function calls `admin_create_platform_invite` and
 `admin_delete_family` with the admin's own session, so those rows name the
@@ -384,14 +388,18 @@ Production already has the `20261006` and `20261007` migrations. Apply the
 new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
-2. `backend/supabase/migrations/20261008000002_media_storage.sql`
+2. `backend/supabase/migrations/20261008000001_video_blob.sql`
+3. `backend/supabase/migrations/20261008000002_blob_photos.sql`
+4. `backend/supabase/migrations/20261008000002_media_storage.sql`
+5. `backend/supabase/migrations/20261008000003_blob_limits.sql`
 
 Then redeploy the `admin` and `pair-device` edge functions so the console can
 sign and delete media, revoke a display's auth user, and so pairing refuses
-a suspended family before creating an account. No new secrets or environment
-variables. The iOS app should be updated too: until it is, uploads still
-work, they just don't send `byte_size` or a thumbnail (Storage still bills
-the object).
+a suspended family before creating an account. Create the private Blob store
+and set `BLOB_STORE_ID` (see [ADMIN.md](ADMIN.md)). Point the iOS app at this
+deployment (`Config.mediaAPIURL`) and the display at it (`HOMEOS_MEDIA_URL`).
+An older app build still uploads to Storage without `byte_size`; Storage
+bills that object. New uploads go to Blob and send `byte_size`.
 
 ## Testing
 

@@ -33,8 +33,11 @@ Migrations are added after the existing ones, never edited in place:
   checks (§1.8), on tables from 20261006000001
 - `20261008000001_media_platform.sql`: per-family storage quotas, media path
   binding, device and membership guards, admin media / limits / revoke RPCs (§1.9)
+- `20261008000001_video_blob.sql`: `media_items.file_store` (§1.10)
+- `20261008000002_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
 - `20261008000002_media_storage.sql`: the Storage quota trigger and the
   `family-media` policies (Supabase-only, like 000002 and 000005)
+- `20261008000003_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -351,9 +354,10 @@ when set, is a different object.
 
 Allowed types (`allowed_media_types()`): `image/jpeg`, `image/png`,
 `image/webp`, `image/heic`, `image/heif`, `image/gif`, `video/mp4`,
-`video/quicktime`, `video/webm`, `video/m4v`, `video/x-m4v`. A null
-`content_type` is allowed, so old rows still load. Anything else raises
-`file type not allowed`.
+`video/quicktime`, `video/webm`, `video/m4v`, `video/x-m4v`,
+`video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`,
+`video/3g2`. A null `content_type` is allowed, so old rows still load.
+Anything else raises `file type not allowed`.
 
 Quotas:
 
@@ -361,7 +365,7 @@ Quotas:
 |---|---|---|
 | Storage per family | `platform_settings.storage_limit_bytes`, overridable by `families.storage_limit_bytes` | 5 GiB (`5368709120`) |
 | Items per family | `platform_settings.media_item_limit`, overridable by `families.media_item_limit` | 5000 |
-| One file | `platform_settings.media_max_bytes` (platform only) | 512 MiB (`536870912`) |
+| One file | `platform_settings.media_max_bytes` (platform only) | 2 GiB (`2147483648`) |
 
 A null override means the platform default. `0` is a real limit. Caps:
 storage `0 .. 1099511627776` (1 TiB), `media_max_bytes` `1 .. 5368709120`,
@@ -391,6 +395,25 @@ The same "that person isn't in this family" check covers `events.created_by`,
 `event_members.member_id`, `tasks.assignee_id`, `tasks.created_by` and
 `list_items.added_by` when that column is set or changed. Moving an
 account-less member no longer makes their old rows uneditable.
+
+### 1.10 Photos and videos in Vercel Blob
+
+New photos and new videos go to a private Vercel Blob store so a family
+library doesn't fill Supabase Storage. Profile avatars stay in the `avatars`
+bucket (§1.7). `media_items.file_store` is `supabase` or `blob` (default
+`supabase`). A `blob` photo's `storage_path` ends in `jpg`, `jpeg`, `png`,
+`webp`, `heic`, or `gif`; a `blob` video's ends in `mp4`, `mov`, `m4v`,
+`webm`, `mkv`, `3gp`, or `3g2` (`media_items_blob_matches_kind`).
+`storage_path` stays `<family_id>/<id>.<ext>` in either store. Rows already
+in Storage stay `supabase` and keep playing from that bucket.
+
+The admin app (the Vercel project that owns the store) signs upload and
+playback URLs. Clients send their Supabase JWT. See §3, Media API. Photos
+are capped at 50 MB; videos at 2 GiB.
+
+`admin_delete_family` still deletes rows only. The `admin` function still
+empties `family-media/<family_id>/` (files uploaded before Blob). The console
+then deletes Blob objects under that same prefix (§3).
 
 ---
 
@@ -508,8 +531,8 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `ban_user` | `user_id` | Refuses to ban yourself. `auth.admin.updateUserById(id, { ban_duration: '876000h' })` |
 | `unban_user` | `user_id` | `ban_duration: 'none'` |
 | `delete_user` | `user_id` | Refuses to delete yourself. `auth.admin.deleteUser`, then removes the user's `avatars/<user_id>/` files |
-| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }`; a cleanup failure doesn't undo the deletion. |
-| `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. |
+| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }`; a cleanup failure doesn't undo the deletion. Photos and videos in Blob are removed by the admin app after this returns (§3). |
+| `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. Blob rows are signed by `/api/media/urls` instead. |
 | `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. |
 | `revoke_device` | `device_id` | `admin_revoke_device` with the admin's own JWT (404 `device not found`). If SQL couldn't delete the auth user, calls `auth.admin.deleteUser`. Returns `{ ok, auth_user_removed }`, or `{ error, auth_user_removed: false }` with 502 when Auth refuses. |
 
@@ -562,6 +585,35 @@ the session. Every page except `/login` requires a session and
   sends only the values this form changed (null leaves the others), so a
   stale form can't undo another admin's change.
 - `/audit`: paginated audit log.
+
+**Media API** (family JWT, not the admin session)
+
+`POST /api/media/upload`, `/api/media/urls`, and `/api/media/delete`.
+`admin/proxy.ts` lets `/api/media` through before the platform-admin gate.
+The route checks `Authorization: Bearer <supabase access token>` with
+`auth.getUser`, then `is_family_member(fid)`.
+
+| Route | Body | Effect |
+|---|---|---|
+| `/api/media/upload` | `{ family_id, content_type, bytes }` | Member only. `bytes` is an integer from 1 to 50 MB for a photo and 1 to 2 GiB for a video. Photo types: `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/gif`. Video types: `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. The client `PUT`s the bytes to `upload_url` (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'`, `kind` `photo` or `video`, and the returned `id` and `pathname`. |
+| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>`, or whose folder isn't a family the caller belongs to, comes back as `""`. Playback URLs last 6 hours. The wildcard read token stays on the server. |
+| `/api/media/delete` | `{ pathname }` | Member of that folder only, then deletes the blob. `{ ok: true }`. |
+
+Errors are `{ "error": string }`: 400 bad JSON or body, 401 missing or
+rejected token, 403 not in the family, 413 body over 64 KiB, 502 Blob
+failed, 503 Supabase or Blob isn't configured.
+Deployment Protection in front of the whole app blocks phones and displays;
+leave `/api/media` reachable by a family JWT.
+
+Blob credentials: on Vercel, connect a private store so the function has
+`BLOB_STORE_ID` and `VERCEL_OIDC_TOKEN`. `BLOB_READ_WRITE_TOKEN` is the
+long-lived token for local dev. The admin app still has no Supabase service
+role key.
+
+Deleting a family calls `delete_family` and then lists and deletes Blob
+objects under `<family_id>/`. If Blob credentials are missing, the delete
+still succeeds. If Blob cleanup fails after the rows are gone, the console
+says the photos and videos may still be in the store.
 
 **Env:** `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 `next build` must succeed without real values (render dynamically and read
@@ -716,6 +768,13 @@ needs a microphone (see docs/VOICE.md)".
 `devices` row (the id saved at pairing) at most every 5 minutes; the iOS app
 and the admin console show it.
 
+**Media playback:** `HOMEOS_MEDIA_URL` (settings key `media/url`) is the admin
+app origin. Rows with `file_store = 'blob'` (new photos and videos) are
+signed with `POST /api/media/urls` and the device access token (6 hours,
+same as Storage). Rows still in `family-media` stay on `signUrls`. If the
+URL is unset, Blob files get an empty `url` and a warning; older Storage
+files still play.
+
 **Settings sheet:** a gear button in the nav rail, above the moon, opens
 `SettingsSheet.qml` with:
 
@@ -772,13 +831,12 @@ and the admin console show it.
 `avatars/<uid>/avatar.jpg` and set `profiles.avatar_path`), view account
 email, sign out.
 
-**Media upload:** photos are JPEG (≤ 2560 px) plus a 480 px JPEG poster at
-`<family_id>/<id>-thumb.jpg`. Videos are uploaded as-is (`video/quicktime`
-for `.mov`, otherwise `video/<ext>`) with a poster when a frame can be read.
-The row sets `byte_size` (file + poster), `content_type` and `thumbnail_path`.
-If the row insert fails, the objects just uploaded are removed. Deleting a
-photo also removes the poster. The display keeps signing `storage_path` and
-ignores the new columns.
+**Media upload:** new photos and videos go to the private Blob store (§1.10).
+Photos are JPEG (≤ 2560 px). Videos are uploaded as-is. The row sets
+`byte_size`, `content_type` and `file_store = blob`. If the row insert fails,
+the Blob object just uploaded is removed. Rows already in Storage keep
+`thumbnail_path` when they have a poster. The display signs Blob paths
+through the media API and Storage paths through Storage.
 
 **Family management**
 
@@ -799,6 +857,21 @@ ignores the new columns.
   `Accept: text/event-stream`, then parses the events in 2.1.
 - The dictation mic stays.
 
+**Media**
+
+- Photos are re-encoded as JPEG, then uploaded through the same presigned
+  URL as videos.
+- Photos and videos upload only when `Config.mediaAPIURL` is the admin app's
+  origin. The app asks `POST /api/media/upload` for a presigned URL, `PUT`s
+  the bytes, and inserts `media_items` with `file_store = 'blob'`. A video
+  `PUT` streams the movie file from disk (`URLSession.upload(for:fromFile:)`);
+  a photo `PUT` sends the JPEG in memory. An unset URL fails the upload;
+  family media is not written to Supabase Storage. Profile avatars still use
+  the `avatars` bucket.
+- Playback of a `blob` row calls `POST /api/media/urls`. A row still in
+  Storage uses a Storage signed URL. Both are cached for an hour.
+- Deleting a blob file calls `POST /api/media/delete` before deleting the row.
+
 **Siri:** `AskHomeOSIntent: AppIntent`
 
 - `@Parameter question: String`.
@@ -807,16 +880,21 @@ ignores the new columns.
 - An `AppShortcutsProvider` adds phrases such as "Ask \(.applicationName)"
   and "Ask \(.applicationName) a question"; Siri then asks for the question.
 
-**CI:** `.github/workflows/ios.yml` builds for the simulator on `macos-15`
-with xcodegen and `CODE_SIGNING_ALLOWED=NO`.
+**CI:** `.github/workflows/ios.yml` builds the checked-in `HomeOS.xcodeproj`
+for the simulator on `macos-15` with `CODE_SIGNING_ALLOWED=NO`.
+
+**TestFlight:** the checked-in Xcode project is signed for team `92X9CP6C6D`,
+version 1.0.0 (build 1), bundle id `com.homeos.app`. The archive reads the
+Supabase URL, anon key and media API origin from `ios/Config/Local.xcconfig`.
+`ios/scripts/archive-for-testflight.sh` exports an App Store Connect IPA.
+Details are in [IOS.md](IOS.md).
 
 ---
 
 ## 7. CI (`.github/workflows/`)
 
 - **`ios.yml`:** on push and PR, when `ios/**` or the workflow changes:
-  `brew install xcodegen`, `cd ios && xcodegen generate`, then
-  `xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
+  `xcodebuild -project ios/HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
   Pick the newest Xcode 16+ with `maxim-lobanov/setup-xcode` or `xcode-select`.
 - **`ci.yml`:** jobs on `ubuntu-24.04`
   - `backend`: install PostgreSQL 16 from apt and run `backend/tests/run.sh`

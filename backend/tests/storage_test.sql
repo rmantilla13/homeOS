@@ -81,7 +81,7 @@ select tests.throws(format(
   $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 10, "mimetype": "image/jpeg"}')$$,
   :'fam' || '/nested/a.jpg'), '%row-level security%', 'no nested media folders');
 select tests.throws(format(
-  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 536870913, "mimetype": "video/mp4"}')$$,
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 2147483649, "mimetype": "video/mp4"}')$$,
   :'fam' || '/huge.mp4'), 'file is too large', 'one file has a cap');
 
 select tests.logout();

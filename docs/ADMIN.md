@@ -31,8 +31,9 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
   the `admin` edge function for what needs the service role: Supabase Auth's
   admin API (`invite_email`, `ban_user`, `unban_user`, `delete_user`) and
   Storage (`delete_family`, which runs `admin_delete_family` as the admin and
-  then removes the family's photos and videos from `family-media`; SQL alone
-  leaves the files behind). Deleting a user removes their `avatars` folder
+  then removes anything still in `family-media`; SQL alone leaves the files
+  behind). This app then deletes that family's photos and videos from the
+  private Blob store. Deleting a user removes their `avatars` folder
   the same way. In demo mode the same functions answer from fixtures instead
   (below).
 - **No service role key.** The console only ever has the public anon key and
@@ -145,11 +146,25 @@ with no Supabase values, never the production project.
 3. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for
    Production (and Preview if previews should reach the same project). Don't
    add `NEXT_PUBLIC_ADMIN_DEMO` to Production.
-4. Deploy. Every route is dynamic, and `proxy.ts` runs on the Node.js runtime.
-5. Make sure the backend side is in place: migrations pushed
-   (`supabase db push`) and the function deployed
-   (`supabase functions deploy admin`). Supabase gives the function its service
-   role key automatically.
+4. From the `admin` directory, with the project linked
+   (`npx vercel link`), create the private video store and connect it:
+
+   ```bash
+   npx vercel blob create-store homeos-videos --access private --yes
+   ```
+
+   That sets `BLOB_STORE_ID` on the project. On Vercel the function uses
+   `VERCEL_OIDC_TOKEN` with that store id. For a machine that isn't running
+   on Vercel, pull a read-write token too (`npx vercel env pull .env.local`)
+   so `BLOB_READ_WRITE_TOKEN` is present. Don't commit either value.
+5. Deploy. Every route is dynamic, and `proxy.ts` runs on the Node.js runtime.
+6. Make sure the backend side is in place: migrations pushed
+   (`supabase db push`, including `20261008000001_video_blob.sql`) and the
+   function deployed (`supabase functions deploy admin`). Supabase gives the
+   function its service role key automatically.
+7. Point the iOS app at this deployment (`Config.mediaAPIURL`) and the
+   display at it (`HOMEOS_MEDIA_URL`). Both send the family member's Supabase
+   access token to `/api/media/*`.
 
 The production deployment also answers `POST /api/assistant-identity`. That
 is not a console page. The `assistant` edge function calls it with the
@@ -161,8 +176,9 @@ it trusts. Don't set `NEXT_PUBLIC_ADMIN_DEMO` on this project.
 
 Optional hardening: turn on Vercel **Deployment Protection** (Vercel
 Authentication or a password) so only your team can reach the sign-in page
-at all. Protection also blocks `/api/assistant-identity`. Leave it off, or
-exclude that path, or the assistant cannot reach Claude.
+at all. Protection also blocks `/api/assistant-identity` and `/api/media`.
+Leave those paths reachable by a family JWT, or the assistant cannot reach
+Claude and photo and video upload and playback stop.
 
 ### Invite emails
 
@@ -210,7 +226,8 @@ hook, the assistant).
 | "That account isn't an Ohana platform admin" | The account has no `platform_admins` row (see above). |
 | "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The server log has the database error. |
 | Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
-| A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its files are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
+| A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its photos are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
+| Delete family says photos and videos may still be in Blob storage | The rows are gone. In the Vercel Blob store, remove the folder named with that family's id. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |
 
 Dates and times in the console are shown in UTC; hover a relative time ("3 h

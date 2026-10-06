@@ -6,15 +6,19 @@ import { demoMode, supabaseConfig } from "@/lib/env";
 // tokens back as cookies) and keeps everyone but platform admins on /login.
 // Pages and server actions check again (lib/data.ts); this is the fast path.
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
+  const { pathname, search } = request.nextUrl;
   // The assistant edge function calls this with a family member's JWT, not
   // an admin cookie. The route checks that JWT itself.
-  if (request.nextUrl.pathname === "/api/assistant-identity") {
+  if (pathname === "/api/assistant-identity") {
+    return NextResponse.next({ request });
+  }
+  // Phones and wall displays call these with their own family JWT. The admin
+  // gate below would send that request to the login page.
+  if (pathname === "/api/media" || pathname.startsWith("/api/media/")) {
     return NextResponse.next({ request });
   }
 
   if (demoMode()) return NextResponse.next({ request });
-
-  const { pathname, search } = request.nextUrl;
   const onLogin = pathname === "/login";
   const config = supabaseConfig();
   if (!config) return onLogin ? NextResponse.next({ request }) : redirectTo(request, "/login?error=config");

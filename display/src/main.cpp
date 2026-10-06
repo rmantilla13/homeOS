@@ -45,6 +45,7 @@ int main(int argc, char *argv[])
     client.setRefreshToken(setting(settings, "HOMEOS_DEVICE_REFRESH_TOKEN", "device/refreshToken"));
 
     FamilyStore store(&client, parser.isSet(demo));
+    store.setMediaApiUrl(setting(settings, "HOMEOS_MEDIA_URL", "media/url"));
 
     // The on-device voice service (wake word, speech in and out) is optional.
     QString voiceUrl = setting(settings, "HOMEOS_VOICE_URL", "voice/url");

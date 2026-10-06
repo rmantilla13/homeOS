@@ -349,6 +349,8 @@ struct MediaItem: Codable, Identifiable, Hashable {
     var familyId: UUID
     var storagePath: String
     var kind: String  // photo | video
+    /// `supabase` (still in the family-media bucket) or `blob` (private Vercel Blob).
+    var fileStore: String
     var width: Int?
     var height: Int?
     var durationSeconds: Double?
@@ -364,6 +366,7 @@ struct MediaItem: Codable, Identifiable, Hashable {
         case id, kind, caption, width, height
         case familyId = "family_id"
         case storagePath = "storage_path"
+        case fileStore = "file_store"
         case durationSeconds = "duration_seconds"
         case takenAt = "taken_at"
         case showOnFrame = "show_on_frame"
@@ -373,7 +376,46 @@ struct MediaItem: Codable, Identifiable, Hashable {
         case thumbnailPath = "thumbnail_path"
     }
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        familyId = try c.decode(UUID.self, forKey: .familyId)
+        storagePath = try c.decode(String.self, forKey: .storagePath)
+        kind = try c.decode(String.self, forKey: .kind)
+        fileStore = try c.decodeIfPresent(String.self, forKey: .fileStore) ?? "supabase"
+        width = try c.decodeIfPresent(Int.self, forKey: .width)
+        height = try c.decodeIfPresent(Int.self, forKey: .height)
+        durationSeconds = try c.decodeIfPresent(Double.self, forKey: .durationSeconds)
+        caption = try c.decodeIfPresent(String.self, forKey: .caption)
+        takenAt = try c.decodeIfPresent(Date.self, forKey: .takenAt)
+        showOnFrame = try c.decodeIfPresent(Bool.self, forKey: .showOnFrame) ?? true
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        byteSize = try c.decodeIfPresent(Int.self, forKey: .byteSize)
+        contentType = try c.decodeIfPresent(String.self, forKey: .contentType)
+        thumbnailPath = try c.decodeIfPresent(String.self, forKey: .thumbnailPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(familyId, forKey: .familyId)
+        try c.encode(storagePath, forKey: .storagePath)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(fileStore, forKey: .fileStore)
+        try c.encodeIfPresent(width, forKey: .width)
+        try c.encodeIfPresent(height, forKey: .height)
+        try c.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
+        try c.encodeIfPresent(caption, forKey: .caption)
+        try c.encodeIfPresent(takenAt, forKey: .takenAt)
+        try c.encode(showOnFrame, forKey: .showOnFrame)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(byteSize, forKey: .byteSize)
+        try c.encodeIfPresent(contentType, forKey: .contentType)
+        try c.encodeIfPresent(thumbnailPath, forKey: .thumbnailPath)
+    }
+
     var isVideo: Bool { kind == "video" }
+    var inBlob: Bool { fileStore == "blob" }
     /// When it happened, falling back to when it was uploaded.
     var date: Date { takenAt ?? createdAt ?? .distantPast }
 }
@@ -391,6 +433,8 @@ struct NewMediaItem: Encodable {
     var byteSize: Int?
     var contentType: String?
     var thumbnailPath: String?
+    /// Omitted so the column default (`supabase`) applies.
+    var fileStore: String?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, width, height
@@ -402,6 +446,24 @@ struct NewMediaItem: Encodable {
         case byteSize = "byte_size"
         case contentType = "content_type"
         case thumbnailPath = "thumbnail_path"
+        case fileStore = "file_store"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(familyId, forKey: .familyId)
+        try c.encode(storagePath, forKey: .storagePath)
+        try c.encode(kind, forKey: .kind)
+        try c.encodeIfPresent(width, forKey: .width)
+        try c.encodeIfPresent(height, forKey: .height)
+        try c.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
+        try c.encodeIfPresent(takenAt, forKey: .takenAt)
+        try c.encodeIfPresent(uploadedBy, forKey: .uploadedBy)
+        try c.encodeIfPresent(byteSize, forKey: .byteSize)
+        try c.encodeIfPresent(contentType, forKey: .contentType)
+        try c.encodeIfPresent(thumbnailPath, forKey: .thumbnailPath)
+        try c.encodeIfPresent(fileStore, forKey: .fileStore)
     }
 }
 

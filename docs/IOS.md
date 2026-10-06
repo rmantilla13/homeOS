@@ -10,11 +10,12 @@ families and invites fit together is in [PLATFORM.md](PLATFORM.md).
 ## Build and run
 
 ```bash
-brew install xcodegen
-cd ios && xcodegen && open HomeOS.xcodeproj
+open ios/HomeOS.xcodeproj
 ```
 
-1. Put your Supabase URL and anon key in `ios/HomeOS/App/Config.swift`.
+1. Put your Supabase URL and anon key in `ios/Config/Local.xcconfig`
+   (copy `Local.xcconfig.example`) or, for a simulator-only run, in
+   `ios/HomeOS/App/Config.swift`. `Local.xcconfig` wins when it is filled in.
 2. Apply the migrations and deploy the `pair-device` and `assistant` edge
    functions (see the README).
 3. In Supabase → Authentication → URL Configuration, add
@@ -24,12 +25,14 @@ cd ios && xcodegen && open HomeOS.xcodeproj
 4. Pick an iPhone simulator or a device and run. Build with Xcode 16 or newer:
    the code relies on its SDK treating every SwiftUI `View` as `@MainActor`.
 
-`project.yml` is the source of truth for the project. Don't edit the generated
-`.xcodeproj` or `Info.plist`; change `project.yml` and run `xcodegen` again.
-It declares the `homeos` URL scheme, a shared `HomeOS` scheme (for
-`xcodebuild`), and the photo library, camera, microphone and speech
-recognition usage strings. Siri needs no extra keys or entitlements: App
-Shortcuts are found by the App Intents metadata step of a normal build.
+`ios/HomeOS.xcodeproj` is the project Xcode opens. It is already signed for
+team `92X9CP6C6D`, bundle id `com.homeos.app`, version 1.0.0 (1). The shared
+scheme, `Package.resolved` (supabase-swift 2.55.3), and `Info.plist` are in
+the repo. Xcode's personal UI state (`xcuserdata`, `UserInterfaceState.xcuserstate`)
+stays on your Mac. `project.yml` describes the same target. Regenerating with
+XcodeGen replaces the checked-in project, so open the `.xcodeproj` instead.
+Siri needs no extra keys or entitlements: App Shortcuts are found by the App
+Intents metadata step of a normal build.
 
 ## Code map
 
@@ -38,7 +41,7 @@ ios/HomeOS/
 ├── App/
 │   ├── HomeOSApp.swift       RootView: loading (with retry) / welcome / family setup / tabs; deep links
 │   ├── AskHomeOSIntent.swift Siri: AskHomeOSIntent + HomeOSShortcuts (App Shortcuts)
-│   └── Config.swift          Supabase URL and key, bucket names, auth callback URL
+│   └── Config.swift          Supabase URL and key (Local.xcconfig or the fallbacks), bucket names, auth callback URL
 ├── Models/       Codable rows mirroring the migrations (snake_case keys), invites, profiles,
 │                 assistant threads and messages, chat types, InviteCode, DayKey
 ├── Services/
@@ -199,8 +202,8 @@ app's chat history. The Profile screen shows a `SiriTipView` for it.
 
 `.github/workflows/ios.yml` runs on pushes and pull requests that touch
 `ios/**` or the workflow. On `macos-15` it selects the newest stable Xcode
-(`maxim-lobanov/setup-xcode`, failing if that's older than 16), installs
-XcodeGen with Homebrew, runs `xcodegen generate`, and builds:
+(`maxim-lobanov/setup-xcode`, failing if that's older than 16) and builds the
+checked-in project:
 
 ```bash
 xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator \
@@ -208,9 +211,60 @@ xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator \
 ```
 
 Swift packages are checked out into `.spm` and cached on the hash of
-`project.yml` (no `Package.resolved` is committed, so a fresh run resolves the
-newest supabase-swift 2.x). When the build fails, the full `xcodebuild` log is
-uploaded as the `xcodebuild-log` artifact.
+`Package.resolved` (supabase-swift 2.55.3). When the build fails, the full
+`xcodebuild` log is uploaded as the `xcodebuild-log` artifact.
+
+## TestFlight
+
+The project is set up to archive. Uploading still happens on a Mac, signed in
+to Xcode with an Apple Developer account. Version **1.0.0** and build **1**
+come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode project.
+Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
+`ios/HomeOS.xcodeproj/project.pbxproj` (and `ios/project.yml`).
+
+1. The Xcode project is already signed for team `92X9CP6C6D` and bundle id
+   `com.homeos.app`. Sign in to Xcode with the Apple ID on that team.
+2. Copy `ios/Config/Local.xcconfig.example` to `ios/Config/Local.xcconfig`
+   (that copy is gitignored). Set the Supabase URL, anon key, and the admin
+   app origin (`MEDIA_API_URL`). Write URLs as `https:/$()/host` so xcconfig
+   does not treat `//` as a comment.
+3. On the developer site, register that bundle id (no extra capabilities).
+   In App Store Connect, create an iOS app named homeOS with the same bundle
+   id. The primary category is Lifestyle.
+4. Sign in to Xcode with that Apple ID. From `ios/`:
+
+```bash
+./scripts/archive-for-testflight.sh
+```
+
+   The script refuses to archive while the team id or Supabase values are
+   still placeholders. It writes `ios/build/HomeOS.xcarchive` and an IPA under
+   `ios/build/export`. In Xcode you can do the same thing with Product →
+   Archive, then Distribute App → TestFlight & App Store. Drag the IPA into
+   the Transporter app if you are not using the Organizer.
+5. In App Store Connect → TestFlight, add internal testers (people on the
+   team). They can install from the TestFlight app once the build finishes
+   processing. External testers need a beta review and a privacy policy URL.
+
+What the binary already answers, so the upload is not blocked on them:
+
+- App icon, the same house-on-gradient mark as `admin/app/icon.svg`, full
+  bleed at 1024 px with no transparency (`HomeOS/Assets.xcassets`).
+- Launch screen color, the warm canvas `#F1EFEB` (night `#121317`).
+- Export compliance: only standard HTTPS, so `ITSAppUsesNonExemptEncryption`
+  is false and App Store Connect does not ask again on each build.
+- Privacy manifest (`HomeOS/PrivacyInfo.xcprivacy`). The app reads
+  `UserDefaults` for the pending invite and the family on screen (reason
+  `CA92.1`). It does not track. Data linked to the account, for the app to
+  function: email, name, user id, photos and videos, and other content
+  (events, chores, lists, meals, memory, chat). Use those same answers in the
+  App Store Connect privacy questionnaire. Dictation uses Apple's speech
+  recognizer and is not stored by homeOS.
+- A build with no Supabase URL stays on the loading screen and says it is
+  not connected, instead of opening Welcome against a placeholder host.
+
+Signing is automatic. `CODE_SIGNING_ALLOWED=NO` simulator CI does not need a
+team. A device run uses the team in `Local.xcconfig`.
 
 ## Design
 
@@ -257,17 +311,25 @@ profile screens reuse the glow header, pills and cards.
   chore is asked to get a parent to undo it first.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
-  `DateTimeOriginal`. A 480 px JPEG poster is uploaded beside the photo at
-  `<family_id>/<id>-thumb.jpg`. The row records `byte_size` (photo plus
-  poster), `content_type` (`image/jpeg`) and `thumbnail_path`. Videos are
-  uploaded as-is (`video/quicktime` for `.mov`, otherwise `video/<ext>`),
-  with `duration_seconds`, size and creation date read through `AVURLAsset`,
-  and a poster when a frame can be read. If inserting the row fails, the
-  objects just uploaded are removed. Deleting (one item in the viewer, or
-  several from Select) removes each `media_items` row with the signed-in
-  member's session, then the file and poster from `family-media`. That is the
-  family RLS path, not the admin console.
-- Signed URLs (1 hour) are cached per storage path. Thumbnails, average colors
+  `DateTimeOriginal`. New photos and videos go to the private Blob store.
+  The row records `byte_size`, `content_type` and `file_store = blob`.
+  Videos are uploaded as-is, with `duration_seconds`, size and creation date
+  read through `AVURLAsset` from the file on disk. The picker hands the app a
+  movie file; the upload streams that file to Blob
+  (`URLSession.upload(for:fromFile:)`) instead of reading the whole clip into
+  memory. `Config.mediaAPIURL` is the admin app's origin; until it's set, the
+  upload fails and nothing is written to Storage. Photo type sent is
+  `image/jpeg`. Video types are `video/quicktime` (`.mov`), `video/mp4`,
+  `video/m4v`, `video/webm`, `video/x-matroska`, `video/3gpp`, and
+  `video/3gpp2`. If inserting the row fails, the Blob object just uploaded is
+  removed. Deleting (one item in the viewer, or several from Select) removes
+  a Blob object through the media API, then each `media_items` row with the
+  signed-in member's session. Rows still in Storage then lose the file and
+  poster from `family-media`. That is the family RLS path, not the admin
+  console. Profile avatars still use the `avatars` bucket.
+- Signed URLs (1 hour) are cached per storage path. Blob files
+  (`file_store = blob`) use `POST /api/media/urls` on that same origin.
+  Rows still in Storage use a Storage signed URL. Thumbnails, average colors
   and avatars are cached in memory for the session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares
   ids as strings.
@@ -317,12 +379,12 @@ calls from the first build:
 - The `@Observable` stored property with a `private(set)` initializer reading
   `UserDefaults` (`pendingInviteCode`), `Services/FamilyStore.swift:45`.
 - Decoding a scalar RPC result (`uuid`) straight into `UUID`,
-  `Services/FamilyStore.swift:418` and `:442`.
+  `Services/FamilyStore.swift:427` and `:451`.
 - From before: `supabase.storage.from(_:).remove(paths:)`
-  (`Services/FamilyStore.swift:498`, `:923`; it exists in 2.55.3),
+  (`Services/FamilyStore.swift:507`, `:1042`; it exists in 2.55.3),
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
   `Services/Dictation.swift:101`), the `AVAsyncProperty` loads in
-  `MediaTools.videoMetadata` (`Services/MediaTools.swift:183`–`:192`), and
+  `MediaTools.videoMetadata(at:)` (`Services/MediaTools.swift:200`–`:215`), and
   `nonisolated init()` on the `@Observable @MainActor` `Dictation` class
   (`Services/Dictation.swift:20`).
 
@@ -332,5 +394,4 @@ calls from the first build:
 - Sign in with Apple.
 - RRULE expansion for recurring events.
 - Scanning the pairing QR code with `DataScannerViewController`.
-- Streaming large video uploads from disk instead of loading them into memory.
 - A unit-test target (SSE parsing, invite code formatting) once CI runs tests.
