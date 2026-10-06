@@ -353,6 +353,9 @@ struct MediaItem: Codable, Identifiable, Hashable {
     var takenAt: Date?
     var showOnFrame: Bool
     var createdAt: Date?
+    var byteSize: Int?
+    var contentType: String?
+    var thumbnailPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, caption, width, height
@@ -362,6 +365,9 @@ struct MediaItem: Codable, Identifiable, Hashable {
         case takenAt = "taken_at"
         case showOnFrame = "show_on_frame"
         case createdAt = "created_at"
+        case byteSize = "byte_size"
+        case contentType = "content_type"
+        case thumbnailPath = "thumbnail_path"
     }
 
     var isVideo: Bool { kind == "video" }
@@ -379,6 +385,9 @@ struct NewMediaItem: Encodable {
     var durationSeconds: Double?
     var takenAt: Date?
     var uploadedBy: UUID?
+    var byteSize: Int?
+    var contentType: String?
+    var thumbnailPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, width, height
@@ -387,6 +396,9 @@ struct NewMediaItem: Encodable {
         case durationSeconds = "duration_seconds"
         case takenAt = "taken_at"
         case uploadedBy = "uploaded_by"
+        case byteSize = "byte_size"
+        case contentType = "content_type"
+        case thumbnailPath = "thumbnail_path"
     }
 }
 
@@ -396,6 +408,8 @@ struct MediaMetadata {
     var height: Int?
     var durationSeconds: Double?
     var takenAt: Date?
+    /// A small JPEG poster. Photos always have one; a video has one when a frame could be read.
+    var thumbnail: Data?
 }
 
 // MARK: Accounts & invites

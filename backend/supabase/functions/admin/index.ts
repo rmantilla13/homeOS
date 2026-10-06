@@ -4,6 +4,9 @@
 //   { action: "invite_email", email, note?, redirect_to? } -> { ok: true, code, invite_id, expires_at }
 //   { action: "ban_user" | "unban_user" | "delete_user", user_id } -> { ok: true }
 //   { action: "delete_family", family_id } -> { ok: true, files_removed, files_error? }
+//   { action: "sign_media", family_id, media_ids } -> { urls: [{ id, url }] }  (no audit; 10 min)
+//   { action: "delete_media", media_id } -> { ok, files_removed, files_error? }
+//   { action: "revoke_device", device_id } -> { ok, auth_user_removed, auth_error? }
 //
 // Errors are { error } with 400 (bad body), 401 (no session), 403 (not a
 // platform admin), 404 (no such user or family), 413 (body too big), 503
@@ -16,7 +19,8 @@
 
 import { type AuthError, createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { authenticate, bearerToken, json, preflight, readJson } from "../_shared/http.ts";
-import { removeFolder } from "./files.ts";
+import { removeFolder, removePaths } from "./files.ts";
+import { mediaObjectPath, signableMediaPath } from "./media.ts";
 import { type AdminRequest, parseAdminRequest } from "./request.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -26,6 +30,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BAN_FOREVER = "876000h"; // 100 years
 const MEDIA_BUCKET = "family-media"; // '<family_id>/<file>'
 const AVATAR_BUCKET = "avatars"; // '<user_id>/<file>'
+const MEDIA_URL_SECONDS = 10 * 60;
 
 const service = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -119,6 +124,113 @@ async function deleteFamily(db: SupabaseClient, adminId: string, familyId: strin
   return json({ ok: true, files_removed: files.removed, ...(files.error ? { files_error: files.error } : {}) });
 }
 
+// Turns a Storage signed URL into an absolute one. createSignedUrls sometimes
+// returns a path (`/object/sign/...`) rather than a full URL.
+function absoluteSignedUrl(signedUrl: string): string {
+  if (/^https?:\/\//i.test(signedUrl)) return signedUrl;
+  const root = SUPABASE_URL.replace(/\/$/, "");
+  if (signedUrl.startsWith("/storage/")) return `${root}${signedUrl}`;
+  if (signedUrl.startsWith("/")) return `${root}/storage/v1${signedUrl}`;
+  return `${root}/storage/v1/${signedUrl}`;
+}
+
+type MediaRow = { id: string; kind: string; storage_path: string; thumbnail_path: string | null };
+
+// Short-lived URLs for the console's thumbnails. Reads the rows with the
+// service role (an admin is not a family member, so RLS hides them) and only
+// signs an object that actually sits in that family's folder. Not audited:
+// opening the page would flood the log.
+async function signMedia(r: Extract<AdminRequest, { action: "sign_media" }>): Promise<Response> {
+  const { data, error } = await service.from("media_items")
+    .select("id, kind, storage_path, thumbnail_path")
+    .eq("family_id", r.familyId)
+    .in("id", r.mediaIds);
+  if (error) return json({ error: error.message }, 500);
+
+  const byId = new Map(((data ?? []) as MediaRow[]).map((row) => [row.id, row]));
+  const wanted: { id: string; path: string }[] = [];
+  for (const id of r.mediaIds) {
+    const row = byId.get(id);
+    if (!row) continue;
+    const path = signableMediaPath(r.familyId, row);
+    if (path) wanted.push({ id, path });
+  }
+  if (!wanted.length) return json({ urls: [] });
+
+  const { data: signed, error: signErr } = await service.storage.from(MEDIA_BUCKET)
+    .createSignedUrls(wanted.map((w) => w.path), MEDIA_URL_SECONDS);
+  if (signErr) return json({ error: signErr.message }, 500);
+
+  const urls = wanted.flatMap((w, i) => {
+    const url = signed?.[i]?.signedUrl;
+    return url ? [{ id: w.id, url: absoluteSignedUrl(url) }] : [];
+  });
+  return json({ urls });
+}
+
+type DeletedMedia = {
+  family_id: string;
+  storage_path: string;
+  thumbnail_path: string | null;
+};
+
+// The RPC deletes the row and audits delete_media. This removes the objects
+// and audits that cleanup separately, the same way delete_family does.
+async function deleteMedia(db: SupabaseClient, adminId: string, mediaId: string): Promise<Response> {
+  const { data, error } = await db.rpc("admin_delete_media", { item: mediaId });
+  if (error) {
+    if (/media not found/i.test(error.message)) return json({ error: "media not found" }, 404);
+    return json({ error: error.message }, error.code === "P0001" ? 400 : 500);
+  }
+  const row = data as DeletedMedia;
+  const paths = [row.storage_path, row.thumbnail_path]
+    .filter((p): p is string => mediaObjectPath(row.family_id, p) === p);
+  const files = await removePaths(service.storage.from(MEDIA_BUCKET), paths);
+  if (files.error) console.error(`family-media cleanup for ${mediaId} failed:`, files.error);
+  await audit(adminId, "delete_media_files", "media", mediaId, {
+    family_id: row.family_id,
+    bucket: MEDIA_BUCKET,
+    files_removed: files.removed,
+    ...(files.error ? { error: files.error } : {}),
+  });
+  return json({ ok: true, files_removed: files.removed, ...(files.error ? { files_error: files.error } : {}) });
+}
+
+type RevokedDevice = {
+  id: string;
+  family_id: string;
+  name: string;
+  user_id: string;
+  auth_user_removed: boolean;
+};
+
+// The RPC drops the devices row and tries to delete the auth user. When SQL
+// isn't allowed to touch auth.users, this finishes it so the refresh token dies.
+async function revokeDevice(db: SupabaseClient, adminId: string, deviceId: string): Promise<Response> {
+  const { data, error } = await db.rpc("admin_revoke_device", { device: deviceId });
+  if (error) {
+    if (/device not found/i.test(error.message)) return json({ error: "device not found" }, 404);
+    return json({ error: error.message }, error.code === "P0001" ? 400 : 500);
+  }
+  const row = data as RevokedDevice;
+  let removed = row.auth_user_removed === true;
+  let authError: string | null = null;
+  if (!removed && row.user_id) {
+    const { error: delErr } = await service.auth.admin.deleteUser(row.user_id);
+    if (!delErr || delErr.status === 404) removed = true;
+    else authError = delErr.message;
+  }
+  await audit(adminId, "revoke_device_auth", "device", deviceId, {
+    family_id: row.family_id,
+    name: row.name,
+    user_id: row.user_id,
+    auth_user_removed: removed,
+    ...(authError ? { error: authError } : {}),
+  });
+  if (authError) return json({ error: authError, auth_user_removed: false }, 502);
+  return json({ ok: true, auth_user_removed: removed });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return preflight();
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
@@ -148,6 +260,9 @@ Deno.serve(async (req) => {
   try {
     if (request.action === "invite_email") return await inviteEmail(db, user.id, request);
     if (request.action === "delete_family") return await deleteFamily(db, user.id, request.familyId);
+    if (request.action === "sign_media") return await signMedia(request);
+    if (request.action === "delete_media") return await deleteMedia(db, user.id, request.mediaId);
+    if (request.action === "revoke_device") return await revokeDevice(db, user.id, request.deviceId);
     return await userAction(user.id, request);
   } catch (err) {
     console.error(`admin ${request.action} failed:`, err);

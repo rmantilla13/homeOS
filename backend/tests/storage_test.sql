@@ -61,10 +61,42 @@ update families set status = 'active' where id = :'fam';
 
 -- family-media (20261006000002) still follows family membership.
 select tests.login(:'device');
-select tests.eq(tests.affected(format($$insert into storage.objects (bucket_id, name) values ('family-media', %L)$$, :'fam' || '/1.jpg')), 1, 'display uploads a photo');
+select tests.eq(tests.affected(format(
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 1024, "mimetype": "image/jpeg"}')$$,
+  :'fam' || '/1.jpg')), 1, 'display uploads a photo');
 select tests.login(:'stranger');
 select tests.eq((select count(*)::int from storage.objects where bucket_id = 'family-media'), 0, 'stranger sees no photos');
 select tests.throws(format($$insert into storage.objects (bucket_id, name) values ('family-media', %L)$$, :'fam' || '/2.jpg'), '%row-level security%', 'stranger cannot upload');
 select tests.login(:'mom');
 select tests.eq((select count(*)::int from storage.objects where bucket_id = 'family-media'), 1, 'mom sees the photo');
+
+-- Quota, type and shape. The row trigger is not enough: the file is uploaded
+-- before the media_items row exists.
+select tests.throws(format($$insert into storage.objects (bucket_id, name) values ('family-media', %L)$$, :'fam' || '/nosize.jpg'),
+                    'file size required', 'upload says how big it is');
+select tests.throws(format(
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 10, "mimetype": "text/html"}')$$,
+  :'fam' || '/page.html'), 'file type not allowed', 'not an html file');
+select tests.throws(format(
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 10, "mimetype": "image/jpeg"}')$$,
+  :'fam' || '/nested/a.jpg'), '%row-level security%', 'no nested media folders');
+select tests.throws(format(
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 536870913, "mimetype": "video/mp4"}')$$,
+  :'fam' || '/huge.mp4'), 'file is too large', 'one file has a cap');
+
+select tests.logout();
+update families set storage_limit_bytes = 1500 where id = :'fam';
+select tests.login(:'mom');
+select tests.throws(format(
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 500, "mimetype": "image/jpeg"}')$$,
+  :'fam' || '/over.jpg'), 'storage limit reached', 'family quota counts the bytes already stored');
+select tests.eq((select count(*)::int from storage.objects where bucket_id = 'family-media'), 1, 'rejected upload stored nothing');
+
+select tests.logout();
+update families set status = 'suspended', storage_limit_bytes = null where id = :'fam';
+select tests.login(:'device');
+select tests.throws(format(
+  $$insert into storage.objects (bucket_id, name, metadata) values ('family-media', %L, '{"size": 10, "mimetype": "image/jpeg"}')$$,
+  :'fam' || '/later.jpg'), '%row-level security%', 'suspended family cannot upload');
+select tests.eq((select count(*)::int from storage.objects where bucket_id = 'family-media'), 0, 'suspended display sees no photos');
 select tests.logout();

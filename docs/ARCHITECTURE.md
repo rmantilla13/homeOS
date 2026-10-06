@@ -28,14 +28,20 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
   `profiles` row. Platform admins can suspend families, which hides their
   data from members and displays. See [PLATFORM.md](PLATFORM.md).
 - **Storage**: the `family-media` bucket stores photos and videos under
-  `<family_id>/<media_id>.<ext>`.
+  `<family_id>/<file>`, one folder deep. Each family has a storage quota and
+  an item cap (its own, or the platform default). A row can't point at
+  another family's object, and a display can't move itself into another
+  family. See [PLATFORM.md](PLATFORM.md).
 - **Realtime**: the display subscribes to row changes, so the screen updates
   as soon as a phone edits something.
 - **Edge Functions**:
   - `pair-device` binds a new screen to a family.
   - `assistant` is the family AI, described below.
   - `admin` does what needs Supabase Auth's admin API (emailed invites, ban,
-    delete user) after checking that the caller is a platform admin.
+    delete user, remove media files, revoke a display) after checking that
+    the caller is a platform admin. Listing and deleting media rows stays in
+    SQL; signing a thumbnail URL is the function, because admins are not
+    family members and have no Storage read policy.
   - Later: push notifications (APNs), recurring-chore generation, and
     calendar sync with Google and iCloud.
 
@@ -45,7 +51,7 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 |---|---|
 | `families` | One household |
 | `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user |
-| `devices` | Paired wall screens; `user_id` is the device's auth user |
+| `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
 | `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members` |
 | `tasks` | Chores and to-dos: assignee, points, recurrence, due date, and whether a parent must approve |
 | `task_completions` | A task completed on a date; when approved, it posts points |
@@ -53,12 +59,12 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | `points_ledger` | Append-only point history; `member_points` is a view of balances |
 | `lists` / `list_items` | Shopping and other checklists |
 | `meal_plans` | One row per day and meal |
-| `media_items` | Metadata for photos and videos in Storage |
+| `media_items` | Metadata for photos and videos in Storage: kind, size, type, and an optional thumbnail path in the same family folder |
 | `profiles` | One per person with an account: display name, avatar |
 | `platform_invites` / `family_invites` | Invite codes to start a family, or to join one (optionally as an existing member) |
 | `assistant_threads` / `assistant_messages` | Saved assistant conversations, private to the person who started them |
 | `assistant_usage` | Requests and tokens per family and day, for the daily limit and the admin charts |
-| `platform_admins` / `platform_settings` / `admin_audit_log` | Who runs the platform, global switches (invite-only, assistant on/off, daily limit) and a log of every admin action |
+| `platform_admins` / `platform_settings` / `admin_audit_log` | Who runs the platform, global switches (invite-only, assistant on/off, daily limit, storage quota, per-file cap, item cap) and a log of every admin action |
 
 Points are never edited directly. They are written only by database
 functions (`approve_completion`, `redeem_reward`), so balances can't drift.
@@ -107,6 +113,15 @@ brings them back. Video plays with QtMultimedia. On the Pi that
 runs through GStreamer, which uses hardware HEVC decode. In demo mode, sample
 media is copied next to the binary (`demo-media/`) or installed to
 `share/homeos/demo-media`.
+
+Uploads from the iPhone record `byte_size`, `content_type` and a JPEG poster
+at `<family_id>/<id>-thumb.jpg`. The quota is enforced in Postgres (on the
+row and, where Storage exists, on the object), not in the app. A signed-in
+client can change a caption or whether the photo shows on the frame, and
+nothing else on the row. The display still signs `storage_path` and ignores
+the extra columns. Platform admins list media through `admin_list_media` and
+remove an item through the `admin` function, which writes the audit log and
+deletes the file and the poster.
 
 ## Family assistant
 
@@ -194,8 +209,9 @@ XcodeGen.
   link, then create an account and start or join a family.
 - Profile (name, photo), family management (members, roles, invites) and the
   assistant with saved threads. Siri: say "Ask homeOS", then the question.
-- Photos and videos are picked with `PhotosPicker` and uploaded to Storage;
-  they appear on the wall frame within seconds.
+- Photos and videos are picked with `PhotosPicker` and uploaded to Storage
+  with a size, a content type and a thumbnail; they appear on the wall frame
+  within seconds.
 - Parents approve chore completions and manage rewards.
 - **Pair a display**: the screen shows a 6-digit code and a QR code; the app
   sends it to `pair-device`.
@@ -207,8 +223,11 @@ XcodeGen.
 2. The display shows the code and its QR code.
 3. A parent in the iOS app scans or types it, and the app calls the
    `pair-device` function with their JWT.
-4. The function checks that the parent belongs to the family, creates the
-   device auth user and the `devices` row, and marks the code claimed.
+4. The function checks that the parent belongs to the family and that the
+   family is active (a suspended family is refused), creates the device auth
+   user and the `devices` row, and marks the code claimed. The database
+   refuses the device row too if the family is suspended, or if something
+   later tries to point that display at a different family.
 5. The display polls the code and receives its device session. It stores the
    refresh token on disk, and RLS then treats it as a member of that family.
 

@@ -10,6 +10,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { json, preflight, readJson } from "../_shared/http.ts";
+import { pairingBlock } from "./pairing.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -68,6 +69,17 @@ async function claim(req: Request, body: { code?: string; familyId?: string; nam
     .eq("role", "parent")
     .maybeSingle();
   if (!parent) return json({ error: "only parents can pair displays" }, 403);
+
+  // Service role would otherwise pair a suspended family. devices_guard is
+  // the backstop; this refuses before a device auth user is created.
+  const { data: family, error: familyErr } = await admin
+    .from("families")
+    .select("status")
+    .eq("id", body.familyId)
+    .maybeSingle();
+  if (familyErr) return json({ error: familyErr.message }, 500);
+  const block = pairingBlock(family?.status ?? null);
+  if (block) return json({ error: block.error }, block.status);
 
   const { data: pc } = await admin
     .from("pairing_codes")

@@ -153,8 +153,14 @@ enum MediaTools {
         let metadata = MediaMetadata(width: Int(resized.size.width * resized.scale),
                                      height: Int(resized.size.height * resized.scale),
                                      durationSeconds: nil,
-                                     takenAt: exifDate(data))
+                                     takenAt: exifDate(data),
+                                     thumbnail: thumbnailJPEG(resized))
         return (jpeg, metadata)
+    }
+
+    /// A 480 px JPEG the admin console can show without downloading the original.
+    static func thumbnailJPEG(_ image: UIImage) -> Data? {
+        downscale(image, maxPixel: 480).jpegData(compressionQuality: 0.7)
     }
 
     /// A centered square JPEG (512 px) for a profile photo.
@@ -191,6 +197,9 @@ enum MediaTools {
             }
             if let item = try await asset.load(.creationDate) {
                 metadata.takenAt = try await item.load(.dateValue)
+            }
+            if let frame = await videoFrame(url: url, maxPixel: 480) {
+                metadata.thumbnail = thumbnailJPEG(frame)
             }
         } catch {
             print("homeOS video metadata:", error)

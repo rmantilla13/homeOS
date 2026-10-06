@@ -4,7 +4,7 @@ homeOS is invite-only. This page covers how accounts and families fit
 together, how invites work from end to end, how to make the first platform
 admin and turn on the sign-up hook, and the assistant's limits. The exact
 names live in [PLATFORM_SPEC.md](PLATFORM_SPEC.md); the SQL is in
-`backend/supabase/migrations/20261007*.sql`.
+`backend/supabase/migrations/20261007*.sql` and `20261008*.sql`.
 
 ## Accounts
 
@@ -39,7 +39,12 @@ There are two kinds of auth users:
 - **Platform admins** (`platform_admins`) run the service through the admin
   console. Being an admin doesn't make you a member of any family; admins
   don't see families' chats or content through the app, only through the
-  `admin_*` functions.
+  `admin_*` functions. There is no Storage policy that lets an admin read
+  `family-media`. The console asks the `admin` function for a short-lived
+  thumbnail URL instead.
+- A **display** can rename itself and update `last_seen_at`. It can't change
+  which family it belongs to or which auth user it is. Pairing a suspended
+  family is refused.
 
 ## Invites
 
@@ -203,8 +208,40 @@ offline. Its members and displays then see none of its data: every RLS check
 goes through `my_family_ids()` and `is_family_parent()`, which leave out
 suspended families. Invites to it stop working, and the assistant refuses it.
 Admins still see it in the console. Setting `'active'` brings everything back.
-Only admins can change `status` and the assistant limit; parents can still
-rename their family.
+Only admins can change `status`, the assistant limit and the storage quotas;
+parents can still rename their family. `pair-device` refuses a suspended
+family before it creates a device account (`this family's account is
+suspended`), and the `devices` trigger refuses the insert even if that check
+is skipped.
+
+## Storage quotas
+
+| Setting | Where | Default |
+|---|---|---|
+| Storage per family | `platform_settings.storage_limit_bytes` | 5 GiB |
+| A different storage limit for one family | `families.storage_limit_bytes` (null means the platform default; 0 means nothing new) | null |
+| Items per family | `platform_settings.media_item_limit` | 5,000 |
+| A different item cap for one family | `families.media_item_limit` (same null / 0 rules) | null |
+| Largest single file | `platform_settings.media_max_bytes` | 512 MiB |
+
+Set a family's overrides with `admin_set_family_limits`. Pass
+`use_platform_storage_limit => true` (or the matching flag for the assistant
+limit or the item cap) to clear an override. The iPhone writes `byte_size`,
+`content_type` and a thumbnail path; an older app that omits `byte_size` can
+still upload, and the object size is what gets billed once Storage is
+present. A file that isn't an image or video the app uploads, a path outside
+`<family_id>/<file>`, or an upload past the quota is refused by the database.
+Removing an item is `admin_delete_media` plus the `admin` function's
+`delete_media`, which also deletes the file and the thumbnail and writes
+`delete_media` and `delete_media_files` to the audit log.
+
+## Revoking a display
+
+`admin_revoke_device(device)` deletes the `devices` row and, when the role
+may, the display's auth user, so its refresh token stops working. The
+console calls the `admin` function's `revoke_device`, which finishes the
+auth deletion when SQL can't and writes `revoke_device_auth`. A second
+revoke answers `device not found`.
 
 ## Assistant limits
 
@@ -219,9 +256,9 @@ rename their family.
   tool calls. The day is the UTC day. When a family's rows for today reach
   its limit, the assistant answers "We've hit today's assistant limit. Try
   again tomorrow."
-- There's no console control for a single family's limit yet. Set it in SQL:
-  `update families set assistant_daily_limit = 500 where id = '…';`.
-  Parents can't change it themselves.
+- A single family's limit is `admin_set_family_limits(family,
+  assistant_daily_limit => 500)`, or `use_platform_assistant_limit => true`
+  to follow the platform default again. Parents can't change it themselves.
 - **Chats are private.** `assistant_threads` and `assistant_messages` are
   visible only to the person or display that owns the thread, and only while
   they belong to that family. Other family members, including parents, can't
@@ -234,22 +271,39 @@ rename their family.
 
 Every admin change goes into `admin_audit_log` with the admin's id, an
 action (`set_family_status`, `delete_family`, `create_platform_invite`,
-`revoke_platform_invite`, `update_settings`, `set_admin`, plus the `admin`
-edge function's `invite_email`, `ban_user`, `unban_user`, `delete_user` and
-`delete_family_files`), the target and details. Admins read it on the
+`revoke_platform_invite`, `update_settings`, `set_admin`, `delete_media`,
+`revoke_device`, `set_family_limits`, plus the `admin` edge function's
+`invite_email`, `ban_user`, `unban_user`, `delete_user`,
+`delete_family_files`, `delete_media_files` and `revoke_device_auth`), the
+target and details. Signing a thumbnail URL is not logged. Admins read it on the
 console's Audit page (`admin_list_audit`).
 
 SQL can't remove files from Storage. The console deletes a family through the
 `admin` function's `delete_family`, which runs `admin_delete_family` and then
 empties `family-media/<family_id>/`; deleting a user empties
-`avatars/<user_id>/`. Calling `admin_delete_family` directly (SQL editor)
-leaves the files; remove that folder in Storage yourself.
+`avatars/<user_id>/`. Calling `admin_delete_family` or `admin_delete_media`
+directly (SQL editor) leaves the files; remove them in Storage yourself.
 
 The `admin` edge function calls `admin_create_platform_invite` and
 `admin_delete_family` with the admin's own session, so those rows name the
 admin; it writes its own rows for the other actions. The `admin_*` functions also accept the service role, for
 server-side jobs. Called that way there's no `auth.uid()`, so the row's
 `admin_id` is empty.
+
+## Applying these migrations
+
+Production already has the `20261006` and `20261007` migrations. Apply the
+new ones in order, and don't edit them in place:
+
+1. `backend/supabase/migrations/20261008000001_media_platform.sql`
+2. `backend/supabase/migrations/20261008000002_media_storage.sql`
+
+Then redeploy the `admin` and `pair-device` edge functions so the console can
+sign and delete media, revoke a display's auth user, and so pairing refuses
+a suspended family before creating an account. No new secrets or environment
+variables. The iOS app should be updated too: until it is, uploads still
+work, they just don't send `byte_size` or a thumbnail (Storage still bills
+the object).
 
 ## Testing
 

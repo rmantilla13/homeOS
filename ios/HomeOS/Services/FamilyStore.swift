@@ -888,19 +888,34 @@ final class FamilyStore {
         guard let family else { return false }
         let id = UUID()
         let ext = fileExtension.lowercased()
-        let path = "\(family.id.uuidString.lowercased())/\(id.uuidString.lowercased()).\(ext)"
+        let folder = family.id.uuidString.lowercased()
+        let path = "\(folder)/\(id.uuidString.lowercased()).\(ext)"
         let contentType = isVideo
             ? "video/\(ext == "mov" ? "quicktime" : ext)"
             : "image/\(ext == "jpg" ? "jpeg" : ext)"
+        let thumb = metadata.thumbnail
+        let thumbPath = thumb == nil ? nil : "\(folder)/\(id.uuidString.lowercased())-thumb.jpg"
+        // byte_size is the file plus its poster, which is what the quota counts.
         let row = NewMediaItem(id: id, familyId: family.id, storagePath: path, kind: isVideo ? "video" : "photo",
                                width: metadata.width, height: metadata.height,
-                               durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt, uploadedBy: me?.id)
+                               durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt, uploadedBy: me?.id,
+                               byteSize: data.count + (thumb?.count ?? 0), contentType: contentType, thumbnailPath: thumbPath)
+        var uploaded: [String] = []
         do {
             _ = try await supabase.storage.from(Config.mediaBucket)
                 .upload(path, data: data, options: FileOptions(contentType: contentType))
+            uploaded.append(path)
+            if let thumb, let thumbPath {
+                _ = try await supabase.storage.from(Config.mediaBucket)
+                    .upload(thumbPath, data: thumb, options: FileOptions(contentType: "image/jpeg"))
+                uploaded.append(thumbPath)
+            }
             try await supabase.from("media_items").insert(row).execute()
             return true
         } catch {
+            if !uploaded.isEmpty {
+                _ = try? await supabase.storage.from(Config.mediaBucket).remove(paths: uploaded)
+            }
             report(error)
             return false
         }
@@ -920,7 +935,9 @@ final class FamilyStore {
         media.removeAll { $0.id == item.id }
         do {
             try await supabase.from("media_items").delete().eq("id", value: item.id.uuidString).execute()
-            _ = try await supabase.storage.from(Config.mediaBucket).remove(paths: [item.storagePath])
+            var paths = [item.storagePath]
+            if let thumb = item.thumbnailPath, thumb != item.storagePath { paths.append(thumb) }
+            _ = try await supabase.storage.from(Config.mediaBucket).remove(paths: paths)
         } catch {
             report(error)
             await refreshMedia()

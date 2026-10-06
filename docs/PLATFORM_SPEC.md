@@ -31,6 +31,10 @@ Migrations are added after the existing ones, never edited in place:
   used to cancel a redemption without refunding it)
 - `20261007000007_family_guards.sql`: `tasks_guard` and the color format
   checks (§1.8), on tables from 20261006000001
+- `20261008000001_media_platform.sql`: per-family storage quotas, media path
+  binding, device and membership guards, admin media / limits / revoke RPCs (§1.9)
+- `20261008000002_media_storage.sql`: the Storage quota trigger and the
+  `family-media` policies (Supabase-only, like 000002 and 000005)
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -277,16 +281,20 @@ every mutation writes an audit row.
 
 | Function | Returns |
 |---|---|
-| `admin_overview()` | `jsonb {families, families_active_7d, suspended_families, users, devices, members, open_platform_invites, assistant_requests_7d, assistant_tokens_7d}` |
-| `admin_list_families(search text default null, lim int default 50, off int default 0)` | `table(id uuid, name text, status text, created_at timestamptz, member_count int, parent_count int, device_count int, assistant_requests_30d int, last_activity timestamptz)` |
-| `admin_family_detail(family uuid)` | `jsonb {family, members[], devices[], invites[], usage_by_day[]}` |
+| `admin_overview()` | `jsonb {families, families_active_7d, suspended_families, users, devices, devices_seen_24h, members, open_platform_invites, assistant_requests_7d, assistant_tokens_7d, assistant_enabled, media_items, storage_bytes, families_over_quota}` |
+| `admin_list_families(search text default null, lim int default 50, off int default 0)` | `table(id uuid, name text, status text, created_at timestamptz, member_count int, parent_count int, device_count int, assistant_requests_30d int, last_activity timestamptz, media_count int, storage_bytes bigint, storage_limit_bytes bigint)`. `storage_limit_bytes` is the effective quota (the family's override, or the platform default). |
+| `admin_family_detail(family uuid)` | `jsonb {family, members[], devices[], invites[], usage_by_day[]}`. `family` adds `storage_bytes`, `storage_limit_effective`, `media_count`, `media_item_limit_effective`. `storage_limit_bytes` and `media_item_limit` on that object are the raw overrides (`null` means the platform default). |
 | `admin_list_users(search text default null, lim int default 50, off int default 0)` | `table(id uuid, email text, display_name text, created_at timestamptz, last_sign_in_at timestamptz, banned boolean, is_admin boolean, is_device boolean, families jsonb)`. `families` is `[{id,name,role}]`; the search matches email and display name. |
 | `admin_set_family_status(family uuid, status text, reason text default null)` | `void` |
 | `admin_delete_family(family uuid)` | `void` |
 | `admin_create_platform_invite(email text default null, note text default null, max_uses int default 1, expires_in_days int default 30)` | `table(id uuid, code text, expires_at timestamptz)`; `code` is in display form |
 | `admin_revoke_platform_invite(invite uuid)` | `void` |
 | `admin_list_platform_invites(include_inactive boolean default false)` | `table(id, code, email, note, max_uses, use_count, expires_at, created_at, revoked_at, created_by_email text, status text)`. `status` is one of `active\|used\|expired\|revoked`. |
-| `admin_update_settings(invite_only boolean default null, assistant_enabled boolean default null, assistant_daily_limit int default null)` | `jsonb` (the new settings); null arguments leave that value unchanged |
+| `admin_update_settings(invite_only boolean default null, assistant_enabled boolean default null, assistant_daily_limit int default null, storage_limit_bytes bigint default null, media_max_bytes bigint default null, media_item_limit int default null)` | `jsonb` (the new settings); null arguments leave that value unchanged. When `storage.buckets` exists, also sets the `family-media` bucket's `file_size_limit` and `allowed_mime_types`. |
+| `admin_list_media(family uuid, only_kind text default null, lim int default 60, off int default 0)` | `table(id, kind, storage_path, thumbnail_path, content_type, byte_size, width, height, duration_seconds, caption, taken_at, created_at, show_on_frame, uploaded_by_name)`. `only_kind` is `photo`, `video`, or null. `lim` is clamped to 1..100. Raises `family not found` or `kind must be photo or video`. |
+| `admin_delete_media(item uuid)` | `jsonb {id, family_id, storage_path, thumbnail_path, byte_size, kind}`; deletes the row and audits `delete_media`. Raises `media not found`. Does not delete the Storage objects (the `admin` function does). |
+| `admin_revoke_device(device uuid)` | `jsonb {id, family_id, name, user_id, auth_user_removed}`; deletes the `devices` row, tries to delete `auth.users` (swallows `insufficient_privilege`), audits `revoke_device`. Raises `device not found`. |
+| `admin_set_family_limits(family uuid, assistant_daily_limit int default null, storage_limit_bytes bigint default null, media_item_limit int default null, use_platform_assistant_limit boolean default false, use_platform_storage_limit boolean default false, use_platform_media_item_limit boolean default false)` | `jsonb` of the raw overrides and the `*_effective` values. A null number leaves that limit alone. A `use_platform_*` flag clears the override (`null` = platform default). A no-op writes no audit row. Raises `family not found`, or `assistant_daily_limit must be between 0 and 1000000`, `storage_limit_bytes must be between 0 and 1099511627776`, `media_item_limit must be between 0 and 1000000`. |
 | `admin_get_settings()` | `jsonb` |
 | `admin_set_admin(target uuid, make_admin boolean)` | `void`; raises `can't remove the last admin` |
 | `admin_usage_by_day(days int default 30)` | `table(day date, requests int, input_tokens bigint, output_tokens bigint, families int)` |
@@ -326,7 +334,63 @@ platform admins.
   app and the admin console all render them; `#RRGGBB` is the one form all
   three read the same way.
 - **Devices:** a display may update its own `devices` row (`devices_touch`);
-  it sets `last_seen_at` (§5).
+  it sets `last_seen_at` and may rename itself (§5). `devices_guard` freezes
+  `id`, `family_id` and `user_id` (`a display can't move to another family`).
+  A signed-in caller who isn't an admin also can't change `created_at`. A
+  suspended family can't gain a device (`this family is suspended`), including
+  an insert made with the service role.
+
+### 1.9 Media quotas and tenancy
+
+`media_items` gains `byte_size bigint` (null on rows from an older app),
+`content_type text` and `thumbnail_path text`. A row's `storage_path` and
+`thumbnail_path` must be `<family_id>/<file>` in the lowercase uuid form, one
+segment, at most 200 characters, no `..` and no leading dot
+(`media_items_path_in_family`, `media_items_thumb_in_family`). The thumbnail,
+when set, is a different object.
+
+Allowed types (`allowed_media_types()`): `image/jpeg`, `image/png`,
+`image/webp`, `image/heic`, `image/heif`, `image/gif`, `video/mp4`,
+`video/quicktime`, `video/webm`, `video/m4v`, `video/x-m4v`. A null
+`content_type` is allowed, so old rows still load. Anything else raises
+`file type not allowed`.
+
+Quotas:
+
+| Setting | Where | Default |
+|---|---|---|
+| Storage per family | `platform_settings.storage_limit_bytes`, overridable by `families.storage_limit_bytes` | 5 GiB (`5368709120`) |
+| Items per family | `platform_settings.media_item_limit`, overridable by `families.media_item_limit` | 5000 |
+| One file | `platform_settings.media_max_bytes` (platform only) | 512 MiB (`536870912`) |
+
+A null override means the platform default. `0` is a real limit. Caps:
+storage `0 .. 1099511627776` (1 TiB), `media_max_bytes` `1 .. 5368709120`,
+item limit `0 .. 1000000`. Parents can't change the new family columns
+(`only a platform admin can change that`).
+
+`media_items_guard` lets a signed-in client change only `caption` and
+`show_on_frame` (`only a caption or the frame can be changed`). `uploaded_by`
+must be a member of that family (`that person isn't in this family`). On
+insert, a client is refused with `file is too large`, `media item limit
+reached` or `storage limit reached`. A null `byte_size` still counts as an
+item and doesn't add bytes on the row side. Migrations and the service role
+skip the quota. Usage is `greatest(sum(media_items.byte_size), sum of
+family-media object sizes)` when `storage.objects` exists, so an old file
+without `byte_size` is still billed once Storage is present.
+
+`20261008000002` puts the same checks on `storage.objects` for the
+`family-media` bucket: `file size required`, `file type not allowed`, `file
+is too large`, `media item limit reached` (object count vs `item limit × 2`,
+a file and its thumbnail), `storage limit reached`. The read, upload and
+delete policies require a single folder whose name is one of
+`my_family_ids()`. There is no admin read policy: an admin's phone must not
+be able to open another family's photos. The console signs URLs in the
+`admin` function instead.
+
+The same "that person isn't in this family" check covers `events.created_by`,
+`event_members.member_id`, `tasks.assignee_id`, `tasks.created_by` and
+`list_items.added_by` when that column is set or changed. Moving an
+account-less member no longer makes their old rows uneditable.
 
 ---
 
@@ -441,16 +505,24 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `unban_user` | `user_id` | `ban_duration: 'none'` |
 | `delete_user` | `user_id` | Refuses to delete yourself. `auth.admin.deleteUser`, then removes the user's `avatars/<user_id>/` files |
 | `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }`; a cleanup failure doesn't undo the deletion. |
+| `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. |
+| `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. |
+| `revoke_device` | `device_id` | `admin_revoke_device` with the admin's own JWT (404 `device not found`). If SQL couldn't delete the auth user, calls `auth.admin.deleteUser`. Returns `{ ok, auth_user_removed }`, or `{ error, auth_user_removed: false }` with 502 when Auth refuses. |
 
-Every action writes `admin_audit_log` with the service role (`delete_family`
-writes `delete_family_files` with the cleanup result; the RPC writes
-`delete_family`). Responses are `{ ok: true, ... }`, or `{ error }` with
-status 4xx or 5xx (404 for an unknown user or family).
+Every action except `sign_media` writes `admin_audit_log` with the service
+role (`delete_family` writes `delete_family_files`, `delete_media` writes
+`delete_media_files`, `revoke_device` writes `revoke_device_auth`; the RPCs
+write their own rows). Responses are `{ ok: true, ... }`, or `{ error }` with
+status 4xx or 5xx (404 for an unknown user, family, media item or device).
 
 ### 2.3 `pair-device` (existing)
 
-No contract change beyond the common errors above (the body must be a JSON
-object, at most 64 KiB). Device users must not get profiles (see 1.1).
+`claim` looks up the family after the parent check and before it creates a
+device user. A missing family is 404 `family not found`. Anything other than
+`status = 'active'` is 403 `this family's account is suspended`. The
+`devices_guard` trigger refuses the insert anyway, so skipping this check
+still can't pair a suspended family. Device users must not get profiles
+(see 1.1). The body must be a JSON object, at most 64 KiB.
 
 ---
 
@@ -677,6 +749,14 @@ and the admin console show it.
 **Profile:** edit display name and avatar (PhotosPicker, then upload to
 `avatars/<uid>/avatar.jpg` and set `profiles.avatar_path`), view account
 email, sign out.
+
+**Media upload:** photos are JPEG (≤ 2560 px) plus a 480 px JPEG poster at
+`<family_id>/<id>-thumb.jpg`. Videos are uploaded as-is (`video/quicktime`
+for `.mov`, otherwise `video/<ext>`) with a poster when a frame can be read.
+The row sets `byte_size` (file + poster), `content_type` and `thumbnail_path`.
+If the row insert fails, the objects just uploaded are removed. Deleting a
+photo also removes the poster. The display keeps signing `storage_path` and
+ignores the new columns.
 
 **Family management**
 
