@@ -720,6 +720,7 @@ and the admin console show it.
 `SettingsSheet.qml` with:
 
 - screen saver style (reuse the picker content)
+- dark mode on/off (QSettings `display/darkMode`, default off): a warm near-black canvas, light text, and the same blue accent `#4F7CF7`
 - wake word on/off (`Voice.setWakewordEnabled`, disabled when the service is unavailable)
 - spoken replies on/off (QSettings `voice/speakReplies`, default on)
 - screen speakers on/off and volume, when PipeWire (`wpctl`) is available.
