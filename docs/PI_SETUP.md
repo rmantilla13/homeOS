@@ -171,7 +171,7 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 | Change Wi-Fi, volume, restart or reboot | On the screen, tap the gear. Wi-Fi and reboot need the helper from the install script |
 | Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
 | Update to the latest code | `cd ~/homeOS && git pull && ./display/deploy/install-pi.sh` (updates the voice service too, if installed) |
-| Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl start getty@tty1` |
+| Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl unmask getty@tty1.service autovt@tty1.service && sudo systemctl start getty@tty1` (install masks those units so a boot cannot stick on the console; re-run `install-pi.sh` or `preview.sh off` to mask them again) |
 | Check power and temperature | `vcgencmd get_throttled` (`0x0` is good) and `vcgencmd measure_temp` |
 
 ## Troubleshooting
@@ -180,7 +180,7 @@ Start with the logs: `journalctl -u homeos-display -b`.
 
 | Symptom | Fix |
 |---|---|
-| A login prompt is on the screen after reboot | Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1 now and on every later boot. You should not need `sudo systemctl enable --now homeos-display`. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
+| A login prompt is on the screen after reboot | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. It enables and starts `homeos-display`, masks `getty@tty1` / `autovt@tty1`, and applies quiet-boot. You should not need `sudo systemctl enable --now homeos-display`. `systemctl is-enabled homeos-display` should say `enabled`, `systemctl is-active homeos-display` should say `active`, and `systemctl is-enabled getty@tty1` should say `masked`. |
 | Boot text or the rainbow square stays on the screen for a long time, or Ohana appears only after Wi-Fi connects | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. The script turns the splash and kernel log off, and the display service no longer waits for the network. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every second. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
