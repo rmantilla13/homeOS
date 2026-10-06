@@ -52,8 +52,12 @@ final class FamilyStore {
     var families: [Family] = []
     var members: [Member] = []
     var devices: [Device] = []
+    /// One row per occurrence; the server expands repeating events.
     var events: [FamilyEvent] = []
     var tasks: [FamilyTask] = []
+    /// The chores up on `dueDay` ("yyyy-MM-dd"), as the server's `chores_due` worked them out.
+    private(set) var dueTaskIds: Set<UUID> = []
+    private(set) var dueDay: String?
     /// The last 30 days of completions plus anything still pending.
     var completions: [TaskCompletion] = []
     var rewards: [Reward] = []
@@ -176,6 +180,7 @@ final class FamilyStore {
 
     private func clearFamilyData() {
         members = []; devices = []; events = []; tasks = []; completions = []
+        dueTaskIds = []; dueDay = nil
         rewards = []; redemptions = []; points = [:]; media = []
         lists = []; listItems = []; meals = []; memories = []; invites = []
     }
@@ -231,21 +236,25 @@ final class FamilyStore {
         let completionsFrom = DayKey.string(today.addingTimeInterval(-30 * 86_400))
         let mealsFrom = DayKey.string(today.addingTimeInterval(-86_400))
         let mealsTo = DayKey.string(today.addingTimeInterval(8 * 86_400))
+        let dayKey = DayKey.string(today)
+        struct EventWindow: Encodable { let fid: UUID; let range_start: String; let range_end: String }
+        struct ChoreDay: Encodable { let fid: UUID; let day: String }
         do {
             async let members: [Member] = supabase.from("members").select().eq("family_id", value: fid)
                 .order("sort_order").execute().value
             async let devices: [Device] = supabase.from("devices").select("id, name, last_seen_at").eq("family_id", value: fid)
                 .order("created_at").execute().value
-            async let events: [FamilyEvent] = supabase.from("events")
-                .select("*, event_members(member_id)")
-                .eq("family_id", value: fid)
-                .gte("starts_at", value: eventsFrom)
-                .lt("starts_at", value: eventsTo)
-                .order("starts_at")
-                .limit(1000)
+            // One row per occurrence overlapping the window, repeats included,
+            // in start order. Each carries its member_ids.
+            async let events: [FamilyEvent] = supabase
+                .rpc("event_occurrences", params: EventWindow(fid: family.id, range_start: eventsFrom, range_end: eventsTo))
                 .execute().value
+            // Every chore, for managing them; `due` says which are up today.
             async let tasks: [FamilyTask] = supabase.from("tasks").select().eq("family_id", value: fid)
                 .eq("archived", value: false).order("created_at").execute().value
+            async let due: [FamilyTask] = supabase
+                .rpc("chores_due", params: ChoreDay(fid: family.id, day: dayKey))
+                .execute().value
             async let recent: [TaskCompletion] = supabase.from("task_completions").select().eq("family_id", value: fid)
                 .gte("for_date", value: completionsFrom).execute().value
             async let pending: [TaskCompletion] = supabase.from("task_completions").select().eq("family_id", value: fid)
@@ -275,6 +284,8 @@ final class FamilyStore {
             self.devices = try await devices
             self.events = try await events
             self.tasks = try await tasks
+            self.dueTaskIds = Set((try await due).map(\.id))
+            self.dueDay = dayKey
             let recentCompletions = try await recent
             let olderPending = try await pending.filter { p in !recentCompletions.contains { $0.id == p.id } }
             self.completions = recentCompletions + olderPending
@@ -690,26 +701,36 @@ final class FamilyStore {
     }
 
     /// Changes the title, place, time, and who an event is for. Recurrence (`rrule`) is left as stored.
+    /// `event` may be one repeat of a series: the change then applies to the
+    /// whole series, so the stored start and end move by as much as this
+    /// repeat's did and every repeat keeps the new time and length.
     func updateEvent(_ event: FamilyEvent, title: String, location: String?, start: Date, end: Date, allDay: Bool, memberIds: Set<UUID>) async {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
+        let end = max(end, start)
+        let seriesStart = event.isRecurring
+            ? event.seriesStartsAt.addingTimeInterval(start.timeIntervalSince(event.startsAt)) : start
+        let seriesEnd = event.isRecurring
+            ? max(event.seriesEndsAt.addingTimeInterval(end.timeIntervalSince(event.endsAt)), seriesStart) : end
+        let eventId = event.eventId.uuidString
         await perform {
             try await supabase.from("events")
-                .update(EventPatch(title: title, location: blankToNil(location), startsAt: start,
-                                    endsAt: max(end, start), allDay: allDay))
-                .eq("id", value: event.id.uuidString)
+                .update(EventPatch(title: title, location: blankToNil(location), startsAt: seriesStart,
+                                    endsAt: seriesEnd, allDay: allDay))
+                .eq("id", value: eventId)
                 .execute()
-            try await supabase.from("event_members").delete().eq("event_id", value: event.id.uuidString).execute()
+            try await supabase.from("event_members").delete().eq("event_id", value: eventId).execute()
             if !memberIds.isEmpty {
-                let links = memberIds.map { ["event_id": event.id.uuidString, "member_id": $0.uuidString] }
+                let links = memberIds.map { ["event_id": eventId, "member_id": $0.uuidString] }
                 try await supabase.from("event_members").insert(links).execute()
             }
         }
     }
 
+    /// Deletes the stored event, so every repeat of a repeating one goes too.
     func deleteEvent(_ event: FamilyEvent) async {
-        events.removeAll { $0.id == event.id }
-        await perform { try await supabase.from("events").delete().eq("id", value: event.id.uuidString).execute() }
+        events.removeAll { $0.eventId == event.eventId }
+        await perform { try await supabase.from("events").delete().eq("id", value: event.eventId.uuidString).execute() }
     }
 
     /// Events overlapping a calendar day. All-day events count on each day they span.
@@ -744,20 +765,19 @@ final class FamilyStore {
         }
     }
 
-    /// Whether a chore shows up on a given day, from its simple RRULE.
-    func isDue(_ task: FamilyTask, on date: Date = .now) -> Bool {
-        let key = DayKey.string(date)
-        guard let rule = task.rrule else {
-            // One-time chores: from their due date until someone finishes them.
-            if let due = task.dueDate, due > key { return false }
-            return !completions.contains { $0.taskId == task.id && $0.forDate < key && $0.status != "rejected" }
-        }
-        if rule.contains("FREQ=WEEKLY"), let byDay = rule.components(separatedBy: "BYDAY=").dropFirst().first {
-            let codes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
-            let today = codes[Calendar.current.component(.weekday, from: date) - 1]
-            return byDay.split(separator: ";").first?.split(separator: ",").contains { $0 == today } ?? true
-        }
-        return true
+    /// Whether a chore is up today. The server works that out (`chores_due`:
+    /// repeats, and one-time chores until someone finishes them) for the day
+    /// the data was loaded, so only today is supported. Past midnight nothing
+    /// is due until `refreshIfNewDay` loads the new day.
+    func isDue(_ task: FamilyTask) -> Bool {
+        dueDay == DayKey.today && dueTaskIds.contains(task.id)
+    }
+
+    /// Reloads when the chores on screen were worked out for an earlier day:
+    /// back in the foreground the next morning, or at midnight.
+    func refreshIfNewDay() async {
+        guard family != nil, dueDay != DayKey.today else { return }
+        await refresh()
     }
 
     /// Today's completion of a chore by a member (or by anyone, for unassigned chores).

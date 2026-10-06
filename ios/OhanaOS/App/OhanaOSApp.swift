@@ -1,8 +1,10 @@
 import SwiftUI
+import UIKit
 
 @main
 struct OhanaOSApp: App {
     @State private var store = FamilyStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -12,6 +14,14 @@ struct OhanaOSApp: App {
                 .task { await store.start() }
                 // ohanaos://invite/<CODE> and ohanaos://auth-callback (URL scheme in project.yml).
                 .onOpenURL { store.handleOpenURL($0) }
+                // Chores due are worked out per day. Back in the foreground on a
+                // new day, or at midnight with the app open, load the new day's.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await store.refreshIfNewDay() } }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+                    Task { await store.refreshIfNewDay() }
+                }
         }
     }
 }

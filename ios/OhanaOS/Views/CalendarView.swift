@@ -441,7 +441,7 @@ enum EventLayout {
         var lanes: Int
         let top: CGFloat
         let height: CGFloat
-        var id: UUID { event.id }
+        var id: String { event.id }
     }
 
     static func place(_ events: [FamilyEvent], on day: Date, hourHeight: CGFloat) -> [Placed] {
@@ -484,9 +484,12 @@ struct EventDetailView: View {
     @State private var confirmingDelete = false
     @State private var showingEdit = false
 
-    /// The row after a save, so the sheet shows the new time and people.
+    /// The row after a save, so the sheet shows the new time and people. A
+    /// new start changes a repeat's id; then it's the series' nearest repeat.
     private var live: FamilyEvent {
-        store.events.first { $0.id == event.id } ?? event
+        if let same = store.events.first(where: { $0.id == event.id }) { return same }
+        let distance = { (other: FamilyEvent) -> TimeInterval in abs(other.startsAt.timeIntervalSince(event.startsAt)) }
+        return store.events.filter { $0.eventId == event.eventId }.min { distance($0) < distance($1) } ?? event
     }
 
     var body: some View {
@@ -502,7 +505,7 @@ struct EventDetailView: View {
                         if let location = live.location, !location.isEmpty {
                             Label(location, systemImage: "mappin.and.ellipse")
                         }
-                        if live.rrule != nil {
+                        if live.isRecurring {
                             Label("Repeats", systemImage: "repeat")
                         }
                     }
@@ -537,11 +540,15 @@ struct EventDetailView: View {
             }
             .sheet(isPresented: $showingEdit) { AddEventView(event: live) }
             .confirmationDialog("Delete “\(live.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
+                Button(live.isRecurring ? "Delete every repeat" : "Delete", role: .destructive) {
                     Task {
                         await store.deleteEvent(live)
                         dismiss()
                     }
+                }
+            } message: {
+                if live.isRecurring {
+                    Text("This event repeats. Deleting it removes every repeat, past and future.")
                 }
             }
         }
@@ -602,6 +609,10 @@ struct AddEventView: View {
                     DatePicker("Starts", selection: $start, displayedComponents: allDay ? .date : [.date, .hourAndMinute])
                     if !allDay {
                         DatePicker("Ends", selection: $end, in: start..., displayedComponents: [.date, .hourAndMinute])
+                    }
+                } footer: {
+                    if existing?.isRecurring == true {
+                        Text("Changes apply to every repeat.")
                     }
                 }
                 Section("Who") {

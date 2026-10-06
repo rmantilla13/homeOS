@@ -207,15 +207,43 @@ struct ChoreRow: View {
             .contentShape(Circle())
     }
 
+    /// "Every day", "Weekdays", "Every 2 weeks: Mon, Thu", "Monthly"… from the
+    /// chore's RRULE. The server decides when it's due; this only names it.
     private func repeatLabel(_ rrule: String?) -> String {
-        guard let rrule else { return "One time" }
-        if rrule.contains("DAILY") { return "Every day" }
-        if rrule.contains("BYDAY=MO,TU,WE,TH,FR") { return "Weekdays" }
-        if rrule.contains("BYDAY=SA,SU") { return "Weekends" }
-        if let days = rrule.components(separatedBy: "BYDAY=").dropFirst().first, rrule.contains("WEEKLY") {
-            return "Weekly: \(days.lowercased().capitalized)"
+        guard let rrule, !rrule.trimmingCharacters(in: .whitespaces).isEmpty else { return "One time" }
+        var parts: [String: String] = [:]
+        for part in rrule.uppercased().replacingOccurrences(of: "RRULE:", with: "").split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { parts[pair[0]] = pair[1] }
         }
-        return "Repeats"
+        let interval = max(Int(parts["INTERVAL"] ?? "") ?? 1, 1)
+        let every: (String) -> String = { unit in interval > 1 ? "Every \(interval) \(unit)s" : "Every \(unit)" }
+        switch parts["FREQ"] ?? "" {
+        case "DAILY":
+            return every("day")
+        case "WEEKLY":
+            let days = weekdayNames(parts["BYDAY"])
+            if interval == 1 && parts["BYDAY"] == "MO,TU,WE,TH,FR" { return "Weekdays" }
+            if interval == 1 && parts["BYDAY"] == "SA,SU" { return "Weekends" }
+            if interval == 1 { return days.isEmpty ? "Weekly" : "Weekly: \(days)" }
+            return days.isEmpty ? every("week") : "\(every("week")): \(days)"
+        case "MONTHLY":
+            return interval > 1 ? every("month") : "Monthly"
+        case "YEARLY":
+            return interval > 1 ? every("year") : "Yearly"
+        default:
+            return "Repeats"
+        }
+    }
+
+    /// "MO,TH" → "Mon, Thu" in the phone's language. Ordinals ("2TU") keep their weekday.
+    private func weekdayNames(_ byDay: String?) -> String {
+        let codes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+        let symbols = Calendar.current.shortWeekdaySymbols
+        return (byDay ?? "").split(separator: ",")
+            .compactMap { codes.firstIndex(of: String($0.suffix(2))) }
+            .map { symbols[$0] }
+            .joined(separator: ", ")
     }
 }
 
