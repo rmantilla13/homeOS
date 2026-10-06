@@ -21,7 +21,9 @@ RestartSec=3
 Nice=-5
 
 # Sandboxing. It needs /dev/snd (so no PrivateDevices, ProtectClock or
-# DeviceAllow) and writes only its data_dir in the user's home.
+# DeviceAllow), writes only its data_dir in the user's home, and may play
+# through PipeWire's socket in /run/user/<uid> (AF_UNIX) when ALSA's default
+# device leads there.
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 PrivateTmp=yes

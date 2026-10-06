@@ -99,6 +99,20 @@ def test_input_candidates_prefer_a_usb_mic():
         input_candidates(DEVICES[:1], -1, "")
 
 
+def test_input_candidates_on_a_pi_with_pipewire():
+    # PortAudio's list on a Pi 5 with the panel, PipeWire and a USB mic whose
+    # card name doesn't say USB: Linux names every USB microphone's PCM "USB Audio".
+    devices = [
+        {"name": "vc4-hdmi-0: MAI PCM i2s-hifi-0 (hw:0,0)", "max_input_channels": 0},
+        {"name": "vc4-hdmi-1: MAI PCM i2s-hifi-0 (hw:1,0)", "max_input_channels": 0},
+        {"name": "Yeti Stereo Microphone: USB Audio (hw:2,0)", "max_input_channels": 2},
+        {"name": "pulse", "max_input_channels": 32},
+        {"name": "default", "max_input_channels": 32},
+    ]
+    # The mic's own device first; PipeWire's default (also that mic) if it's busy.
+    assert input_candidates(devices, 4, "") == [2, 4, 3]
+
+
 class FakePortAudio:
     """sounddevice as far as Microphone uses it. Like PortAudio, the device
     list is only read when it's initialised."""
@@ -178,8 +192,9 @@ def fake_aplay(tmp_path, monkeypatch):
     script.parent.mkdir()
     script.write_text(
         f"#!{sys.executable}\n"
-        "import sys, time\n"
+        "import os, sys, time\n"
         f"open({str(args)!r}, 'w').write(' '.join(sys.argv[1:]))\n"
+        f"open({str(tmp_path / 'alsa_card.txt')!r}, 'w').write(os.environ.get('ALSA_CARD', ''))\n"
         f"with open({str(out)!r}, 'wb') as f:\n"
         "    while chunk := sys.stdin.buffer.read(4410):\n"
         "        f.write(chunk); f.flush(); time.sleep(0.01)\n"
@@ -197,6 +212,28 @@ def test_aplay_player_plays_everything(fake_aplay):
     player.play(22050, iter([audio[:1000], audio[1000:]]), threading.Event())
     assert out.read_bytes() == audio
     assert args.read_text() == "-q -t raw -f S16_LE -c 1 -r 22050 -D default:CARD=vc4hdmi0"
+    assert (args.parent / "alsa_card.txt").read_text() == ""
+
+
+def test_aplay_defaults_to_the_panel(fake_aplay, tmp_path, monkeypatch):
+    _, args = fake_aplay
+    monkeypatch.delenv("ALSA_CARD", raising=False)
+    monkeypatch.delenv("ALSA_PCM_CARD", raising=False)
+    monkeypatch.setattr(audio, "ASOUND_DIR", tmp_path / "asound")
+    played_on = args.parent / "alsa_card.txt"
+
+    AplayPlayer().play(16000, iter([pcm.silence(0.05)]), threading.Event())
+    assert played_on.read_text() == ""  # no panel: ALSA's default
+
+    (tmp_path / "asound" / "vc4hdmi0").mkdir(parents=True)  # the Pi's HDMI0 card
+    AplayPlayer().play(16000, iter([pcm.silence(0.05)]), threading.Event())
+    assert played_on.read_text() == "vc4hdmi0"
+    assert "-D" not in args.read_text()
+
+    # A device in the config, or a card already chosen, is left alone.
+    assert audio.aplay_env("plughw:2,0") is None
+    monkeypatch.setenv("ALSA_CARD", "Headphones")
+    assert audio.aplay_env("") is None
 
 
 def test_aplay_player_stops_quickly(fake_aplay):

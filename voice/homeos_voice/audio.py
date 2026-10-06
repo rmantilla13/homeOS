@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
 import threading
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any, Protocol
 
 from .pcm import FRAME_SAMPLES, SAMPLE_RATE, pick_channel
@@ -211,9 +213,30 @@ class Player(Protocol):
     def abort(self) -> None: ...
 
 
+# The sound card of the Pi 5's first HDMI port, where the panel is plugged in.
+PANEL_CARD = "vc4hdmi0"
+ASOUND_DIR = Path("/proc/asound")
+
+
+def aplay_env(device: str) -> dict[str, str] | None:
+    """With no device given, ALSA plays on card 0. A USB mic plugged in at
+    boot sometimes gets that number before the panel does, and has no
+    speaker, so name the panel's card instead (ALSA_CARD). ALSA's own default
+    device reads it before `defaults.pcm.card`, so it wins over that setting
+    too; a config that replaces the default device (the display installer's
+    PipeWire one, raspi-config's ~/.asoundrc) ignores it. Other outputs need
+    output_device."""
+    if device or "ALSA_CARD" in os.environ or "ALSA_PCM_CARD" in os.environ:
+        return None
+    if not (ASOUND_DIR / PANEL_CARD).exists():
+        return None
+    return {**os.environ, "ALSA_CARD": PANEL_CARD}
+
+
 class AplayPlayer:
     """Pipes audio into ALSA's aplay. `device` is an ALSA name from `aplay -L`,
-    e.g. "default:CARD=vc4hdmi0" for the Pi 5's first HDMI port."""
+    e.g. "default:CARD=vc4hdmi0" for the Pi 5's first HDMI port. Empty plays
+    on the panel when it's there, else on ALSA's default device."""
 
     def __init__(self, device: str | int = "") -> None:
         self.device = str(device)
@@ -224,7 +247,8 @@ class AplayPlayer:
         cmd = ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-c", "1", "-r", str(rate)]
         if self.device:
             cmd += ["-D", self.device]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=aplay_env(self.device))
         assert proc.stdin is not None and proc.stderr is not None
         with self._lock:
             self._proc = proc

@@ -1,5 +1,9 @@
 #!/bin/sh
-# Stand-in for systemctl inside the simulator container.
+# Stand-in for systemctl inside the simulator container (and CI): records what
+# the installer would do. Nothing runs or is enabled here.
 echo "[simulated] systemctl $*" >&2
-[ "$1" = get-default ] && echo graphical.target
+case "$1" in
+    get-default) echo graphical.target ;;
+    is-active|is-enabled) exit 3 ;;
+esac
 exit 0

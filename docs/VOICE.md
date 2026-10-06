@@ -24,9 +24,14 @@ display is what sends it, to the `assistant` function in `quick` mode.
 audio arrives over HDMI) but no microphone, and the Pi 5 has no audio input
 of its own.
 
+Any USB microphone that works without a driver (a "USB Audio Class" device,
+which is nearly all of them) works: if `arecord -l` lists it, the service can
+use it. It records whatever rate and channel count the mic offers and
+converts.
+
 | Mic | Notes |
 |---|---|
-| A USB conference or "boundary" mic | The simplest choice: omnidirectional, picks people up across a kitchen |
+| A USB conference or "boundary" mic | The simplest choice: omnidirectional, picks people up across a kitchen. Prefer a mic-only one: a speakerphone also shows up as a speaker, and PipeWire may play replies on it instead of the panel |
 | ReSpeaker USB Mic Array (XMOS) | Better in a noisy room. If it only records multi-channel, set `audio.input_channel` |
 | A cheap USB lavalier or dongle mic | Works within a couple of metres; raise its gain in `alsamixer` |
 
@@ -35,12 +40,15 @@ of its own.
 - Plug it in before or after starting; the service looks for a mic every 10
   seconds. With no setting it picks the first USB microphone.
 - Replies play through the panel's speakers over HDMI. Use the Pi's **HDMI0**
-  port (next to USB-C power) and, if replies are silent, point
-  `audio.output_device` at it (see Troubleshooting).
+  port (next to USB-C power): with no setting, that's where the service
+  plays (ALSA card `vc4hdmi0`, or PipeWire's output when the display
+  installer has set it up), even if the USB mic took card 0 at boot. It also
+  wins over `defaults.pcm.card` in an asound.conf: to play anywhere else (HDMI1,
+  a USB speaker), set `audio.output_device`.
 
 ## Install
 
-On the Pi, from the repository:
+On the Pi (64-bit Raspberry Pi OS; Lite is fine), from the repository:
 
 ```bash
 ./voice/deploy/install-voice.sh             # or: ./display/deploy/install-pi.sh --with-voice
@@ -48,20 +56,45 @@ On the Pi, from the repository:
 
 The script:
 
-- installs `portaudio19-dev libportaudio2 espeak-ng alsa-utils` (and what's
-  needed to build Python packages)
+- installs `python3-venv libportaudio2 espeak-ng alsa-utils`
 - creates a virtualenv at `/opt/homeos-voice` and installs the package with
-  the `audio`, `stt`, `tts` and `wake` extras
+  the `audio`, `stt`, `tts` and `wake` extras. Every dependency comes as a
+  prebuilt wheel for the Pi's Python (3.13 on Raspberry Pi OS Trixie), about
+  180 MB, so nothing is compiled and it takes a few minutes. openWakeWord is
+  installed without its `tflite-runtime` dependency, which doesn't exist for
+  Python 3.12 and later; the service runs its ONNX models instead.
 - writes `/etc/homeos/voice.toml` from `voice/voice.example.toml` (kept on
   re-runs)
 - downloads the models once (about 220 MB) into `~/.local/share/homeos-voice`:
-  the Piper voice, the Whisper model and the wake-word model
+  the Piper voice and the Whisper model from Hugging Face
+  ([rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices),
+  [Systran/faster-whisper-base.en](https://huggingface.co/Systran/faster-whisper-base.en)),
+  and the wake-word model from openWakeWord's
+  [GitHub release v0.5.1](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1)
 - installs and starts the `homeos-voice` service, as the same user as the
   display
 
 Re-run it to update. Add `--skip-models` to install without downloading
 models; fetch them later with
 `/opt/homeos-voice/bin/python -m homeos_voice --download-models`.
+
+### Check the mic and the speakers
+
+Once, after installing. Stop the service so the tests can open the devices:
+
+```bash
+sudo systemctl stop homeos-voice
+arecord -l                       # the USB mic is a "card N: ... USB Audio" line
+arecord -D plughw:N,0 -f S16_LE -r 16000 -c 1 -d 5 /tmp/t.wav   # N from arecord -l; talk for 5 s
+aplay -D default:CARD=vc4hdmi0 /tmp/t.wav                     # plays it on the panel
+/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from homeOS"
+sudo systemctl start homeos-voice
+```
+
+Play the panel through `default:CARD=vc4hdmi0` (or `plughw:CARD=vc4hdmi0`),
+never `hw:`: the Pi's HDMI audio only takes IEC958 frames, which the `default`
+and `plughw` devices convert to. `--say` speaks through exactly what the
+service uses, so if it's heard, replies will be too.
 
 | Task | Command |
 |---|---|
@@ -235,6 +268,10 @@ pytest voice
 python -m homeos_voice --simulate           # add --port 0 for any free port
 ```
 
+For the real models on a development machine, `pip install -e 'voice[all,dev]'`.
+On Python 3.12 and later, add openWakeWord on its own, as the install script
+does: `pip install --no-deps 'openwakeword>=0.6,<0.7'`.
+
 Simulate mode needs no audio hardware or models. It speaks the full
 protocol, and you drive it by typing on stdin:
 
@@ -267,7 +304,7 @@ can open the devices, and start it again afterwards.
 | `no microphone found` in the log | `arecord -l` should list a USB card. If it doesn't, try another USB port or cable; `dmesg -w` shows it being plugged in |
 | It hears nothing / the orb barely moves | Record 5 s and play it back: `arecord -D plughw:2,0 -f S16_LE -r 16000 -c 1 -d 5 /tmp/t.wav && aplay -D default:CARD=vc4hdmi0 /tmp/t.wav` (use the card number from `arecord -l`). If it's quiet, raise the capture gain: `alsamixer -c 2`, F4 |
 | It picks the wrong mic | `/opt/homeos-voice/bin/python -m homeos_voice --list-devices`, then set `audio.input_device` to part of the name, e.g. `"USB"` or `"ReSpeaker"` |
-| Replies are silent | `aplay -l` lists outputs; the panel is `vc4hdmi0` when it's on HDMI0. Test it: `speaker-test -D default:CARD=vc4hdmi0 -c 2 -t wav -l 1`. If that works, set `audio.output_device = "default:CARD=vc4hdmi0"`. Check the panel's own volume too |
+| Replies are silent | Check the panel's own volume, then try `--say` (above). `aplay -l` lists outputs; the panel is `vc4hdmi0` on HDMI0 and `vc4hdmi1` on HDMI1. Test it: `speaker-test -D default:CARD=vc4hdmi0 -c 2 -t wav -l 1`. On HDMI1, set `audio.output_device = "default:CARD=vc4hdmi1"`. Where the display installer set up PipeWire, sound goes to its default output instead: `wpctl status` shows it (see [PI_SETUP.md](PI_SETUP.md)) |
 | `aplay: ... Device or resource busy` | Something else is playing through the same card. `fuser -v /dev/snd/*` shows what; stop it or pick another output |
 | Wakes by itself | Raise `wakeword.threshold`; move the mic away from the speakers and the TV |
 | Never wakes | Check the log for `wake word unavailable` (model missing: run `--download-models`). Then lower the threshold, and check that the display's wake word switch is on |
@@ -275,4 +312,5 @@ can open the devices, and start it again afterwards.
 | Waits long after you stop talking | Background noise reads as speech: try `vad.aggressiveness = 3`, or move the mic |
 | Wrong words | Add names to `stt.initial_prompt`; try `stt.model = "small.en"`; speak closer to the mic |
 | Robotic voice | Piper isn't loading, so it fell back to espeak-ng. The log says why; usually the voice needs `--download-models` |
+| `GPU device discovery failed ... /sys/class/drm/...vendor` in the log | Harmless: onnxruntime looks for a GPU it could use, and the Pi's doesn't describe itself that way. Ignore it |
 | Display says "Voice needs the homeOS voice service" | `systemctl status homeos-voice`; the service listens on `127.0.0.1:8765` |

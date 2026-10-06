@@ -3,6 +3,7 @@
 # 1920x1200 screen (the 10.1" panel) served over VNC on port 5900.
 set -e
 set -a
+# shellcheck disable=SC1091  # written by install-pi.sh
 . /etc/homeos/display.env
 set +a
 # The real device draws straight to the panel (eglfs); here Qt serves the screen over VNC.

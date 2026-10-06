@@ -1,18 +1,31 @@
 # Runs the homeOS display as a kiosk on boot, straight to the panel via EGLFS.
-# Installed by display/deploy/install-pi.sh (which fills in @USER@).
+# There's no desktop or login session: the video, render, input and audio
+# groups give it the screen, GPU, touch and sound. Installed by
+# display/deploy/install-pi.sh, which fills in the user and their UID.
 [Unit]
 Description=homeOS wall display
-After=network-online.target systemd-user-sessions.service
+# After logins are allowed and any boot splash has let go of the screen.
+After=systemd-user-sessions.service plymouth-quit-wait.service
+After=network-online.target
 Wants=network-online.target
+# The user's PipeWire (video sound), started at boot by lingering.
+After=user@@UID@.service
+# The app takes over the first console, so no login prompt there.
 Conflicts=getty@tty1.service
+After=getty@tty1.service
+# Never give up restarting: the panel may be switched on after the Pi (no
+# screen yet means the app exits), or the GPU may still be starting.
+StartLimitIntervalSec=0
 
 [Service]
 User=@USER@
 # Qt platform, scaling and backend settings.
 EnvironmentFile=/etc/homeos/display.env
+# Where the user's PipeWire (PulseAudio) socket lives.
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 ExecStart=/usr/local/bin/homeos-display
 Restart=always
-RestartSec=2
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
