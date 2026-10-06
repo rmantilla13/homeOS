@@ -55,7 +55,7 @@ ios/HomeOS/
     ├── InviteViews.swift     create invite, code card with share/copy, pending and accepted rows
     ├── HomeView.swift        Home + assistant hero card
     ├── AssistantView.swift   streaming chat, thread history
-    ├── CalendarView.swift    month / week / day, event detail, add event
+    ├── CalendarView.swift    month / week / day, event detail, add and edit event
     ├── ChoresView.swift      chores board, add chore
     ├── RewardsView.swift     balances, rewards, redemptions, add reward
     ├── MediaView.swift       media grid, viewer, upload
@@ -72,9 +72,9 @@ your **Profile**.
 |---|---|
 | **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask homeOS anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
 | **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, homeOS in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. |
-| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details or to delete it. The **+** button adds an event (title, place, all-day, start/end, who). |
+| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. The **+** button adds an event. |
 | **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. A parent's tap is approved right away; anyone else's waits for a parent. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
-| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes. Its backdrop takes the current photo's average color. |
+| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
 | **Family** | Members (tap to edit; parents can add one), invites (parents), lists (tap through to add, check off and clear items), meals for the next 7 days (tap a day to set breakfast, lunch and dinner), family memory (add a fact; parents can remove one), paired wall displays and **Pair a display** (parents), and Profile / Leave family. |
 
 ## Onboarding (invite-only)
@@ -263,7 +263,10 @@ profile screens reuse the glow header, pills and cards.
   uploaded as-is (`video/quicktime` for `.mov`, otherwise `video/<ext>`),
   with `duration_seconds`, size and creation date read through `AVURLAsset`,
   and a poster when a frame can be read. If inserting the row fails, the
-  objects just uploaded are removed. Deleting a photo removes the poster too.
+  objects just uploaded are removed. Deleting (one item in the viewer, or
+  several from Select) removes each `media_items` row with the signed-in
+  member's session, then the file and poster from `family-media`. That is the
+  family RLS path, not the admin console.
 - Signed URLs (1 hour) are cached per storage path. Thumbnails, average colors
   and avatars are cached in memory for the session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares

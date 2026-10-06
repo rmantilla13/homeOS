@@ -482,28 +482,34 @@ struct EventDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let event: FamilyEvent
     @State private var confirmingDelete = false
+    @State private var showingEdit = false
+
+    /// The row after a save, so the sheet shows the new time and people.
+    private var live: FamilyEvent {
+        store.events.first { $0.id == event.id } ?? event
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    MemberTags(memberIds: event.memberIds)
-                    Text(event.title)
+                    MemberTags(memberIds: live.memberIds)
+                    Text(live.title)
                         .font(.title2.weight(.bold))
                         .foregroundStyle(Theme.text)
                     VStack(alignment: .leading, spacing: 10) {
-                        Label("\(dayLabel(for: event.startsAt)) · \(timeLabel(for: event))", systemImage: "clock")
-                        if let location = event.location, !location.isEmpty {
+                        Label("\(dayLabel(for: live.startsAt)) · \(timeLabel(for: live))", systemImage: "clock")
+                        if let location = live.location, !location.isEmpty {
                             Label(location, systemImage: "mappin.and.ellipse")
                         }
-                        if event.rrule != nil {
+                        if live.rrule != nil {
                             Label("Repeats", systemImage: "repeat")
                         }
                     }
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
 
-                    let members = event.memberIds.compactMap { store.member($0) }
+                    let members = live.memberIds.compactMap { store.member($0) }
                     if !members.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(members) { member in
@@ -521,6 +527,7 @@ struct EventDetailView: View {
             }
             .screenBackground()
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Edit") { showingEdit = true } }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .safeAreaInset(edge: .bottom) {
@@ -528,10 +535,11 @@ struct EventDetailView: View {
                     .buttonStyle(.pill(.destructive))
                     .padding(.bottom, 8)
             }
-            .confirmationDialog("Delete “\(event.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            .sheet(isPresented: $showingEdit) { AddEventView(event: live) }
+            .confirmationDialog("Delete “\(live.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
                     Task {
-                        await store.deleteEvent(event)
+                        await store.deleteEvent(live)
                         dismiss()
                     }
                 }
@@ -546,15 +554,27 @@ struct EventDetailView: View {
 struct AddEventView: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var location = ""
-    @State private var allDay = false
+    private let existing: FamilyEvent?
+    @State private var title: String
+    @State private var location: String
+    @State private var allDay: Bool
     @State private var start: Date
     @State private var end: Date
-    @State private var who: Set<UUID> = []
+    @State private var who: Set<UUID>
 
-    /// Starts on `day` at 9:00, or at the next full hour today.
-    init(day: Date? = nil) {
+    /// A new event starts on `day` at 9:00, or at the next full hour today.
+    /// Pass `event` to edit one that already exists.
+    init(day: Date? = nil, event: FamilyEvent? = nil) {
+        existing = event
+        if let event {
+            _title = State(initialValue: event.title)
+            _location = State(initialValue: event.location ?? "")
+            _allDay = State(initialValue: event.allDay)
+            _start = State(initialValue: event.startsAt)
+            _end = State(initialValue: max(event.endsAt, event.startsAt))
+            _who = State(initialValue: Set(event.memberIds))
+            return
+        }
         let calendar = Calendar.current
         let base: Date
         if let day, !calendar.isDateInToday(day) {
@@ -562,8 +582,12 @@ struct AddEventView: View {
         } else {
             base = calendar.nextDate(after: .now, matching: DateComponents(minute: 0), matchingPolicy: .nextTime) ?? .now
         }
+        _title = State(initialValue: "")
+        _location = State(initialValue: "")
+        _allDay = State(initialValue: false)
         _start = State(initialValue: base)
         _end = State(initialValue: base.addingTimeInterval(3600))
+        _who = State(initialValue: [])
     }
 
     var body: some View {
@@ -607,18 +631,31 @@ struct AddEventView: View {
                 // Keep the event's length when the start moves.
                 end = new.addingTimeInterval(max(end.timeIntervalSince(old), 15 * 60))
             }
-            .navigationTitle("New event")
+            .navigationTitle(existing == nil ? "New event" : "Edit event")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
+                    Button(existing == nil ? "Add" : "Save") {
                         let dayStart = Calendar.current.startOfDay(for: start)
                         let s = allDay ? dayStart : start
-                        let e = allDay ? dayStart.addingTimeInterval(86_399) : end
+                        // All-day stays one day, unless this event already covered more than that.
+                        let e: Date = {
+                            guard allDay else { return end }
+                            guard let existing, existing.allDay else { return dayStart.addingTimeInterval(86_399) }
+                            let originalStart = Calendar.current.startOfDay(for: existing.startsAt)
+                            let span = max(existing.endsAt.timeIntervalSince(originalStart), 86_399)
+                            return dayStart.addingTimeInterval(span)
+                        }()
+                        let place = location.trimmingCharacters(in: .whitespacesAndNewlines)
                         Task {
-                            await store.addEvent(title: title, location: location.isEmpty ? nil : location,
-                                                 start: s, end: e, allDay: allDay, memberIds: who)
+                            if let existing {
+                                await store.updateEvent(existing, title: title, location: place.isEmpty ? nil : place,
+                                                        start: s, end: e, allDay: allDay, memberIds: who)
+                            } else {
+                                await store.addEvent(title: title, location: place.isEmpty ? nil : place,
+                                                     start: s, end: e, allDay: allDay, memberIds: who)
+                            }
                             dismiss()
                         }
                     }
