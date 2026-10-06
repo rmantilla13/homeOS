@@ -40,6 +40,20 @@ target_link_libraries(tst_assistant PRIVATE homeos-core Qt6::Gui Qt6::Concurrent
 add_test(NAME tst_assistant COMMAND tst_assistant)
 set_tests_properties(tst_assistant PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Wall create flows in demo mode (no network).
+qt_add_executable(tst_familystore tst_familystore.cpp
+    ../src/models/FamilyStore.h  ../src/models/FamilyStore.cpp
+    ../src/models/ColorSampler.h ../src/models/ColorSampler.cpp
+)
+qt_add_resources(tst_familystore "demo_family"
+    PREFIX "/HomeOS"
+    FILES ../resources/demo/family.json
+)
+target_compile_options(tst_familystore PRIVATE ${HOMEOS_WARNINGS})
+target_link_libraries(tst_familystore PRIVATE homeos-core Qt6::Gui Qt6::Concurrent Qt6::Test)
+add_test(NAME tst_familystore COMMAND tst_familystore)
+set_tests_properties(tst_familystore PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The wake-word card (QuickAnswer.qml) with the real assistant and voice
 # client. Its QML and the few components it uses are copied into a module
 # directory of their own, since the app's module is built into the binary.

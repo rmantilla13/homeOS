@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import HomeOS
 
 // Touch-first modal shell for wall create / confirm forms.
-Dialog {
+Popup {
     id: dialog
     property alias titleText: titleLabel.text
     property alias canSubmit: submitButton.enabled
@@ -12,11 +12,13 @@ Dialog {
     default property alias body: bodyColumn.data
     signal submitted()
 
-    anchors.centerIn: Overlay.overlay
+    parent: Overlay.overlay
+    anchors.centerIn: parent
     modal: true
     width: Math.min(Overlay.overlay ? Overlay.overlay.width - 48 : 860, 860)
     padding: Theme.compact ? 28 : 40
-    closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+    // Don't dismiss on an accidental tap outside — that looked like Add succeeding.
+    closePolicy: Popup.CloseOnEscape
     background: Rectangle { radius: Theme.radius; color: Theme.surface }
 
     contentItem: ColumnLayout {
@@ -46,10 +48,20 @@ Dialog {
             PillButton {
                 id: submitButton
                 text: dialog.submitText
-                onClicked: dialog.submitted()
+                onClicked: {
+                    Qt.inputMethod.commit()
+                    if (submitButton.enabled)
+                        dialog.submitted()
+                }
             }
         }
     }
 
     onClosed: Qt.inputMethod.hide()
+
+    function requestSubmit() {
+        Qt.inputMethod.commit()
+        if (submitButton.enabled)
+            dialog.submitted()
+    }
 }
