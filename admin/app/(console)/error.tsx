@@ -2,24 +2,26 @@
 
 import { useEffect } from "react";
 import { Card, Message, ui } from "@/components/ui";
+import { consoleErrorCopy } from "@/lib/errors";
 
-// Server errors reach the browser without their message in production, so
-// this points at the usual causes; the details are in the server log.
+// Next strips the error message in production. DataError puts its sentence in
+// `digest` so it still shows; a numeric digest is Next's hash of an unexpected
+// throw, and the text for that stays in the server log.
 export default function ConsoleError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
     console.error(error);
   }, [error]);
+  const copy = consoleErrorCopy(error.digest);
 
   return (
     <Card title="This page couldn't load">
       <div className={ui.stack}>
         <Message tone="error">
-          The backend didn&apos;t answer as expected. Check that the platform migrations and the admin RPCs are deployed
-          (docs/ADMIN.md), then try again.
-          {error.digest ? (
+          {copy.message}
+          {copy.reference ? (
             <>
               {" "}
-              Reference: <code>{error.digest}</code>
+              Reference: <code>{copy.reference}</code>
             </>
           ) : null}
         </Message>
