@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Archive a Release build and export an App Store Connect IPA.
-# Requires Xcode 16, XcodeGen, and a filled-in ios/Config/Local.xcconfig.
-# Sign in to Xcode with the Apple ID on that team before running this.
+# Requires Xcode 16 and a filled-in ios/Config/Local.xcconfig.
+# Open the checked-in HomeOS.xcodeproj. Sign in to Xcode with the Apple ID
+# on team 92X9CP6C6D before running this.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
