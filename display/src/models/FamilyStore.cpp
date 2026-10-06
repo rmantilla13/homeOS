@@ -220,7 +220,7 @@ void FamilyStore::loadLive()
         meals.addQueryItem("and", "(date.lt." + weekStart.addDays(14).toString(Qt::ISODate) + ")");
         load("meal_plans", meals, [this](const QJsonDocument &d) { m_rawMeals = toList(d); });
 
-        load("lists", QUrlQuery("select=*,items:list_items(*)&order=sort_order&items.order=created_at"), [this](const QJsonDocument &d) { m_rawLists = toList(d); });
+        load("lists", QUrlQuery("select=*,items:list_items(*)&order=sort_order&items.order=created_at.desc"), [this](const QJsonDocument &d) { m_rawLists = toList(d); });
 
         m_client->select("media_items",
                          QUrlQuery("select=*&kind=eq.photo&show_on_frame=eq.true&order=taken_at.desc.nullslast&limit=100"),
@@ -347,7 +347,7 @@ void FamilyStore::addListItem(const QString &listId, const QString &text)
         if (list.value("id").toString() != listId)
             continue;
         QVariantList items = list.value("items").toList();
-        items << QVariantMap{{"id", id}, {"text", trimmed}, {"done", false}};
+        items.prepend(QVariantMap{{"id", id}, {"text", trimmed}, {"done", false}}); // newest first
         list.insert("items", items);
         l = list;
     }

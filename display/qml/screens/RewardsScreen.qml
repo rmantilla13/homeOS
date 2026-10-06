@@ -53,7 +53,9 @@ Item {
             visible: rewardsScreen.selected !== null
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 32
+                anchors.margins: Theme.compact ? 16 : 32
+                anchors.leftMargin: 32
+                anchors.rightMargin: 32
                 Label {
                     text: rewardsScreen.selected ? rewardsScreen.selected.display_name + qsTr(" has") : ""
                     color: "white"

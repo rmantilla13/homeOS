@@ -17,12 +17,19 @@ ApplicationWindow {
 
     property int currentScreen: 0
 
+    // Leaving a screen or going idle closes the on-screen keyboard.
+    function dismissKeyboard() {
+        window.contentItem.forceActiveFocus()
+        Qt.inputMethod.hide()
+    }
+    onCurrentScreenChanged: dismissKeyboard()
+
     Binding { target: Theme; property: "compact"; value: window.width < 1600 }
 
     // Drop back to the home screen after the photo frame has been up.
     Connections {
         target: Device
-        function onIdleChanged() { if (Device.idle) window.currentScreen = 0 }
+        function onIdleChanged() { if (Device.idle) { window.dismissKeyboard(); window.currentScreen = 0 } }
     }
 
     RowLayout {
