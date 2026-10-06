@@ -25,7 +25,7 @@ open ios/OhanaOS.xcodeproj
 4. Pick an iPhone simulator or a device and run. Build with Xcode 16 or newer:
    the code relies on its SDK treating every SwiftUI `View` as `@MainActor`.
 
-The product name on the Home Screen is **Ohana**. The Xcode project, the
+The app name on the Home Screen is **Ohana Display**. The Xcode project, the
 software name (`CFBundleName`), and the company are **OhanaOS**. The bundle
 id is `com.ohanaos.ohana`.
 
@@ -192,12 +192,13 @@ parameter, `question`. `perform()` calls the assistant with `mode: "quick"`,
 `stream: false` and no thread (`AssistantClient.quickAnswer`), and returns the
 reply as both the spoken dialog and the intent's value, so Shortcuts can use
 it. It runs without opening the app, using the session saved in the keychain;
-signed out, Siri says "Sign in to Ohana on your iPhone first." It asks you to
+signed out, Siri says "Sign in to Ohana Display on your iPhone first." It asks you to
 unlock the iPhone first (`authenticationPolicy = .requiresAuthentication`), so
 a locked phone doesn't read out the family's plans.
 
-`OhanaOSShortcuts` (an `AppShortcutsProvider`) registers "Ask Ohana", "Ask
-Ohana a question" and "Ask my family assistant in Ohana". A String parameter
+`OhanaOSShortcuts` (an `AppShortcutsProvider`) registers "Ask Ohana Display", "Ask
+Ohana Display a question" and "Ask my family assistant in Ohana Display",
+because those phrases use the app name. A String parameter
 can't be part of a phrase, so Siri then asks "What would you like to ask
 Ohana?". Each Siri question starts its own thread, which then shows up in the
 app's chat history. The Profile screen shows a `SiriTipView` for it.
@@ -233,7 +234,7 @@ Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
    app origin (`MEDIA_API_URL`). Write URLs as `https:/$()/host` so xcconfig
    does not treat `//` as a comment.
 3. On the developer site, register that bundle id (no extra capabilities).
-   In App Store Connect, create an iOS app named Ohana with the same bundle
+   In App Store Connect, create an iOS app named Ohana Display with the same bundle
    id. The primary category is Lifestyle.
 4. Sign in to Xcode with that Apple ID. From `ios/`:
 
@@ -263,7 +264,7 @@ What the binary already answers, so the upload is not blocked on them:
   function: email, name, user id, photos and videos, and other content
   (events, chores, lists, meals, memory, chat). Use those same answers in the
   App Store Connect privacy questionnaire. Dictation uses Apple's speech
-  recognizer and is not stored by Ohana.
+  recognizer and is not stored by Ohana Display.
 - A build with no Supabase URL stays on the loading screen and says it is
   not connected, instead of opening Welcome against a placeholder host.
 

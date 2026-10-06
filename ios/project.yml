@@ -1,4 +1,4 @@
-# Product name: Ohana. Project, software, and company: OhanaOS.
+# App name: Ohana Display. Project, software, and company: OhanaOS.
 # The Xcode project is checked in at OhanaOS.xcodeproj (team 92X9CP6C6D).
 # Open that. xcodegen generate replaces it.
 # TestFlight: fill ios/Config/Local.xcconfig, then ios/scripts/archive-for-testflight.sh
@@ -24,7 +24,7 @@ targets:
     info:
       path: OhanaOS/Info.plist
       properties:
-        CFBundleDisplayName: Ohana
+        CFBundleDisplayName: Ohana Display
         CFBundleName: OhanaOS
         NSHumanReadableCopyright: Copyright © OhanaOS. All rights reserved.
         LSApplicationCategoryType: public.app-category.lifestyle

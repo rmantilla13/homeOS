@@ -649,7 +649,7 @@ struct MemberEditor: View {
                 }
                 Section("Account") {
                     if member.userId != nil {
-                        Label(isMe ? "Signed in on this iPhone" : "Has an Ohana login", systemImage: "person.crop.circle.badge.checkmark")
+                        Label(isMe ? "Signed in on this iPhone" : "Has an Ohana Display login", systemImage: "person.crop.circle.badge.checkmark")
                             .foregroundStyle(Theme.text)
                     } else {
                         Label("No login. \(firstName) shows up on the family screen only.", systemImage: "person.crop.circle")

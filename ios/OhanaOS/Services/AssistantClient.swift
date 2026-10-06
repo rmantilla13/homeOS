@@ -24,7 +24,7 @@ struct AssistantError: LocalizedError, Equatable {
     var errorDescription: String? { message }
 
     static let unreachable = AssistantError(message: "I couldn't reach Ohana just now. Check your connection and try again.")
-    static let signedOut = AssistantError(message: "Sign in to Ohana on your iPhone first.")
+    static let signedOut = AssistantError(message: "Sign in to Ohana Display on your iPhone first.")
 }
 
 /// Calls the `assistant` edge function over URLSession rather than
@@ -129,7 +129,7 @@ struct AssistantClient {
         let serverMessage = (try? JSONDecoder().decode(ErrorBody.self, from: body))?.error
         switch status {
         case 401:
-            return AssistantError(message: "Your session ended. Sign in to Ohana again.")
+            return AssistantError(message: "Your session ended. Sign in to Ohana Display again.")
         case 403:
             return AssistantError(message: (serverMessage ?? "Ohana can't answer for this account right now.").sentenceCased)
         case 400..<500:

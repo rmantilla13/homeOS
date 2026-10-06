@@ -208,7 +208,7 @@ SystemController ─ Wi-Fi, screen speakers (mute and volume), restart, reboot
 ## iOS app: `ios/`
 
 SwiftUI with the `supabase-swift` SDK. Open the checked-in
-`ios/OhanaOS.xcodeproj` (team `92X9CP6C6D`). The product name is Ohana;
+`ios/OhanaOS.xcodeproj` (team `92X9CP6C6D`). The app name is Ohana Display;
 the project and company are OhanaOS. `xcodegen generate` replaces it.
 
 - Tabs: Today, Calendar, Chores, Rewards and Photos.

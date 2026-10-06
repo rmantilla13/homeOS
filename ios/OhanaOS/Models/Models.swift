@@ -605,11 +605,11 @@ enum InviteCode {
     /// What the share sheet sends with a family invite.
     static func shareText(code: String, familyName: String?, expiresAt: Date) -> String {
         let display = format(code)
-        let family = familyName.map { "\($0) on Ohana" } ?? "our family on Ohana"
+        let family = familyName.map { "\($0) on Ohana Display" } ?? "our family on Ohana Display"
         let url = Self.link(display)?.absoluteString ?? "\(Config.urlScheme)://invite/\(display)"
         let expiry = expiresAt.formatted(date: .abbreviated, time: .omitted)
         return """
-        Join \(family)! Open \(url) on your iPhone, or enter the invite code \(display) in the Ohana app. \
+        Join \(family)! Open \(url) on your iPhone, or enter the invite code \(display) in Ohana Display. \
         The code works until \(expiry).
         """
     }

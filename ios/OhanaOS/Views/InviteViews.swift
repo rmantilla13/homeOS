@@ -162,7 +162,7 @@ struct InviteCodeCard: View {
                 }
                 .buttonStyle(.pill(.soft))
             }
-            Text("They open the link on their iPhone, or enter the code when they sign up in Ohana.")
+            Text("They open the link on their iPhone, or enter the code when they sign up in Ohana Display.")
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.muted)
