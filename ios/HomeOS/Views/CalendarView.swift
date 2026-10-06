@@ -408,7 +408,7 @@ struct EventBlock: View {
         let members = event.memberIds.compactMap { store.member($0) }
         VStack(alignment: .leading, spacing: 2) {
             Text(event.title)
-                .font(compact ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
+                .font(compact ? Font.caption2.weight(.semibold) : Font.subheadline.weight(.semibold))
                 .lineLimit(compact ? 3 : 2)
             if !compact {
                 Text(timeLabel(for: event)).font(.caption)
