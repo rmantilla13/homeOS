@@ -96,18 +96,21 @@ The script takes 20–30 minutes. It:
 - stops the text console from blanking the screen or showing a cursor behind
   the app (in `/boot/firmware/cmdline.txt`; the original is saved as
   `cmdline.txt.homeos-backup`)
-- sends sound to the screen's speakers at full volume (the screen's own
-  buttons turn it down), and turns off Wi-Fi power saving, which makes Wi-Fi
-  drop out
-- starts the app on every boot as the `homeos-display` service
+- sends sound to the screen's speakers at half volume (full volume on this
+  panel is mostly hiss; the gear menu turns the speakers off or up, and the
+  screen's own buttons still work), and turns off Wi-Fi power saving, which
+  makes Wi-Fi drop out
+- enables and starts the `homeos-display` service, which takes the console on
+  every boot so the screen shows homeOS instead of a login prompt
 - warns at the end if the Pi has been short of power
 
 ## 4. What you should see
 
 After the reboot, boot messages scroll by for about half a minute, then
-homeOS fills the screen with sample data. Tap the chores and rewards to try
-it. Videos under **Media** play with sound from the screen's speakers. After
-two minutes without a touch, the photo frame starts; a tap wakes it.
+homeOS fills the screen with sample data. The console login prompt does not
+stay up. Tap the chores and rewards to try it. Videos under **Media** play
+with sound from the screen's speakers. After two minutes without a touch, the
+photo frame starts; a tap wakes it.
 
 ## 5. Connect it to your family
 
@@ -130,8 +133,13 @@ cd ~/homeOS
 ./voice/deploy/install-voice.sh
 ```
 
-This downloads about 220 MB of speech models. Then say "Hey Jarvis" and ask a
-question. You can also install voice together with the display:
+This downloads about 220 MB of speech models and starts the voice service on
+every boot, as the same user as the display. Spoken replies use the screen
+speakers: the gear menu's **Screen speakers** switch and **Volume** apply to
+them. Without a microphone yet, check the speakers with
+`/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from homeOS"`.
+Once a USB mic is plugged in, say "Hey Jarvis" and ask a question. You can
+also install voice together with the display:
 `./display/deploy/install-pi.sh --with-voice` (add `--skip-models` to fetch the
 models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 
@@ -141,7 +149,8 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 |---|---|
 | Watch the logs | `journalctl -u homeos-display -f` |
 | Restart the app | `sudo systemctl restart homeos-display` |
-| Change settings | `sudo nano /etc/homeos/display.env`, then restart the app |
+| Change Wi-Fi, volume, restart or reboot | On the screen, tap the gear. Wi-Fi and reboot need the helper from the install script |
+| Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
 | Update to the latest code | `cd ~/homeOS && git pull && ./display/deploy/install-pi.sh` (updates the voice service too, if installed) |
 | Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl start getty@tty1` |
 | Check power and temperature | `vcgencmd get_throttled` (`0x0` is good) and `vcgencmd measure_temp` |
@@ -152,10 +161,13 @@ Start with the logs: `journalctl -u homeos-display -b`.
 
 | Symptom | Fix |
 |---|---|
+| A login prompt is on the screen after reboot | The kiosk is not holding the console. Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
+| The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |
-| No sound, or too quiet | Check the screen's own volume and mute. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. `wpctl get-volume @DEFAULT_AUDIO_SINK@` should say `1.00`; set it with `wpctl set-volume @DEFAULT_AUDIO_SINK@ 100%`. |
+| Hiss or noise from the screen's speakers | In the gear menu, turn **Screen speakers** off, or lower **Volume**. The screen's own volume buttons add gain on top of that, so turn those down too. Nothing playing should go quiet after about a second. |
+| No sound, or too quiet | Turn **Screen speakers** on in the gear menu and raise **Volume**. Also check the screen's own mute and volume. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. |
 | No sound after turning the screen on after the Pi | Sound looks for the screen's speakers when the Pi starts, and may miss them if the screen was off. Run `systemctl --user restart wireplumber`, or `sudo reboot`. |
 | Videos stutter (often 4K iPhone clips) | On Raspberry Pi OS Trixie, Qt plays video through FFmpeg, which decodes on the Pi's CPU: fine for 1080p. Record at 1080p on the iPhone (Settings → Camera → Record Video). To try the Pi's HEVC decoder, add `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm` to `display.env` and restart the app; remove it if videos get worse or go black. |
 | `vcgencmd get_throttled` isn't `0x0`, or `dmesg` says `Undervoltage detected` | The Pi is short of power. Use the official 27 W supply, and power the screen from its own adapter. |

@@ -39,12 +39,14 @@ converts.
   and from fans, dishwashers and range hoods.
 - Plug it in before or after starting; the service looks for a mic every 10
   seconds. With no setting it picks the first USB microphone.
-- Replies play through the panel's speakers over HDMI. Use the Pi's **HDMI0**
-  port (next to USB-C power): with no setting, that's where the service
-  plays (ALSA card `vc4hdmi0`, or PipeWire's output when the display
-  installer has set it up), even if the USB mic took card 0 at boot. It also
-  wins over `defaults.pcm.card` in an asound.conf: to play anywhere else (HDMI1,
-  a USB speaker), set `audio.output_device`.
+- Replies play through the panel's speakers. With the display user's
+  PipeWire session up (the display installer starts it at boot), that is the
+  same output the gear menu calls **Screen speakers**: off stays silent, and
+  **Volume** is how loud a reply is. The service does not open HDMI on its
+  own in that case, so a reply cannot keep the panel hissing. Without
+  PipeWire it falls back to ALSA card `vc4hdmi0` (HDMI0, next to USB-C
+  power), even if a USB mic took card 0 at boot. To play anywhere else
+  (HDMI1, a USB speaker), set `audio.output_device`.
 
 ## Install
 
@@ -72,7 +74,9 @@ The script:
   and the wake-word model from openWakeWord's
   [GitHub release v0.5.1](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1)
 - installs and starts the `homeos-voice` service, as the same user as the
-  display
+  display, and enables it for every boot. It waits a few seconds at startup
+  for that user's PipeWire socket, then listens whether or not a microphone
+  is plugged in yet
 
 Re-run it to update. Add `--skip-models` to install without downloading
 models; fetch them later with
@@ -304,7 +308,7 @@ can open the devices, and start it again afterwards.
 | `no microphone found` in the log | `arecord -l` should list a USB card. If it doesn't, try another USB port or cable; `dmesg -w` shows it being plugged in |
 | It hears nothing / the orb barely moves | Record 5 s and play it back: `arecord -D plughw:2,0 -f S16_LE -r 16000 -c 1 -d 5 /tmp/t.wav && aplay -D default:CARD=vc4hdmi0 /tmp/t.wav` (use the card number from `arecord -l`). If it's quiet, raise the capture gain: `alsamixer -c 2`, F4 |
 | It picks the wrong mic | `/opt/homeos-voice/bin/python -m homeos_voice --list-devices`, then set `audio.input_device` to part of the name, e.g. `"USB"` or `"ReSpeaker"` |
-| Replies are silent | Check the panel's own volume, then try `--say` (above). `aplay -l` lists outputs; the panel is `vc4hdmi0` on HDMI0 and `vc4hdmi1` on HDMI1. Test it: `speaker-test -D default:CARD=vc4hdmi0 -c 2 -t wav -l 1`. On HDMI1, set `audio.output_device = "default:CARD=vc4hdmi1"`. Where the display installer set up PipeWire, sound goes to its default output instead: `wpctl status` shows it (see [PI_SETUP.md](PI_SETUP.md)) |
+| Replies are silent | In the gear menu, **Screen speakers** off means replies stay quiet on purpose. Turn them on and raise **Volume**, and check the panel's own buttons. Then try `--say` (above). `aplay -l` lists outputs; the panel is `vc4hdmi0` on HDMI0 and `vc4hdmi1` on HDMI1. Test it: `speaker-test -D default:CARD=vc4hdmi0 -c 2 -t wav -l 1`. On HDMI1, set `audio.output_device = "default:CARD=vc4hdmi1"`. `wpctl status` shows the PipeWire output the service uses (see [PI_SETUP.md](PI_SETUP.md)) |
 | `aplay: ... Device or resource busy` | Something else is playing through the same card. `fuser -v /dev/snd/*` shows what; stop it or pick another output |
 | Wakes by itself | Raise `wakeword.threshold`; move the mic away from the speakers and the TV |
 | Never wakes | Check the log for `wake word unavailable` (model missing: run `--download-models`). Then lower the threshold, and check that the display's wake word switch is on |

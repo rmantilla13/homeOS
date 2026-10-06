@@ -143,6 +143,8 @@ jobs:
           useradd -m -s /bin/bash pi
           echo 'pi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/pi
       - uses: actions/checkout@v4
+      - name: Kiosk is enabled on install and owns tty1
+        run: bash display/tests/kiosk_boot_test.sh
       - name: Stub systemctl
         run: install -m 755 display/deploy/pi-sim/systemctl-stub /usr/local/bin/systemctl
       - name: install-pi.sh --with-voice
