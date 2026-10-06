@@ -37,16 +37,19 @@ directive '^UtmpIdentifier=tty1$'
 directive '^PAMName=homeos-display$'
 directive '^Restart=always$'
 directive '^StartLimitIntervalSec=0$'
+directive '^\[Install\]$'
 directive '^WantedBy=multi-user\.target$'
 directive '^Wants=user@@UID@\.service$'
 directive '^After=user@@UID@\.service$'
+directive '^After=systemd-udev-trigger\.service$'
 directive '^Wants=systemd-logind\.service$'
 directive '^Environment=XDG_RUNTIME_DIR=/run/user/@UID@$'
 directive '^User=@USER@$'
 directive '^ExecStart=/usr/local/bin/homeos-display$'
 
-filled="$(sed -e 's/@USER@/rickymantilla/g' -e 's/@UID@/1000/g' "$unit")"
-printf '%s\n' "$filled" | grep -qx 'User=rickymantilla' || fail "User= was not substituted"
+# Any account the installer is logged in as. The unit must not name a person.
+filled="$(sed -e 's/@USER@/pi/g' -e 's/@UID@/1000/g' "$unit")"
+printf '%s\n' "$filled" | grep -qx 'User=pi' || fail "User= was not substituted"
 printf '%s\n' "$filled" | grep -qx 'Wants=user@1000.service' || fail "user manager unit was not substituted"
 printf '%s\n' "$filled" | grep -qx 'After=user@1000.service' || fail "After=user@ was not substituted"
 printf '%s\n' "$filled" | grep -qx 'Environment=XDG_RUNTIME_DIR=/run/user/1000' || fail "runtime dir was not substituted"
@@ -66,18 +69,29 @@ grep -q 'set-default multi-user.target' "$install" || fail "install script no lo
 
 grep -q 'Conflicts=homeos-display.service' "$preview_unit" || fail "preview no longer conflicts with the kiosk"
 grep -q 'disable --now homeos-display' "$preview" || fail "preview on does not stop the kiosk"
-grep -q 'enable homeos-preview' "$preview" || fail "preview on does not enable itself"
-grep -q 'enable homeos-display' "$preview" || fail "preview off does not restore the kiosk"
+grep -q 'enable --now homeos-preview' "$preview" || fail "preview on does not enable itself"
+grep -q 'disable --now homeos-preview' "$preview" || fail "preview off does not disable itself"
+grep -q 'enable --now homeos-display' "$preview" || fail "preview off does not restore the kiosk"
 grep -q 'restart homeos-display' "$preview" || fail "preview off does not start the kiosk"
+
+# The unit file is copied, then reloaded, then enabled.
+unit_at="$(grep -n '/etc/systemd/system/homeos-display.service' "$install" | head -1 | cut -d: -f1)"
+reload_at="$(grep -n 'daemon-reload' "$install" | head -1 | cut -d: -f1)"
+enable_at="$(grep -n 'enable --now homeos-display' "$install" | head -1 | cut -d: -f1)"
+[ -n "$unit_at" ] && [ -n "$reload_at" ] && [ -n "$enable_at" ] || fail "missing install, reload, or enable"
+[ "$unit_at" -lt "$reload_at" ] && [ "$reload_at" -lt "$enable_at" ] || fail "unit must be installed and reloaded before enable"
 
 block="$(awk '/# kiosk-boot-begin/,/# kiosk-boot-end/' "$install")"
 [ -n "$block" ] || fail "kiosk boot block not found in install-pi.sh"
-printf '%s\n' "$block" | grep -q 'systemctl enable homeos-display' || fail "boot block does not enable the kiosk"
-printf '%s\n' "$block" | grep -q 'systemctl restart homeos-display' || fail "boot block does not start the kiosk"
+printf '%s\n' "$block" | grep -q 'systemctl enable --now homeos-display' || fail "boot block does not enable and start the kiosk"
+printf '%s\n' "$block" | grep -q 'systemctl restart homeos-display' || fail "boot block does not reload a running kiosk"
+if printf '%s\n' "$block" | grep -q 'is-active'; then
+    fail "boot block still starts the kiosk only when it is already active"
+fi
 
 # preview_on: is-enabled homeos-preview succeeds. restart_rc: what `restart` returns.
 run_block() {
-    local log="$1" preview_on="$2" restart_rc="$3"
+    local log="$1" preview_on="$2" restart_rc="$3" enable_rc="${4:-0}"
     : >"$log"
     systemctl() {
         printf '%s\n' "$*" >>"$log"
@@ -86,6 +100,7 @@ run_block() {
                 if [ "$preview_on" = 1 ]; then return 0; fi
                 return 3
                 ;;
+            enable) return "$enable_rc" ;;
             restart) return "$restart_rc" ;;
             *) return 0 ;;
         esac
@@ -101,15 +116,15 @@ trap 'rm -rf "$tmp"' EXIT
 # Not enabled yet (a fresh install, or a previous one that never enabled it).
 run_block "$tmp/log" 0 0
 grep -qx 'unmask homeos-display' "$tmp/log" || fail "fresh install did not unmask"
-grep -qx 'enable homeos-display' "$tmp/log" || fail "fresh install did not enable"
-grep -qx 'restart homeos-display' "$tmp/log" || fail "fresh install did not start"
+grep -qx 'enable --now homeos-display' "$tmp/log" || fail "fresh install did not enable and start"
+grep -qx 'restart homeos-display' "$tmp/log" || fail "fresh install did not reload the kiosk"
 if grep -qx 'disable --now homeos-display' "$tmp/log"; then
     fail "fresh install disabled the kiosk"
 fi
 
 # Already installed: enable again and restart so the new binary is what is on screen.
 run_block "$tmp/log" 0 0
-grep -qx 'enable homeos-display' "$tmp/log" || fail "update did not enable"
+grep -qx 'enable --now homeos-display' "$tmp/log" || fail "update did not enable and start"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "update did not restart"
 
 # The panel is not up yet, so the start command fails. The unit must still be
@@ -117,13 +132,20 @@ grep -qx 'restart homeos-display' "$tmp/log" || fail "update did not restart"
 if ! run_block "$tmp/log" 0 1; then
     fail "a failed restart aborted the boot block"
 fi
-grep -qx 'enable homeos-display' "$tmp/log" || fail "failed restart skipped enable"
+grep -qx 'enable --now homeos-display' "$tmp/log" || fail "failed restart skipped enable"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "failed restart skipped the start"
+
+# enable --now itself failed. Still restart, and do not abort the installer.
+if ! run_block "$tmp/log" 0 0 1; then
+    fail "a failed enable --now aborted the boot block"
+fi
+grep -qx 'enable --now homeos-display' "$tmp/log" || fail "failed enable was not attempted"
+grep -qx 'restart homeos-display' "$tmp/log" || fail "failed enable skipped the start"
 
 # Preview mode is what was enabled: leave the kiosk off.
 run_block "$tmp/log" 1 0
 grep -qx 'disable --now homeos-display' "$tmp/log" || fail "preview mode did not keep the kiosk off"
-if grep -qx 'enable homeos-display' "$tmp/log"; then
+if grep -q 'enable --now homeos-display' "$tmp/log"; then
     fail "preview mode enabled the kiosk"
 fi
 if grep -qx 'restart homeos-display' "$tmp/log"; then
@@ -143,8 +165,8 @@ stub_out="$(
     # shellcheck disable=SC1090
     source /dev/stdin <<<"$block" 2>&1
 )" || fail "boot block failed under the systemctl stub"
-printf '%s\n' "$stub_out" | grep -q 'systemctl enable homeos-display' || fail "stub path did not enable"
-printf '%s\n' "$stub_out" | grep -q 'systemctl restart homeos-display' || fail "stub path did not start"
+printf '%s\n' "$stub_out" | grep -q 'systemctl enable --now homeos-display' || fail "stub path did not enable and start"
+printf '%s\n' "$stub_out" | grep -q 'systemctl restart homeos-display' || fail "stub path did not reload the kiosk"
 if printf '%s\n' "$stub_out" | grep -q 'systemctl disable'; then
     fail "stub path disabled the kiosk"
 fi

@@ -75,6 +75,16 @@ sudo apt install -y git
 git clone https://github.com/rmantilla13/homeOS.git
 cd homeOS
 ./display/deploy/install-pi.sh
+```
+
+The script enables `homeos-display` and starts it before it exits. The screen
+should show homeOS without a reboot, and without
+`sudo systemctl enable --now homeos-display`.
+
+Reboot once after that. A reboot applies the console options from the script,
+and it is the check that a later power-on brings homeOS back by itself:
+
+```bash
 sudo reboot
 ```
 
@@ -106,11 +116,12 @@ The script takes 20–30 minutes. It:
 
 ## 4. What you should see
 
-After the reboot, boot messages scroll by for about half a minute, then
-homeOS fills the screen with sample data. The console login prompt does not
-stay up. Tap the chores and rewards to try it. Videos under **Media** play
-with sound from the screen's speakers. After two minutes without a touch, the
-photo frame starts; a tap wakes it.
+When the install script finishes, homeOS should already be on the screen.
+After a reboot, boot messages scroll by for about half a minute, then homeOS
+fills the screen with sample data. The console login prompt does not stay up,
+and you do not run `systemctl` to bring it back. Tap the chores and rewards to
+try it. Videos under **Media** play with sound from the screen's speakers.
+After two minutes without a touch, the photo frame starts; a tap wakes it.
 
 ## 5. Connect it to your family
 
@@ -161,10 +172,10 @@ Start with the logs: `journalctl -u homeos-display -b`.
 
 | Symptom | Fix |
 |---|---|
-| A login prompt is on the screen after reboot | The kiosk is not holding the console. Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
+| A login prompt is on the screen after reboot | Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1 now and on every later boot. You should not need `sudo systemctl enable --now homeos-display`. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
-| `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio`. Re-run the install script, then `sudo reboot`. |
+| `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio tty`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |
 | Hiss or noise from the screen's speakers | In the gear menu, turn **Screen speakers** off, or lower **Volume**. The screen's own volume buttons add gain on top of that, so turn those down too. Nothing playing should go quiet after about a second. |
 | No sound, or too quiet | Turn **Screen speakers** on in the gear menu and raise **Volume**. Also check the screen's own mute and volume. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. |
