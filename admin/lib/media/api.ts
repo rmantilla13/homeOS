@@ -67,7 +67,29 @@ function storageDown(): Response {
   return json({ error: "Media storage isn't configured." }, 503);
 }
 
+// Vercel's runtime logs only show what a function prints, so a refused
+// request would otherwise leave no trace there. One line per refusal, with
+// the status and the message the caller saw (no tokens or paths).
+async function logRefusal(route: string, response: Response): Promise<Response> {
+  if (response.status >= 400) {
+    const detail = await response
+      .clone()
+      .json()
+      .then((body: unknown) => {
+        const error = (body as { error?: unknown } | null)?.error;
+        return typeof error === "string" ? error : "";
+      })
+      .catch(() => "");
+    console.warn(`media ${route}: ${response.status} ${detail}`.trim());
+  }
+  return response;
+}
+
 export async function handleMediaUpload(request: Request): Promise<Response> {
+  return logRefusal("upload", await mediaUpload(request));
+}
+
+async function mediaUpload(request: Request): Promise<Response> {
   const parsed = await readJson(request);
   if ("error" in parsed) return parsed.error;
   const upload = parseUploadRequest(parsed.body);
@@ -100,6 +122,9 @@ export async function handleMediaUpload(request: Request): Promise<Response> {
       allowOverwrite: false,
       addRandomSuffix: false,
     });
+    // The phone's half of the trail: a ticket here with no media_items row
+    // afterwards means the Blob PUT or the row insert failed on the phone.
+    console.info(`media upload: signed ${upload.value.contentType}, ${upload.value.bytes} bytes`);
     return json({
       id,
       pathname,
@@ -113,6 +138,10 @@ export async function handleMediaUpload(request: Request): Promise<Response> {
 }
 
 export async function handleMediaUrls(request: Request): Promise<Response> {
+  return logRefusal("urls", await mediaUrls(request));
+}
+
+async function mediaUrls(request: Request): Promise<Response> {
   const parsed = await readJson(request);
   if ("error" in parsed) return parsed.error;
   const list = parsePathList(parsed.body);
@@ -160,6 +189,10 @@ export async function handleMediaUrls(request: Request): Promise<Response> {
 }
 
 export async function handleMediaDelete(request: Request): Promise<Response> {
+  return logRefusal("delete", await mediaDelete(request));
+}
+
+async function mediaDelete(request: Request): Promise<Response> {
   const parsed = await readJson(request);
   if ("error" in parsed) return parsed.error;
   const target = parseDeleteRequest(parsed.body);

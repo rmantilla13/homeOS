@@ -57,6 +57,10 @@ test("upload body: size cap and family id", () => {
   const photo = parseUploadRequest({ family_id: FAMILY, content_type: "image/jpeg", bytes: PHOTO_MAX_BYTES });
   assert.equal(photo.ok, true);
   if (photo.ok) assert.equal(photo.value.extension, "jpg");
+  // allowed_media_types() lists image/jpeg only; the alias is signed as that.
+  const alias = parseUploadRequest({ family_id: FAMILY, content_type: " Image/JPG ", bytes: 10 });
+  assert.equal(alias.ok, true);
+  if (alias.ok) assert.equal(alias.value.contentType, "image/jpeg");
   assert.equal(parseUploadRequest({ family_id: FAMILY, content_type: "image/jpeg", bytes: PHOTO_MAX_BYTES + 1 }).ok, false);
   assert.equal(parseUploadRequest({ family_id: FAMILY, content_type: "text/html", bytes: 10 }).ok, false);
   assert.equal(parseUploadRequest({ family_id: FAMILY, content_type: "video/mp4", bytes: 0 }).ok, false);

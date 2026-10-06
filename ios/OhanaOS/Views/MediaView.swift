@@ -1,6 +1,7 @@
 import AVKit
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 enum MediaFilter: String, CaseIterable {
@@ -159,6 +160,9 @@ struct MediaView: View {
                     .foregroundStyle(Theme.text)
                     .contentTransition(.numericText(value: Double(uploadDone)))
                 ProgressBar(value: uploadTotal == 0 ? 0 : Double(uploadDone) / Double(uploadTotal))
+                Text("Keep Ohana open until this finishes.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
             }
         }
         .card(padding: 14, radius: Theme.radiusSm + 4)
@@ -168,27 +172,43 @@ struct MediaView: View {
     private func upload(_ picked: [PhotosPickerItem]) async {
         uploadTotal = picked.count
         uploadDone = 0
+        let keepAlive = UploadKeepAlive()
+        var failed = 0
+        var lastReason: String?
         for item in picked {
+            var uploaded = false
             let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
             if isVideo {
                 if let video = try? await item.loadTransferable(type: MediaTools.PickedVideo.self) {
                     defer { try? FileManager.default.removeItem(at: video.url) }
                     let ext = video.url.pathExtension.isEmpty ? "mov" : video.url.pathExtension
                     let metadata = await MediaTools.videoMetadata(at: video.url)
-                    await store.upload(file: video.url, fileExtension: ext, metadata: metadata)
+                    uploaded = await store.upload(file: video.url, fileExtension: ext, metadata: metadata)
                 } else {
                     store.errorMessage = "That video couldn't be read. Try another one."
                 }
             } else if let data = try? await item.loadTransferable(type: Data.self),
                       let photo = MediaTools.preparePhoto(data) {
-                await store.upload(data: photo.data, isVideo: false, fileExtension: "jpg", metadata: photo.metadata)
+                uploaded = await store.upload(data: photo.data, isVideo: false, fileExtension: "jpg", metadata: photo.metadata)
             } else {
                 store.errorMessage = "That photo couldn't be used. Try another one."
+            }
+            if !uploaded {
+                failed += 1
+                lastReason = store.errorMessage ?? lastReason
             }
             withAnimation(Theme.springy) { uploadDone += 1 }
         }
         selection = []
         await store.refreshMedia()
+        keepAlive.finish()
+        if failed > 0, picked.count > 1 {
+            // Say how many didn't make it, not only the last reason.
+            let summary = failed == picked.count
+                ? "None of the \(picked.count) uploaded."
+                : "\(failed) of \(picked.count) didn't upload."
+            store.errorMessage = [summary, lastReason].compactMap { $0 }.joined(separator: " ")
+        }
         withAnimation(Theme.springy) { uploadTotal = 0 }
     }
 
@@ -245,6 +265,32 @@ struct MediaView: View {
         }
         guard count > 0 else { return }
         Task { await store.deleteMedia(chosen) }
+    }
+}
+
+/// Keeps the phone from auto-locking during a batch and asks iOS for extra
+/// time if Ohana goes to the background. That time is short (about 30 s), so
+/// a long video still needs the app open; a cut-off upload says so.
+@MainActor
+private final class UploadKeepAlive {
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    init() {
+        UIApplication.shared.isIdleTimerDisabled = true
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Media upload") { [weak self] in
+            self?.endBackgroundTask()
+        }
+    }
+
+    func finish() {
+        UIApplication.shared.isIdleTimerDisabled = false
+        endBackgroundTask()
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 }
 

@@ -403,6 +403,11 @@ first draft granted. If you pasted 1, 2 or 4 by hand, record it first so the
 push skips it, for example
 `supabase migration repair --status applied 20261008000001`.
 
+If 5 to 7 are already on the database, 3 and 4 sort before them and
+`supabase db push` stops with "Found local migration files to be inserted
+before the last migration on remote database". Run
+`supabase db push --include-all` to apply them.
+
 `20261008000003` was briefly the boot video's version on its branch. If
 `supabase migration list` shows it only on the remote, look up its name with
 `select name from supabase_migrations.schema_migrations where version = '20261008000003'`.

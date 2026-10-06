@@ -16,6 +16,9 @@ open ios/OhanaOS.xcodeproj
 1. Put your Supabase URL and anon key in `ios/Config/Local.xcconfig`
    (copy `Local.xcconfig.example`) or, for a simulator-only run, in
    `ios/OhanaOS/App/Config.swift`. `Local.xcconfig` wins when it is filled in.
+   Photos and videos upload through the production admin app,
+   `https://ohanaos.co` (`MEDIA_API_URL` in `ios/Config/Defaults.xcconfig`).
+   Set `MEDIA_API_URL` in `Local.xcconfig` only to test another deployment.
 2. Apply the migrations and deploy the `pair-device` and `assistant` edge
    functions (see the README).
 3. In Supabase → Authentication → URL Configuration, add
@@ -33,8 +36,9 @@ id is `com.ohanaos.ohana`.
 team `92X9CP6C6D`, bundle id `com.ohanaos.ohana`, version 1.0.0 (1). The shared
 scheme, `Package.resolved` (supabase-swift 2.55.3), and `Info.plist` are in
 the repo. Xcode's personal UI state (`xcuserdata`, `UserInterfaceState.xcuserstate`)
-stays on your Mac. `project.yml` describes the same target. Regenerating with
-XcodeGen replaces the checked-in project, so open the `.xcodeproj` instead.
+stays on your Mac. `project.yml` describes the same target, minus the
+archive-only **Check Release Config** build phase. Regenerating with XcodeGen
+replaces the checked-in project, so open the `.xcodeproj` instead.
 Siri needs no extra keys or entitlements: App Shortcuts are found by the App
 Intents metadata step of a normal build.
 
@@ -208,50 +212,93 @@ app's chat history. The Profile screen shows a `SiriTipView` for it.
 `.github/workflows/ios.yml` runs on pull requests that touch `ios/**` or the
 workflow, and on demand (Actions → iOS → Run workflow). It does not run on
 pushes to `main`: macOS runners use minutes at ten times the Linux rate. On
-`macos-15` it selects the newest stable Xcode
-(`maxim-lobanov/setup-xcode`, failing if that's older than 16) and builds the
-checked-in project:
+`macos-15` it selects the newest stable Xcode (`maxim-lobanov/setup-xcode`,
+failing if that's older than 16), then works on the checked-in project,
+unsigned:
 
-```bash
-xcodebuild -project OhanaOS.xcodeproj -scheme OhanaOS -sdk iphonesimulator \
-  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-```
+1. `plutil -lint` on the project file, `Info.plist`, the privacy manifest and
+   `ExportOptions.plist`, and `bash -n` on the scripts.
+2. A Debug simulator build:
+
+   ```bash
+   xcodebuild -project OhanaOS.xcodeproj -scheme OhanaOS -sdk iphonesimulator \
+     -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+   ```
+
+3. A check that the built `Info.plist` has `MediaAPIURL` `https://ohanaos.co`,
+   bundle id `com.ohanaos.ohana`, `ITSAppUsesNonExemptEncryption` false, and
+   that `PrivacyInfo.xcprivacy` is in the app.
+4. An unsigned Release archive for `generic/platform=iOS` with stand-in
+   Supabase values, the same build a TestFlight upload uses. It checks the
+   archive's `MediaAPIURL`, then archives once more with no Supabase values and
+   expects **Check Release Config** to stop it.
 
 Swift packages are checked out into `.spm` and cached on the hash of
-`Package.resolved` (supabase-swift 2.55.3). When the build fails, the full
-`xcodebuild` log is uploaded as the `xcodebuild-log` artifact.
+`Package.resolved` (supabase-swift 2.55.3). When a step fails, the
+`xcodebuild` logs are uploaded as the `xcodebuild-log` artifact. macOS jobs
+only start while the GitHub account's billing and Actions spending limit
+allow it. Otherwise each run fails in seconds with "recent account payments
+have failed or your spending limit needs to be increased".
 
 ## TestFlight
 
-The project is set up to archive. Uploading still happens on a Mac, signed in
-to Xcode with an Apple Developer account. Version **1.0.0** and build **1**
-come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode project.
-Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
-`ios/OhanaOS.xcodeproj/project.pbxproj` (and `ios/project.yml`).
+Upload from a Mac with **Xcode 26 or newer**. App Store Connect has required
+the iOS 26 SDK since April 2026. In Xcode → Settings → Accounts, sign in with
+an Apple ID on team `92X9CP6C6D`. The first archive needs an Admin or the
+Account Holder, because Xcode creates the Apple Distribution certificate.
 
-1. The Xcode project is already signed for team `92X9CP6C6D` and bundle id
-   `com.ohanaos.ohana`. Sign in to Xcode with the Apple ID on that team.
-2. Copy `ios/Config/Local.xcconfig.example` to `ios/Config/Local.xcconfig`
-   (that copy is gitignored). Set the Supabase URL, anon key, and the admin
-   app origin (`MEDIA_API_URL`). Write URLs as `https:/$()/host` so xcconfig
-   does not treat `//` as a comment.
-3. On the developer site, register that bundle id (no extra capabilities).
-   In App Store Connect, create an iOS app named Ohana Display with the same bundle
-   id. The primary category is Lifestyle.
-4. Sign in to Xcode with that Apple ID. From `ios/`:
+1. **Register the bundle id.** developer.apple.com → Certificates, Identifiers
+   & Profiles → Identifiers → **+** → App IDs → App. Use Description
+   `Ohana Display` and an Explicit Bundle ID of `com.ohanaos.ohana`. Add no
+   capabilities: the app has no entitlements, app groups or push.
+2. **Create the app record.** App Store Connect → Apps → **+** → New App.
+   Set Platform to iOS and Name to `Ohana Display`. If that name is taken,
+   pick another; the Home Screen name stays Ohana Display. Primary Language:
+   English (U.S.). Bundle ID: `com.ohanaos.ohana`. SKU: `ohanaos-ios`. Then,
+   under App Information, set the primary category to Lifestyle. A record
+   made earlier for the old id `com.homeos.app` does not match this build.
+   Either create the new record, or set `OHANAOS_BUNDLE_ID = com.homeos.app`
+   in `Local.xcconfig` to keep the old one.
+3. **Fill in `ios/Config/Local.xcconfig`.** Copy
+   `ios/Config/Local.xcconfig.example` (the copy is gitignored). Write each URL
+   as `https:/$()/host`.
+   - `SUPABASE_URL`: `https:/$()/<project-ref>.supabase.co`
+   - `SUPABASE_ANON_KEY`: the anon (publishable) key. Archives refuse a
+     `service_role` or `sb_secret_` key.
+   - `MEDIA_API_URL`: leave it out, and the default is `https://ohanaos.co`.
+     Delete an empty `MEDIA_API_URL =` line, or one with the old
+     `your-admin-app.vercel.app` placeholder. Archives refuse both.
+   - `OHANAOS_TEAM_ID` and `OHANAOS_BUNDLE_ID`: set these only to change the
+     team or bundle id. The old names `HOMEOS_TEAM_ID` and `HOMEOS_BUNDLE_ID`
+     are ignored.
+4. **Archive and upload.** From the repo root:
 
-```bash
-./scripts/archive-for-testflight.sh
-```
+   ```bash
+   ios/scripts/archive-for-testflight.sh --upload
+   ```
 
-   The script refuses to archive while the team id or Supabase values are
-   still placeholders. It writes `ios/build/Ohana.xcarchive` and an IPA under
-   `ios/build/export`. In Xcode you can do the same thing with Product →
-   Archive, then Distribute App → TestFlight & App Store. Drag the IPA into
-   the Transporter app if you are not using the Organizer.
-5. In App Store Connect → TestFlight, add internal testers (people on the
-   team). They can install from the TestFlight app once the build finishes
-   processing. External testers need a beta review and a privacy policy URL.
+   The script checks those values, then archives Release. The build number is
+   the UTC time as `YYYYMMDD.HHMM`, so every upload is new and higher. Use
+   `OHANA_BUILD_NUMBER=<n>` to override it. The script then checks the
+   archived `Info.plist`. It exports with `ios/Config/ExportOptions.plist`
+   (`app-store-connect`, automatic signing, your team) and uploads. Without
+   `--upload`, it writes `ios/build/export/Ohana.ipa` for the Transporter
+   app. The version stays `1.0.0` (`MARKETING_VERSION`); raise it in Xcode
+   (target → General → Version) for the next release. In Xcode itself,
+   Product → Archive runs the same check (the **Check Release Config** build
+   phase). Then use Organizer → Distribute App → TestFlight & App Store, and
+   keep **Manage Version and Build Number** checked. If the archive stops with
+   "Your team has no devices", run the app on your iPhone from Xcode once.
+5. **Add internal testers.** App Store Connect → Apps → Ohana Display →
+   TestFlight → Internal Testing → **+**. Create a group (for example,
+   `Family`) and turn on automatic distribution. Add testers. They must be
+   users under Users and Access (up to 100). Processing takes about 5–30
+   minutes. Then testers get an email and install through the TestFlight app.
+   External testers need Beta App Review, a beta description, and a privacy
+   policy URL.
+
+Export compliance is already answered (see below), so no build waits on
+"Missing Compliance".
 
 What the binary already answers, so the upload is not blocked on them:
 
@@ -266,12 +313,26 @@ What the binary already answers, so the upload is not blocked on them:
   function: email, name, user id, photos and videos, and other content
   (events, chores, lists, meals, memory, chat). Use those same answers in the
   App Store Connect privacy questionnaire. Dictation uses Apple's speech
-  recognizer and is not stored by Ohana Display.
+  recognizer and is not stored by Ohana Display. The Swift packages
+  (supabase-swift 2.55.3 and its dependencies) call no required-reason API,
+  and swift-crypto ships its own manifest.
+- Usage descriptions: photo library, microphone and speech recognition
+  (dictation), and camera. The camera text is for scanning the display's
+  pairing code, which the app doesn't request yet. The app uses no local
+  network, notifications or location.
+- iPhone only, portrait, iOS 17.0 or later, HTTPS only (no App Transport
+  Security exceptions).
+- An archive can't ship a placeholder or a secret. The **Check Release
+  Config** phase (`ios/scripts/check-release-config.sh`) runs only for
+  archives. It fails on an empty or placeholder `SUPABASE_URL`,
+  `SUPABASE_ANON_KEY` or `MEDIA_API_URL`, and on a `service_role` or
+  `sb_secret_` key.
 - A build with no Supabase URL stays on the loading screen and says it is
   not connected, instead of opening Welcome against a placeholder host.
 
-Signing is automatic. `CODE_SIGNING_ALLOWED=NO` simulator CI does not need a
-team. A device run uses the team in `Local.xcconfig`.
+Signing is automatic. Unsigned CI (`CODE_SIGNING_ALLOWED=NO`) does not need a
+team. A device run uses the team in `Local.xcconfig`, or `92X9CP6C6D` by
+default.
 
 ## Design
 
@@ -324,8 +385,8 @@ profile screens reuse the glow header, pills and cards.
   read through `AVURLAsset` from the file on disk. The picker hands the app a
   movie file; the upload streams that file to Blob
   (`URLSession.upload(for:fromFile:)`) instead of reading the whole clip into
-  memory. `Config.mediaAPIURL` is the admin app's origin; until it's set, the
-  upload fails and nothing is written to Storage. Photo type sent is
+  memory. `Config.mediaAPIURL` is the admin app's origin: `https://ohanaos.co`
+  unless `Local.xcconfig` sets another. Photo type sent is
   `image/jpeg`. Video types are `video/quicktime` (`.mov`), `video/mp4`,
   `video/m4v`, `video/webm`, `video/x-matroska`, `video/3gpp`, and
   `video/3gpp2`. If inserting the row fails, the Blob object just uploaded is

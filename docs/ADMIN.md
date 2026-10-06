@@ -153,18 +153,56 @@ with no Supabase values, never the production project.
    npx vercel blob create-store homeos-videos --access private --yes
    ```
 
-   That sets `BLOB_STORE_ID` on the project. On Vercel the function uses
-   `VERCEL_OIDC_TOKEN` with that store id. For a machine that isn't running
-   on Vercel, pull a read-write token too (`npx vercel env pull .env.local`)
-   so `BLOB_READ_WRITE_TOKEN` is present. Don't commit either value.
+   That sets `BLOB_STORE_ID` on the project. On Vercel the function signs
+   with the project's OIDC token, which arrives with each request (keep OIDC
+   federation on in the project's security settings; it is on by default),
+   so `BLOB_STORE_ID` is the only Blob variable Production needs. A
+   `BLOB_READ_WRITE_TOKEN` (from connecting the store in **Storage**) also
+   works. For a machine that isn't running on Vercel, pull credentials
+   (`npx vercel env pull .env.local`) so `VERCEL_OIDC_TOKEN` or
+   `BLOB_READ_WRITE_TOKEN` is present. Don't commit either value.
 5. Deploy. Every route is dynamic, and `proxy.ts` runs on the Node.js runtime.
 6. Make sure the backend side is in place: migrations pushed
    (`supabase db push`, including `20261009000002_video_blob.sql`) and the
    function deployed (`supabase functions deploy admin`). Supabase gives the
    function its service role key automatically.
-7. Point the iOS app at this deployment (`Config.mediaAPIURL`) and the
-   display at it (`HOMEOS_MEDIA_URL`). Both send the family member's Supabase
-   access token to `/api/media/*`.
+7. Point the iOS app at this deployment (`MEDIA_API_URL` in
+   `ios/Config/*.xcconfig`, read as `Config.mediaAPIURL`) and the display at
+   it (`HOMEOS_MEDIA_URL`). The app uses `https://ohanaos.co` when
+   `MEDIA_API_URL` is empty or still the example placeholder. Both send the
+   family member's Supabase access token to `/api/media/*`.
+8. Check the route from anywhere. Without a sign-in it should answer a
+   clean 401 in JSON, not a login page, a 404 or a 503:
+
+   ```bash
+   curl -s -X POST https://ohanaos.co/api/media/upload \
+     -H 'content-type: application/json' \
+     -d '{"family_id":"00000000-0000-4000-8000-000000000000","content_type":"image/jpeg","bytes":1}'
+   # {"error":"Sign in required."}
+   ```
+
+### How a photo or video gets to the frame
+
+1. The phone posts `{family_id, content_type, bytes}` to
+   `/api/media/upload` with `Authorization: Bearer <Supabase access token>`.
+   The route checks the token and family membership and answers
+   `{id, pathname, upload_url, content_type}`. Photos go up as JPEG (at most
+   50 MB); videos keep their container (`.mov` is `video/quicktime`, at most
+   2 GB). `image/jpg` is signed as `image/jpeg`, the name the database
+   accepts.
+2. The phone `PUT`s the file straight to `upload_url` (Vercel Blob, valid for
+   two hours) with that `Content-Type`. Videos stream from disk.
+3. The phone inserts the `media_items` row (`file_store = 'blob'`,
+   `storage_path` = `pathname`), where the database checks it. If the PUT or
+   the insert fails, the phone deletes the Blob object.
+4. Phones and displays ask `/api/media/urls` for playback URLs (up to 200
+   paths per request; they last six hours). A path outside the caller's
+   families comes back as an empty string.
+
+Every refused media request (4xx or 5xx) writes one `media <route>: <status>
+<message>` line to the runtime logs, and every signed upload writes
+`media upload: signed <type>, <bytes> bytes`. If the logs show neither while
+someone is uploading, the phone isn't reaching this deployment.
 
 The production deployment also answers `POST /api/assistant-identity`. That
 is not a console page. The `assistant` edge function calls it with the
@@ -228,6 +266,12 @@ hook, the assistant).
 | Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
 | A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its photos are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
 | Delete family says photos and videos may still be in Blob storage | The rows are gone. In the Vercel Blob store, remove the folder named with that family's id. |
+| The phone says "Media storage isn't configured." | Production has neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN`. Connect the Blob store to the project (step 4) and redeploy. |
+| The phone says "Couldn't start the upload." | The function couldn't get a signed URL from Blob. The runtime log line `media upload URL failed:` has the reason, often OIDC turned off with only `BLOB_STORE_ID` set. |
+| The phone says the media service "didn't accept your sign-in" | The app and this deployment use different Supabase projects, or the session expired. Check `NEXT_PUBLIC_SUPABASE_URL` here against the app's `SUPABASE_URL`. |
+| The phone says the media service "answered HTTP 404" (or another status) | The app's `MEDIA_API_URL` isn't this deployment, or Deployment Protection is in front of `/api/media`. |
+| The phone says "Media storage refused the file" | Blob turned down the PUT. The HTTP status and Blob's message follow; a type or size mismatch means the app sent a different file than it asked to sign. |
+| No `media upload` lines in the runtime logs while someone uploads | The phone isn't reaching this deployment: check `MEDIA_API_URL` in the build. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |
 
 Dates and times in the console are shown in UTC; hover a relative time ("3 h

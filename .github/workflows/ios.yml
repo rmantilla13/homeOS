@@ -1,7 +1,8 @@
-# Builds the iOS app for the simulator (no signing). See docs/IOS.md → CI.
-# macOS minutes cost ten times Linux ones, so this runs on pull requests that
-# touch the app and on demand (Actions → iOS → Run workflow), not on every
-# push to main.
+# Builds the checked-in ios/OhanaOS.xcodeproj on macOS, unsigned: a Debug
+# simulator build, then an unsigned Release archive (the same build a
+# TestFlight upload uses). macOS minutes cost ten times Linux ones, so this
+# runs on pull requests that touch the app and on demand (Actions → iOS → Run
+# workflow), not on every push to main. See docs/IOS.md → CI.
 name: iOS
 
 on:
@@ -20,9 +21,9 @@ concurrency:
 
 jobs:
   build:
-    name: Build (iOS Simulator)
+    name: Build (iOS)
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       SPM_DIR: ${{ github.workspace }}/.spm
     steps:
@@ -42,6 +43,14 @@ jobs:
             exit 1
           fi
 
+      - name: Lint project files
+        working-directory: ios
+        run: |
+          plutil -lint OhanaOS.xcodeproj/project.pbxproj OhanaOS/Info.plist \
+            OhanaOS/PrivacyInfo.xcprivacy Config/ExportOptions.plist
+          bash -n scripts/archive-for-testflight.sh
+          bash -n scripts/check-release-config.sh
+
       # Package checkouts, keyed on the committed Package.resolved.
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -50,7 +59,7 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('ios/OhanaOS.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Build
+      - name: Build for the simulator (Debug)
         working-directory: ios
         run: |
           set -o pipefail
@@ -59,17 +68,75 @@ jobs:
             -scheme OhanaOS \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -clonedSourcePackagesDirPath "$SPM_DIR" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
 
+      # The committed defaults must reach the app: media uploads go to
+      # MediaAPIURL, which comes from ios/Config/Defaults.xcconfig.
+      - name: Check the built Info.plist
+        run: |
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/Ohana.app"
+          expect() {
+            got=$(/usr/libexec/PlistBuddy -c "Print :$1" "$app/Info.plist")
+            if [ "$got" != "$2" ]; then
+              echo "::error::$1 is '$got', expected '$2'"
+              exit 1
+            fi
+          }
+          expect MediaAPIURL https://ohanaos.co
+          expect CFBundleIdentifier com.ohanaos.ohana
+          expect ITSAppUsesNonExemptEncryption false
+          test -f "$app/PrivacyInfo.xcprivacy" || { echo "::error::PrivacyInfo.xcprivacy is not in the app"; exit 1; }
+
+      - name: Archive (Release, unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          archive() {
+            xcodebuild \
+              -project OhanaOS.xcodeproj \
+              -scheme OhanaOS \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
+              -archivePath "$RUNNER_TEMP/Ohana.xcarchive" \
+              -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+              -clonedSourcePackagesDirPath "$SPM_DIR" \
+              -skipPackagePluginValidation \
+              -skipMacroValidation \
+              CODE_SIGNING_ALLOWED=NO \
+              "$@" archive
+          }
+          # Stand-in Supabase values; Local.xcconfig is never in the repo.
+          archive SUPABASE_URL=https://ci-build.supabase.co SUPABASE_ANON_KEY=sb_publishable_ci \
+            2>&1 | tee -a "$RUNNER_TEMP/xcodebuild.log"
+          plist="$RUNNER_TEMP/Ohana.xcarchive/Products/Applications/Ohana.app/Info.plist"
+          media=$(/usr/libexec/PlistBuddy -c "Print :MediaAPIURL" "$plist")
+          if [ "$media" != https://ohanaos.co ]; then
+            echo "::error::The archive's MediaAPIURL is '$media'"
+            exit 1
+          fi
+          # Without Supabase values the Check Release Config phase must stop the archive.
+          if archive > "$RUNNER_TEMP/archive-unconfigured.log" 2>&1; then
+            echo "::error::An archive with no SUPABASE_URL succeeded"
+            exit 1
+          fi
+          grep -q "error: SUPABASE_URL is empty" "$RUNNER_TEMP/archive-unconfigured.log" || {
+            tail -n 40 "$RUNNER_TEMP/archive-unconfigured.log"
+            echo "::error::The unconfigured archive failed for another reason"
+            exit 1
+          }
+
       - name: Upload build log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-log
-          path: ${{ runner.temp }}/xcodebuild.log
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/archive-unconfigured.log
           if-no-files-found: ignore
           retention-days: 14

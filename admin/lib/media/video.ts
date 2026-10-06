@@ -32,8 +32,20 @@ const MEDIA_CONTENT_TYPES: Record<string, string> = {
 
 const PHOTO_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "heic", "gif"]);
 
+// Aliases that public.allowed_media_types() doesn't list. A row with one
+// would be refused after the bytes were already in Blob, so the upload is
+// signed for the name the database does list.
+const CANONICAL_CONTENT_TYPES: Record<string, string> = {
+  "image/jpg": "image/jpeg",
+};
+
 export function mediaExtension(contentType: string): string | null {
   return MEDIA_CONTENT_TYPES[contentType.trim().toLowerCase()] ?? null;
+}
+
+export function canonicalContentType(contentType: string): string {
+  const type = contentType.trim().toLowerCase();
+  return CANONICAL_CONTENT_TYPES[type] ?? type;
 }
 
 export function isPhotoExtension(ext: string): boolean {
@@ -72,7 +84,7 @@ export function parseUploadRequest(body: unknown): { ok: true; value: UploadRequ
   const record = body as Record<string, unknown>;
   const familyId = typeof record.family_id === "string" ? record.family_id.trim().toLowerCase() : "";
   if (!UUID.test(familyId)) return { ok: false, error: "family_id must be a UUID." };
-  const contentType = typeof record.content_type === "string" ? record.content_type.trim().toLowerCase() : "";
+  const contentType = typeof record.content_type === "string" ? canonicalContentType(record.content_type) : "";
   const extension = mediaExtension(contentType);
   if (!extension) return { ok: false, error: "That file format isn't supported." };
   const maxBytes = isPhotoExtension(extension) ? PHOTO_MAX_BYTES : VIDEO_MAX_BYTES;
