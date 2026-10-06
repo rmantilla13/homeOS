@@ -4,6 +4,7 @@ optional; voice/voice.example.toml documents them all."""
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ _DEVICE = {"types": (str, int)}
 class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8765
+    # Browser pages (which send an Origin header) allowed to connect; none by default.
+    allowed_origins: list[str] = field(default_factory=list, metadata={"list_of": str})
 
 
 @dataclass
@@ -116,6 +119,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         raise ConfigError(f"config file not found: {path}") from None
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: {e}") from None
+    except UnicodeDecodeError:
+        raise ConfigError(f"{path}: not UTF-8 text") from None
     except OSError as e:
         raise ConfigError(f"{path}: {e.strerror}") from None
     return parse_config(data)
@@ -168,6 +173,11 @@ def _coerce(name: str, value: Any, default: Any, metadata: Any) -> Any:
         if isinstance(value, allowed):
             return value
         raise ConfigError(f"{name} must be a device name or index, got {value!r}")
+    item = metadata.get("list_of")
+    if item:
+        if isinstance(value, list) and all(isinstance(v, item) for v in value):
+            return value
+        raise ConfigError(f"{name} must be a list of strings, got {value!r}")
     if isinstance(default, bool):
         expected = "true or false"
     elif isinstance(default, int):
@@ -175,9 +185,10 @@ def _coerce(name: str, value: Any, default: Any, metadata: Any) -> Any:
             return value
         expected = "a whole number"
     elif isinstance(default, float):
-        if isinstance(value, (int, float)):
+        # TOML allows inf and nan, which no setting here can use.
+        if isinstance(value, (int, float)) and math.isfinite(value):
             return float(value)
-        expected = "a number"
+        expected = "a finite number"
     else:
         if isinstance(value, str):
             return value

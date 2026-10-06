@@ -16,7 +16,7 @@ import os
 import time
 import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -28,8 +28,14 @@ from .wakeword import WakeGate
 
 log = logging.getLogger(__name__)
 
-MAX_MESSAGE_BYTES = 1 << 20
+# A quick answer (max_tokens 2000) fits easily; bigger frames close the connection.
+MAX_MESSAGE_BYTES = 64 << 10
 CLOSE_TIMEOUT_SECONDS = 2.0
+# Longer replies are cut (about two minutes of speech): cleaning and
+# synthesizing huge text would tie up the speech thread, which can't be stopped.
+MAX_SPEAK_CHARS = 2000
+# Replies waiting behind the current one; more are refused.
+MAX_QUEUED_SPEECH = 16
 
 
 class Backend(Protocol):
@@ -48,6 +54,11 @@ class Backend(Protocol):
     async def capture(self, session: Session) -> str:
         """Record one utterance and return its text ("" if nothing was said).
         Report progress through `session`. Cancelled on `cancel`."""
+        ...
+
+    def end_capture(self) -> None:
+        """Called synchronously when a session is cancelled, which may be
+        before `capture` ever ran: undo `begin_capture`."""
         ...
 
     async def speak(self, text: str) -> None:
@@ -108,10 +119,12 @@ class VoiceService:
         resume_delay: float = 0.5,
         level_rate: float = 15.0,
         store: StateStore | None = None,
+        allowed_origins: Sequence[str] = (),
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.backend = backend
         self.store = store
+        self.allowed_origins = list(allowed_origins)
         remembered = store.load().get("wakeword_enabled") if store else None
         if isinstance(remembered, bool):
             wakeword_enabled = remembered
@@ -137,8 +150,12 @@ class VoiceService:
     # Clients
 
     async def serve(self, host: str, port: int) -> Server:
+        # Any web page open in a browser on the device can reach localhost, and
+        # browsers always send Origin. The display and local tools send none, so
+        # a handshake with an Origin is refused (403) unless it's allowed.
         return await serve(self._client, host, port, max_size=MAX_MESSAGE_BYTES,
-                           close_timeout=CLOSE_TIMEOUT_SECONDS)
+                           close_timeout=CLOSE_TIMEOUT_SECONDS,
+                           origins=[None, *self.allowed_origins])
 
     async def _client(self, ws: ServerConnection) -> None:
         # Greet synchronously, then join the broadcast set: nothing can slip
@@ -212,8 +229,14 @@ class VoiceService:
     def _spawn(self, coro: Any) -> asyncio.Task[None]:
         task = asyncio.get_running_loop().create_task(coro)
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._task_done)
         return task
+
+    def _task_done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        # Log a crash now; asyncio would only report it when the task is collected.
+        if not task.cancelled() and task.exception() is not None:
+            log.error("background task failed", exc_info=task.exception())
 
     # Listening
 
@@ -282,6 +305,9 @@ class VoiceService:
         task, self._session_task = self._session_task, None
         if self._session is not None:
             self._session = None
+            # The task may be cancelled before it starts, so its own cleanup
+            # never runs.
+            self.backend.end_capture()
             log.info("listening cancelled")
         if task is not None:
             task.cancel()
@@ -293,7 +319,8 @@ class VoiceService:
     def speak(self, text: str, speech_id: str | None = None,
               client: ServerConnection | None = None) -> str:
         """Queue `text`; `spoken` with the same id follows when it's done or stopped."""
-        speech_id = speech_id or uuid.uuid4().hex[:12]
+        if speech_id is None:
+            speech_id = uuid.uuid4().hex[:12]
         if not text.strip():
             self.broadcast(protocol.spoken(speech_id))
             return speech_id
@@ -302,6 +329,16 @@ class VoiceService:
                 "Spoken replies aren't available: install piper or espeak-ng (see docs/VOICE.md)"))
             self.broadcast(protocol.spoken(speech_id))
             return speech_id
+        if len(self._speech_queue) >= MAX_QUEUED_SPEECH:
+            self._reply(client, protocol.error("Too many replies waiting to be spoken"))
+            self.broadcast(protocol.spoken(speech_id))
+            return speech_id
+        if len(text) > MAX_SPEAK_CHARS:
+            log.warning("reply is %d characters; speaking the first %d", len(text), MAX_SPEAK_CHARS)
+            head = text[: MAX_SPEAK_CHARS + 1]
+            # Cut at the last word break that fits (a hard cut if there's none).
+            cut = max(head.rfind(" "), head.rfind("\n"))
+            text = head[:cut].rstrip() if cut > 0 else head[:MAX_SPEAK_CHARS]
         self._speech_queue.append((speech_id, text))
         self._kick_speech()
         return speech_id

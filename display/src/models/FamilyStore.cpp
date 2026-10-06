@@ -20,6 +20,7 @@ namespace {
 
 constexpr int kSyncIntervalMs = 60 * 1000; // fallback until Realtime subscriptions land (M1)
 constexpr int kPairPollMs = 3000;
+constexpr qint64 kCheckInIntervalMs = 5 * 60 * 1000;
 const QString kMediaBucket = QStringLiteral("family-media");
 
 QString today() { return QDate::currentDate().toString(Qt::ISODate); }
@@ -53,10 +54,16 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
     connect(&m_pairTimer, &QTimer::timeout, this, &FamilyStore::pollPairing);
 
     connect(m_client, &SupabaseClient::sessionChanged, this, [this]() {
-        if (!m_client->refreshToken().isEmpty())
-            m_settings.setValue("device/refreshToken", m_client->refreshToken());
+        if (m_client->refreshToken().isEmpty())
+            return;
+        m_settings.setValue("device/refreshToken", m_client->refreshToken());
+        // The token signs in as this family's display: keep the file private
+        // (later saves replace it with the same permissions).
+        m_settings.sync();
+        QFile::setPermissions(m_settings.fileName(), QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     });
     connect(m_client, &SupabaseClient::sessionLost, this, [this]() {
+        ++m_generation;
         m_settings.remove("device/refreshToken");
         m_client->clearSession();
         m_syncTimer.stop();
@@ -171,7 +178,10 @@ void FamilyStore::withSession(std::function<void()> fn)
         fn();
         return;
     }
-    m_client->refreshSession([this, fn](bool ok) {
+    const int generation = m_generation;
+    m_client->refreshSession([this, fn, generation](bool ok) {
+        if (generation != m_generation)
+            return; // re-paired meanwhile
         if (ok)
             fn();
         else
@@ -181,13 +191,19 @@ void FamilyStore::withSession(std::function<void()> fn)
 
 void FamilyStore::loadLive()
 {
+    if (m_mode != "live")
+        return;
     withSession([this]() {
+        // Rows that arrive after a re-pair belong to the old family: drop them.
+        const int generation = m_generation;
         auto onError = [this](const QString &what, const QString &error) {
             qWarning() << "load" << what << "failed:" << error;
             setOnline(false, error);
         };
-        auto load = [this, onError](const QString &table, QUrlQuery q, std::function<void(const QJsonDocument &)> apply) {
-            m_client->select(table, q, [this, table, apply, onError](const QJsonDocument &doc, const QString &error) {
+        auto load = [this, onError, generation](const QString &table, QUrlQuery q, std::function<void(const QJsonDocument &)> apply) {
+            m_client->select(table, q, [this, table, apply, onError, generation](const QJsonDocument &doc, const QString &error) {
+                if (generation != m_generation)
+                    return;
                 if (!error.isEmpty())
                     return onError(table, error);
                 setOnline(true);
@@ -195,6 +211,8 @@ void FamilyStore::loadLive()
                 rebuild();
             });
         };
+
+        checkIn();
 
         const QDate base = QDate::currentDate();
         const QDate weekStart = base.addDays(1 - base.dayOfWeek());
@@ -245,14 +263,16 @@ void FamilyStore::loadLive()
 
         m_client->select("media_items",
                          QUrlQuery("select=*&order=taken_at.desc.nullslast,created_at.desc&limit=200"),
-                         [this](const QJsonDocument &d, const QString &error) {
-                             if (!error.isEmpty())
+                         [this, generation](const QJsonDocument &d, const QString &error) {
+                             if (!error.isEmpty() || generation != m_generation)
                                  return;
                              const QVariantList rows = toList(d);
                              QStringList paths;
                              for (const QVariant &r : rows)
                                  paths << r.toMap().value("storage_path").toString();
-                             m_client->signUrls(kMediaBucket, paths, 6 * 3600, [this, rows](const QStringList &urls) {
+                             m_client->signUrls(kMediaBucket, paths, 6 * 3600, [this, rows, generation](const QStringList &urls) {
+                                 if (generation != m_generation)
+                                     return;
                                  m_rawMedia.clear();
                                  for (int i = 0; i < rows.size() && i < urls.size(); ++i) {
                                      QVariantMap p = rows[i].toMap();
@@ -262,6 +282,22 @@ void FamilyStore::loadLive()
                                  rebuild();
                              });
                          });
+    });
+}
+
+// Tells the family's phones and the admin console this display is alive:
+// devices.last_seen_at on its own row (RLS devices_touch), at most every few
+// minutes.
+void FamilyStore::checkIn()
+{
+    const QString deviceId = m_settings.value("device/id").toString();
+    if (deviceId.isEmpty() || (m_lastCheckIn.isValid() && m_lastCheckIn.elapsed() < kCheckInIntervalMs))
+        return;
+    m_lastCheckIn.start();
+    const QJsonObject seen{{"last_seen_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}};
+    m_client->update("devices", QUrlQuery("id=eq." + deviceId), seen, [](const QJsonDocument &, const QString &error) {
+        if (!error.isEmpty())
+            qWarning() << "device check-in failed:" << error;
     });
 }
 
@@ -415,6 +451,7 @@ void FamilyStore::unpair()
         emit notify(tr("Demo mode has nothing to pair"));
         return;
     }
+    ++m_generation;
     m_syncTimer.stop();
     m_settings.remove("device/refreshToken");
     m_settings.remove("device/familyId");
@@ -457,6 +494,7 @@ void FamilyStore::pollPairing()
             m_client->setSession(session.value("accessToken").toString(), session.value("refreshToken").toString());
             m_settings.setValue("device/familyId", o.value("familyId").toString());
             m_settings.setValue("device/id", o.value("deviceId").toString());
+            m_lastCheckIn.invalidate(); // a new device row: check in right away
             m_pairingCode.clear();
             emit pairingChanged();
 

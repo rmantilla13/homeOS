@@ -1,9 +1,11 @@
 -- Supabase-specific: the private `avatars` bucket for profile photos.
 -- Objects live at '<user_id>/<file>' (the app uses '<user_id>/avatar.jpg').
 
-insert into storage.buckets (id, name, public)
-values ('avatars', 'avatars', false)
-on conflict (id) do nothing;
+-- Profile photos only: small images (the iOS app uploads a resized JPEG).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', false, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/heic'])
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 -- Owners write their own folder; anyone who shares a family with the owner
 -- can read (public.can_read_avatar, defined in 20261007000001).

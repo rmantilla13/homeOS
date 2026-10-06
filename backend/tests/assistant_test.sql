@@ -42,6 +42,8 @@ select tests.throws(format($$insert into assistant_messages (thread_id, role, co
                     '%row-level security%', 'cannot post as someone else');
 select tests.throws(format($$insert into assistant_threads (family_id, owner_id) values (%L, %L)$$, :'fam', :'dad'), '%row-level security%', 'cannot create a thread for someone else');
 select tests.throws(format($$insert into assistant_threads (family_id) values (%L)$$, :'fam2'), '%row-level security%', 'cannot create a thread in another family');
+select tests.throws(format($$insert into assistant_messages (thread_id, role, content) values (%L, 'assistant', repeat('x', 100001))$$, :'mom_thread'),
+                    '%check constraint%', 'message size is bounded');
 select tests.eq((select count(*)::int from assistant_messages), 2, 'mom sees her messages');
 
 -- Append-only.

@@ -11,7 +11,13 @@ export function SettingsForm({ action, settings }: { action: FormAction; setting
   const { result, pending, submit, reset } = useFormAction(action);
 
   return (
-    <form onSubmit={submit} onChange={reset} className={ui.stack}>
+    // Remounted when the saved settings change, so the switches show what's
+    // saved now (including other admins' changes) rather than stale defaults.
+    <form key={settings.updated_at ?? ""} onSubmit={submit} onChange={reset} className={ui.stack}>
+      {/* The values this form started from; the action saves only what changed. */}
+      <input type="hidden" name="was_invite_only" value={String(settings.invite_only)} />
+      <input type="hidden" name="was_assistant_enabled" value={String(settings.assistant_enabled)} />
+      <input type="hidden" name="was_assistant_daily_limit" value={String(settings.assistant_daily_limit)} />
       <div>
         <div className={styles.switchRow}>
           <label className={styles.switchText} htmlFor="invite_only">

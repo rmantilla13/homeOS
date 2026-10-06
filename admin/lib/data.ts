@@ -273,10 +273,13 @@ export async function setFamilyStatus(id: string, status: FamilyStatus, reason: 
   await rpc(src.db, "admin_set_family_status", { family: id, status, reason });
 }
 
+// Through the admin function (spec §2.2), which calls admin_delete_family as
+// this admin and then removes the family's photos and videos from Storage;
+// SQL alone would leave the files behind.
 export async function deleteFamily(id: string): Promise<void> {
   const src = await source();
   if (src.demo) return demo.demoDeleteFamily(id);
-  await rpc(src.db, "admin_delete_family", { family: id });
+  await adminFunction(src.db, { action: "delete_family", family_id: id });
 }
 
 export async function createPlatformInvite(input: {

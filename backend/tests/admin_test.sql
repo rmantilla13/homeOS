@@ -140,6 +140,23 @@ select tests.eq((select count(*)::int from admin_list_families('nothing like thi
 select tests.eq((select count(*)::int from admin_list_families(lim => 1)), 1, 'limit');
 select tests.eq((select name from admin_list_families(lim => 1, off => 1)), 'Old quiet family', 'offset (newest first)');
 
+-- Families write most of these timestamps themselves. Ones in the future
+-- (past a few minutes of clock skew) don't make a quiet family look active.
+select tests.logout();
+select id as quiet from families where name = 'Old quiet family' \gset
+insert into events (family_id, title, starts_at, ends_at, updated_at) values (:'quiet', 'Forever', now(), now(), 'infinity');
+insert into family_memories (family_id, content, created_at) values (:'quiet', 'We are always busy', now() + interval '1 year');
+insert into devices (family_id, user_id, last_seen_at) values (:'quiet', :'admin2', now() + interval '1 day');
+select tests.login(:'admin');
+select tests.eq((admin_overview()->>'families_active_7d')::int, 1, 'future timestamps don''t count as activity');
+select tests.ok((select last_activity < now() - interval '80 days' from admin_list_families() where id = :'quiet'),
+                'last activity ignores future timestamps');
+select tests.ok((select last_activity > now() - interval '1 minute' from admin_list_families() where id = :'fam'),
+                'real activity still counts');
+select tests.logout();
+delete from devices where family_id = :'quiet';
+select tests.login(:'admin');
+
 select admin_family_detail(:'fam') as detail \gset
 select tests.eq((select array_agg(k order by k) from jsonb_object_keys(:'detail'::jsonb) k),
                 array['devices', 'family', 'invites', 'members', 'usage_by_day'], 'detail shape');

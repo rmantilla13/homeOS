@@ -39,8 +39,16 @@ Deno.test("user actions need a uuid", () => {
   }
 });
 
+Deno.test("delete_family needs a uuid", () => {
+  assertEquals(parseAdminRequest({ action: "delete_family", family_id: USER }), {
+    action: "delete_family", familyId: USER.toLowerCase(),
+  });
+  assertEquals(parseAdminRequest({ action: "delete_family", family_id: "../x" }), { error: "family_id must be a uuid" });
+  assertEquals(parseAdminRequest({ action: "delete_family", user_id: USER }), { error: "family_id must be a uuid" });
+});
+
 Deno.test("unknown actions and non-object bodies", () => {
-  const err = { error: "action must be invite_email, ban_user, unban_user or delete_user" };
+  const err = { error: "action must be invite_email, ban_user, unban_user, delete_user or delete_family" };
   assertEquals(parseAdminRequest({ action: "make_admin", user_id: USER }), err);
   assertEquals(parseAdminRequest({}), err);
   for (const body of [null, [], "invite_email", 1]) {

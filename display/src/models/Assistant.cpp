@@ -179,12 +179,15 @@ void Assistant::request(int generation, const QString &question, const QString &
             if (!retried && nothingYet && status == 401) {
                 // The access token expired between syncs: refresh once and resend.
                 m_client->refreshSession([this, generation, question, mode](bool ok) {
+                    // A rejected token ends the turn through re-pairing (the
+                    // generation moves on); getting here means homeOS cloud
+                    // couldn't be reached, not that the pairing is gone.
                     if (generation != m_generation)
                         return;
                     if (ok)
                         request(generation, question, mode, true);
                     else
-                        fail(tr("This display needs to be paired again before I can help."));
+                        fail(tr("I couldn't reach homeOS cloud just now. Try again in a moment."));
                 });
                 return;
             }

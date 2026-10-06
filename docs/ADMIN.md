@@ -19,17 +19,22 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 ## How it works
 
 - **Sign-in.** Supabase email and password through `@supabase/ssr`; the
-  session lives in cookies. `admin/proxy.ts` (Next.js 16's name for
-  middleware) refreshes the session on every request and sends anyone who
-  isn't signed in to `/login`, and anyone who isn't a platform admin to
-  `/login?error=not_admin`. Pages and server actions check again
-  (`requireAdmin()` in `lib/data.ts`), and the database checks a third time:
-  every `admin_*` RPC starts with `is_platform_admin()`.
+  session lives in httpOnly cookies (only the server uses it).
+  `admin/proxy.ts` (Next.js 16's name for middleware) refreshes the session
+  on every request and sends anyone who isn't signed in to `/login`, and
+  anyone who isn't a platform admin to `/login?error=not_admin`. Pages and
+  server actions check again (`requireAdmin()` in `lib/data.ts`), and the
+  database checks a third time: every `admin_*` RPC starts with
+  `is_platform_admin()`.
 - **One data module.** Every page and action reads and writes through
   `admin/lib/data.ts`. It calls the `admin_*` RPCs as the signed-in admin, and
-  the `admin` edge function for what needs Supabase Auth's admin API
-  (`invite_email`, `ban_user`, `unban_user`, `delete_user`). In demo mode the
-  same functions answer from fixtures instead (below).
+  the `admin` edge function for what needs the service role: Supabase Auth's
+  admin API (`invite_email`, `ban_user`, `unban_user`, `delete_user`) and
+  Storage (`delete_family`, which runs `admin_delete_family` as the admin and
+  then removes the family's photos and videos from `family-media`; SQL alone
+  leaves the files behind). Deleting a user removes their `avatars` folder
+  the same way. In demo mode the same functions answer from fixtures instead
+  (below).
 - **No service role key.** The console only ever has the public anon key and
   the admin's own session. The privileged work happens in the `admin` edge
   function, which checks the caller is an admin before using its own service
@@ -78,12 +83,13 @@ With the local Supabase stack (`cd backend && supabase start`), the URL is
 functions with `supabase functions serve` so the Users and Invites actions that
 go through the `admin` function work.
 
-Checks (CI runs the same; see `PLATFORM_SPEC.md` §7):
+Checks (CI runs the first three; see `PLATFORM_SPEC.md` §7):
 
 ```bash
 npm run lint        # ESLint (eslint-config-next)
 npm run typecheck   # next typegen && tsc --noEmit
 npm run build
+npm test            # node --test: sign-in redirects, colors, date formatting (Node 22)
 ```
 
 ## Environment variables
@@ -120,7 +126,9 @@ It's hard to turn on by accident:
 - Only the exact value `1` enables it. `true`, `yes` or an empty value don't.
 - It's read when each request is served, not baked in at build time, so a
   build made with the flag set doesn't stay in demo mode without it, and the
-  reverse.
+  reverse. (`lib/env.ts` looks variables up by a runtime key: Next.js inlines
+  any `NEXT_PUBLIC_*` it can name at build time, even through an alias. The
+  same goes for the Supabase URL and key.)
 - In demo mode the console never creates a Supabase client. Even if the flag
   were set on a real deployment, the console would show fixtures, not real
   data, and couldn't change anything real.
@@ -192,7 +200,8 @@ hook, the assistant).
 | Sign-in page says Supabase isn't configured | One of the two `NEXT_PUBLIC_SUPABASE_*` variables is missing or not a URL. They are read at request time, so restart (or redeploy) after setting them. |
 | "That account isn't a homeOS platform admin" | The account has no `platform_admins` row (see above). |
 | "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The server log has the database error. |
-| Ban, unban, delete or email fail | The `admin` edge function isn't deployed or can't be reached. |
+| Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
+| A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its files are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |
 
 Dates and times in the console are shown in UTC; hover a relative time ("3 h

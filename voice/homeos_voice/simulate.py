@@ -68,6 +68,9 @@ class SimBackend:
         self._text = self._pending if self._pending is not None else self.next_text
         self._pending = None
 
+    def end_capture(self) -> None:
+        pass
+
     async def capture(self, session: Session) -> str:
         text = self._text
         for value in self.levels:

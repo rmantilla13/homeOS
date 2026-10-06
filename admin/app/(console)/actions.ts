@@ -67,18 +67,21 @@ export async function setFamilyStatusAction(_prev: ActionResult, fd: FormData): 
 }
 
 export async function deleteFamilyAction(_prev: ActionResult, fd: FormData): Promise<ActionResult> {
-  let deleted: string | null = null;
+  let deleted = false;
   const result = await mutate(async () => {
     const id = uuid(fd, "family_id");
     const family = await data.getFamilyDetail(id);
     if (!family) throw new DataError("That family no longer exists.");
-    if (text(fd, "confirm", 200) !== family.family.name.trim()) {
+    // Names have no length limit, so the typed text may be as long as the name.
+    const name = family.family.name.trim();
+    if (text(fd, "confirm", name.length + 1) !== name) {
       throw new DataError(`Type the family name, ${family.family.name}, exactly to confirm.`);
     }
     await data.deleteFamily(id);
-    deleted = family.family.name;
+    deleted = true;
   }, { rerender: false });
-  if (result?.ok && deleted) redirect(`/families?deleted=${encodeURIComponent(deleted)}`);
+  // No name in the URL: the families page would show whatever a link put there.
+  if (result?.ok && deleted) redirect("/families?deleted=1");
   return result;
 }
 
@@ -113,11 +116,21 @@ export async function revokeInviteAction(_prev: ActionResult, fd: FormData): Pro
 
 export async function updateSettingsAction(_prev: ActionResult, fd: FormData): Promise<ActionResult> {
   return mutate(async () => {
-    await data.updateSettings({
+    const next = {
       invite_only: fd.get("invite_only") === "on",
       assistant_enabled: fd.get("assistant_enabled") === "on",
       assistant_daily_limit: int(fd, "assistant_daily_limit", 0, 1_000_000, "The daily limit"),
-    });
+    };
+    // Send only what this admin changed (the form carries the values it was
+    // opened with), so saving a form opened before another admin's change
+    // can't quietly undo it, e.g. turn the assistant back on. Null leaves a
+    // setting as it is (admin_update_settings).
+    const patch: Parameters<typeof data.updateSettings>[0] = {};
+    for (const key of ["invite_only", "assistant_enabled", "assistant_daily_limit"] as const) {
+      if (String(next[key]) !== text(fd, `was_${key}`, 12)) Object.assign(patch, { [key]: next[key] });
+    }
+    if (Object.keys(patch).length === 0) return { ok: true, message: "Nothing changed." };
+    await data.updateSettings(patch);
     return { ok: true, message: "Settings saved." };
   });
 }

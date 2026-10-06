@@ -291,7 +291,7 @@ function FamilyActions({ detail }: { detail: FamilyDetail }) {
             <strong>
               {plural(members.length, "member")} and {plural(devices.length, "display")}
             </strong>{" "}
-            (with their display accounts), calendar, chores, rewards, lists, photo and video records, and assistant
+            (with their display accounts), calendar, chores, rewards, lists, photos and videos, and assistant
             history. People keep their own accounts. <strong>This can&apos;t be undone.</strong>
           </>
         }

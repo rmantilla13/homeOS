@@ -31,6 +31,7 @@ Item {
         awaitingSpeech = false
         phase = "listening"
         stallTimer.restart()
+        dropPendingAnswer()
     }
     // Voice.heard: ask the assistant for a quick answer.
     function hear(text) {
@@ -58,6 +59,15 @@ Item {
         dismissTimer.stop()
         speechTimer.stop()
         stallTimer.stop()
+        if (stopSpeech)
+            dropPendingAnswer()
+    }
+    // A quick answer still on its way belongs to a question this card no
+    // longer shows: stop it so it neither lands here nor gets read out.
+    // (Called once the phase has moved on, so its last update is ignored.)
+    function dropPendingAnswer() {
+        if (AI.busy && AI.replyMode === "quick")
+            AI.stop()
     }
     function quoted(text) {
         return "“" + text.charAt(0).toUpperCase() + text.slice(1) + "”"

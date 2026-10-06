@@ -15,6 +15,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(config.url, config.anonKey, {
+    cookieOptions: { httpOnly: true }, // as in lib/supabase/server.ts
     cookies: {
       getAll() {
         return request.cookies.getAll();

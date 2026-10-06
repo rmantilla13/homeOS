@@ -8,6 +8,8 @@ create table storage.buckets (
   id          text primary key,
   name        text not null unique,
   public      boolean default false,
+  file_size_limit     bigint,    -- enforced by the Storage API, not here
+  allowed_mime_types  text[],
   created_at  timestamptz default now()
 );
 

@@ -20,14 +20,22 @@ There are two kinds of auth users:
 - A **profile** holds the display name and avatar (`avatars/<user_id>/avatar.jpg`).
   The name comes from the sign-up metadata `display_name`, else the part of
   the email before the `@`. You can read your own profile and the profiles of
-  people who share a family with you, and only edit your own.
+  people who share a family with you, and only edit your own. The private
+  `avatars` bucket takes images (JPEG, PNG, WebP, HEIC) up to 5 MB.
 - A **member** is someone on the family screen. Kids usually have a member row
   with no account. A member row gets an account only by accepting an invite,
-  never by a direct write.
+  never by a direct write, and a row with an account can't be moved to
+  another family.
 - **Roles** are `parent`, `child` and `other`. Parents manage the family:
   members, invites, rewards and approvals. Everyone can edit their own name,
   color and avatar. A family always keeps at least one parent with an account:
   the last one can't leave, be removed, be demoted or be unlinked.
+- **Chores** can be added by anyone in the family, the kitchen display (and
+  so the assistant) included, but only parents decide what one is worth:
+  setting or changing `points` on a chore that skips approval, or turning
+  approval off, is parent-only (`tasks_guard`). A kid's chore with points
+  waits for a parent's approval like any other.
+- **Colors** on members and events are `#RRGGBB`; anything else is refused.
 - **Platform admins** (`platform_admins`) run the service through the admin
   console. Being an admin doesn't make you a member of any family; admins
   don't see families' chats or content through the app, only through the
@@ -48,6 +56,11 @@ without the dash. They're stored without the dash (`K7QM3XWD`), and
 | Expires | 30 days by default (1–365) | 14 days by default (1–60) |
 | Email-bound | Optional | Optional |
 | Used by | `create_family(..., invite_code)` | `accept_family_invite(code, display_name)` |
+
+Email-bound invites trust the email on the account (`auth.users.email`).
+Keep **Confirm email** on (Dashboard → Authentication → Sign In / Providers →
+Email); without it, someone could sign up with an address they don't own and
+use an invite meant for it.
 
 The `platform_settings.invite_only` switch (on by default) decides whether
 `create_family` needs a platform invite. Admins never need one. Joining a
@@ -107,6 +120,8 @@ returns the same text in `reason`:
 | `the last parent can't leave` | `leave_family` by the only parent with an account |
 | `a family needs at least one parent with an account` | Removing, demoting or unlinking that parent directly |
 | `only a parent can change that` | A kid editing anything but their own name, color or avatar |
+| `only a parent can add points that skip approval` | A kid or display adding a chore with points and no approval |
+| `only a parent can change a chore's points or approval` | A kid or display changing those on an existing chore |
 
 ## The first admin
 
@@ -135,6 +150,8 @@ hand in the Supabase SQL editor (it runs as `postgres`).
 
 Local development: `supabase db reset` seeds the codes `LETS-PLAY` (start a
 family, 100 uses) and `MEET-THEM` (join the demo family as a parent).
+Never load `seed.sql` into a hosted project: anyone who reads this repo
+knows those codes.
 
 ## The auth hook (optional)
 
@@ -209,7 +226,8 @@ rename their family.
   visible only to the person or display that owns the thread, and only while
   they belong to that family. Other family members, including parents, can't
   read them, and neither can admins through the app. Messages are
-  append-only; deleting a thread deletes its messages. Usage rows stay, for
+  append-only and at most 100,000 characters each; deleting a thread deletes
+  its messages. Usage rows stay, for
   the numbers.
 
 ## Admin audit log
@@ -217,13 +235,19 @@ rename their family.
 Every admin change goes into `admin_audit_log` with the admin's id, an
 action (`set_family_status`, `delete_family`, `create_platform_invite`,
 `revoke_platform_invite`, `update_settings`, `set_admin`, plus the `admin`
-edge function's `invite_email`, `ban_user`, `unban_user` and `delete_user`),
-the target and details. Admins read it on the console's Audit page
-(`admin_list_audit`).
+edge function's `invite_email`, `ban_user`, `unban_user`, `delete_user` and
+`delete_family_files`), the target and details. Admins read it on the
+console's Audit page (`admin_list_audit`).
 
-The `admin` edge function calls `admin_create_platform_invite` with the
-admin's own session, so that row names the admin; it writes its own rows for
-the other actions. The `admin_*` functions also accept the service role, for
+SQL can't remove files from Storage. The console deletes a family through the
+`admin` function's `delete_family`, which runs `admin_delete_family` and then
+empties `family-media/<family_id>/`; deleting a user empties
+`avatars/<user_id>/`. Calling `admin_delete_family` directly (SQL editor)
+leaves the files; remove that folder in Storage yourself.
+
+The `admin` edge function calls `admin_create_platform_invite` and
+`admin_delete_family` with the admin's own session, so those rows name the
+admin; it writes its own rows for the other actions. The `admin_*` functions also accept the service role, for
 server-side jobs. Called that way there's no `auth.uid()`, so the row's
 `admin_id` is empty.
 
@@ -234,3 +258,6 @@ on top of a stand-in for Supabase Auth (`tests/stub_auth.sql`), and runs each
 `tests/*_test.sql` in a fresh copy of the database. The storage migrations
 run only for `storage_test`, which adds `tests/stub_storage.sql`. Run one
 file with `run.sh invites`, and add `VERBOSE=1` to see its output.
+`concurrency_test` races two sessions for the same invite through `dblink`
+(Postgres contrib, part of the `postgresql-16` package); it's skipped when
+dblink isn't installed.

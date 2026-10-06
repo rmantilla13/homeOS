@@ -132,6 +132,36 @@ private slots:
         QCOMPARE(voice.state(), QStringLiteral("transcribing"));
     }
 
+    void helloAtAnyTime()
+    {
+        // The service re-sends hello after `set` and when the mic comes or
+        // goes, mid-session included, followed by the current state.
+        VoiceClient voice(url());
+        voice.start();
+        QTRY_VERIFY(voice.available());
+        QTRY_VERIFY(voice.canTranscribe());
+        serverSend({{"type", "wake"}, {"source", "wakeword"}});
+        serverSend({{"type", "state"}, {"state", "listening"}});
+        QTRY_COMPARE(voice.state(), QStringLiteral("listening"));
+
+        QSignalSpy info(&voice, &VoiceClient::infoChanged);
+        serverSend({{"type", "hello"}, {"version", "1"}, {"wakeword", false},
+                    {"wakeword_name", "hey_homeos"}, {"tts", true}, {"stt", false}});
+        serverSend({{"type", "state"}, {"state", "idle"}});
+        QTRY_COMPARE(voice.state(), QStringLiteral("idle"));
+        QVERIFY(info.size() >= 1);
+        QVERIFY(voice.available());
+        QVERIFY(!voice.wakewordEnabled());
+        QVERIFY(!voice.canTranscribe());
+        QVERIFY(voice.canSpeak());
+        QCOMPARE(voice.wakewordLabel(), QStringLiteral("Hey homeOS"));
+
+        serverSend({{"type", "hello"}, {"version", "1"}, {"wakeword", true},
+                    {"wakeword_name", "hey_homeos"}, {"tts", true}, {"stt", true}});
+        QTRY_VERIFY(voice.wakewordEnabled());
+        QVERIFY(voice.canTranscribe());
+    }
+
     void reconnects()
     {
         VoiceClient voice(url());

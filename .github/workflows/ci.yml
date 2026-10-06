@@ -79,6 +79,9 @@ jobs:
           deno-version: v2.x
       - name: Type-check edge functions
         run: deno check backend/supabase/functions/*/index.ts
+      - name: Unit tests
+        working-directory: backend/supabase/functions
+        run: deno test
 
   display:
     needs: changes
@@ -141,6 +144,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      - run: npm test
 
   voice:
     needs: changes

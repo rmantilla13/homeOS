@@ -91,10 +91,17 @@ void SupabaseClient::refreshSession(std::function<void(bool)> done)
     q.addQueryItem("grant_type", "refresh_token");
     QNetworkRequest req = request("/auth/v1/token", q);
     req.setRawHeader("Authorization", "Bearer " + m_anonKey.toUtf8());
-    const QJsonObject body{{"refresh_token", m_refreshToken}};
+    const QString sent = m_refreshToken;
+    const QJsonObject body{{"refresh_token", sent}};
 
     handle(m_nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact)),
-           [this, done](const QJsonDocument &doc, const QString &error) {
+           [this, done, sent](const QJsonDocument &doc, const QString &error) {
+               if (m_refreshToken != sent) {
+                   // Cleared (re-pair) or replaced (new pairing) meanwhile: this
+                   // answer is about a session we no longer hold.
+                   done(hasSession());
+                   return;
+               }
                if (!error.isEmpty()) {
                    qWarning() << "session refresh failed:" << error;
                    // A 4xx means the token is dead; network errors are retried later.
@@ -186,10 +193,13 @@ QNetworkReply *SupabaseClient::streamFunction(const QString &name, const QJsonOb
     connect(reply, &QNetworkReply::readyRead, this, consume);
     connect(reply, &QNetworkReply::finished, this, [this, reply, state, consume, deliver, onEvent, onFinished]() {
         reply->deleteLater();
-        if (reply->error() != QNetworkReply::OperationCanceledError)
+        // Aborted (by the caller or the idle timeout): deliver nothing more,
+        // not even an event that only lacked its blank line.
+        if (reply->error() != QNetworkReply::OperationCanceledError) {
             consume();
-        if (state->isStream)
-            deliver(state->parser.finish());
+            if (state->isStream)
+                deliver(state->parser.finish());
+        }
         state->finished = true;
 
         if (reply->error() != QNetworkReply::NoError) {

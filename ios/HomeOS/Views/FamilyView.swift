@@ -748,6 +748,7 @@ struct PairDisplayView: View {
                     .disabled(code.count != 6 || working)
                 }
             }
+            .showsStoreErrors()  // a failed pairing keeps this sheet open
         }
     }
 }

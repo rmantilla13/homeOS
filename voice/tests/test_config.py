@@ -87,6 +87,9 @@ def test_values_are_read_and_ints_become_floats():
     assert cfg.vad.silence == 1.0 and isinstance(cfg.vad.silence, float)
     assert cfg.stt.initial_prompt == "Leo, Maya"
     assert cfg.tts.engine == "espeak"
+    assert Config().server.allowed_origins == []
+    assert loads_config('[server]\nallowed_origins = ["http://localhost:8080"]'
+                        ).server.allowed_origins == ["http://localhost:8080"]
 
 
 def test_unknown_keys_are_warnings_not_errors():
@@ -122,6 +125,12 @@ def test_unknown_keys_are_warnings_not_errors():
     ("log_level = 'loud'", "log_level must be one of"),
     ("server = 1", "[server] must be a table"),
     ("[server\nport = 1", "Expected ']'"),
+    # TOML allows inf and nan; they used to pass and break every session.
+    ("[vad]\nmax_length = inf", "vad.max_length must be a finite number"),
+    ("[vad]\nno_speech = inf", "vad.no_speech must be a finite number"),
+    ("[wakeword]\nrefractory = nan", "wakeword.refractory must be a finite number"),
+    ("[server]\nallowed_origins = 'http://x'", "server.allowed_origins must be a list of strings"),
+    ("[server]\nallowed_origins = [1]", "server.allowed_origins must be a list of strings"),
 ])
 def test_bad_values_are_errors(text, message):
     with pytest.raises(ConfigError, match=re.escape(message)):
@@ -140,6 +149,10 @@ def test_load_config_paths(tmp_path, monkeypatch):
     assert load_config(path).server.port == 9100
     with pytest.raises(ConfigError, match="not found"):
         load_config(tmp_path / "missing.toml")
+    latin1 = tmp_path / "latin1.toml"
+    latin1.write_bytes(b'[wakeword]\nname = "Hey Andr\xe9"\n')
+    with pytest.raises(ConfigError, match="UTF-8"):
+        load_config(latin1)
     # With no path, a missing default file just means defaults...
     monkeypatch.setattr(config_module, "DEFAULT_PATH", str(tmp_path / "nope.toml"))
     assert load_config() == Config()

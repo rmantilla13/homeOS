@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AlertIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, SearchIcon } from "@/components/icons";
-import { formatDateTime, formatRelative } from "@/lib/format";
+import { cssColor, formatDateTime, formatRelative } from "@/lib/format";
 import styles from "./ui.module.css";
 
 export { styles as ui };
@@ -112,8 +112,11 @@ export function Time({ iso, fallback = "never" }: { iso: string | null | undefin
   );
 }
 
+// Member colors come from families, so only hex colors are drawn; anything
+// else gets the empty ring.
 export function Swatch({ color }: { color: string }) {
-  return <span className={styles.swatch} style={{ background: color }} aria-hidden="true" />;
+  const safe = cssColor(color);
+  return <span className={styles.swatch} style={safe ? { background: safe } : undefined} aria-hidden="true" />;
 }
 
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {

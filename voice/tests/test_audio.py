@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import shutil
@@ -10,11 +11,18 @@ import sys
 import threading
 import time
 import wave
+from types import SimpleNamespace
 
 import pytest
 
-from homeos_voice import pcm
-from homeos_voice.audio import AplayPlayer, AudioError, input_candidates, make_player
+from homeos_voice import audio, pcm
+from homeos_voice.audio import (
+    AplayPlayer,
+    AudioError,
+    Microphone,
+    input_candidates,
+    make_player,
+)
 from homeos_voice.config import TtsConfig
 from homeos_voice.stt import clean_transcript
 from homeos_voice.tts import EspeakSynth, Speaker, clean_for_speech, create_synth
@@ -89,6 +97,60 @@ def test_input_candidates_prefer_a_usb_mic():
         input_candidates(DEVICES, 3, "respeaker")
     with pytest.raises(AudioError, match="plug in a USB mic"):
         input_candidates(DEVICES[:1], -1, "")
+
+
+class FakePortAudio:
+    """sounddevice as far as Microphone uses it. Like PortAudio, the device
+    list is only read when it's initialised."""
+
+    def __init__(self) -> None:
+        self.attached: list[dict] = []  # what's actually plugged in
+        self.devices: list[dict] = []  # what PortAudio saw at initialisation
+        self.default = SimpleNamespace(device=[-1, -1])
+        self._initialized = 1
+        self.opened: list[int] = []
+
+    def plug_in_usb_mic(self) -> None:
+        self.attached.append({"name": "USB PnP Sound Device: Audio (hw:2,0)",
+                              "max_input_channels": 1, "default_samplerate": 48000.0})
+
+    def query_devices(self) -> list[dict]:
+        return list(self.devices)
+
+    def _terminate(self) -> None:
+        self._initialized -= 1
+
+    def _initialize(self) -> None:
+        self._initialized += 1
+        self.devices = list(self.attached)
+
+    def check_input_settings(self, **kwargs) -> None:
+        pass
+
+    def RawInputStream(self, *, device: int, **kwargs) -> SimpleNamespace:
+        self.opened.append(device)
+        return SimpleNamespace(start=lambda: None, stop=lambda: None, close=lambda: None)
+
+
+def test_a_mic_plugged_in_after_startup_is_found(monkeypatch):
+    sd = FakePortAudio()
+    monkeypatch.setattr(audio, "load_sounddevice", lambda: sd)
+    loop = asyncio.new_event_loop()
+    try:
+        sd.plug_in_usb_mic()  # after PortAudio was initialised
+        with pytest.raises(AudioError, match="no microphone found"):
+            Microphone().start(loop)
+        # While our own output stream is open a re-scan would close it: skipped.
+        with audio.portaudio_in_use:
+            with pytest.raises(AudioError, match="no microphone found"):
+                Microphone().start(loop, rescan=True)
+        mic = Microphone()
+        mic.start(loop, rescan=True)
+        assert mic.name.startswith("USB PnP") and sd.opened == [0]
+        assert sd._initialized == 1
+        mic.close()
+    finally:
+        loop.close()
 
 
 def test_clean_for_speech():

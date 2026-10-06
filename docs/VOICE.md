@@ -86,7 +86,10 @@ seconds, so the two can start in any order.
   sends it to the assistant, like a typed question.
 - **The service makes no network requests.** Models are downloaded only by
   `--download-models` (run by the install script); the systemd unit sets
-  `HF_HUB_OFFLINE=1` so nothing is fetched while it runs.
+  `HF_HUB_OFFLINE=1` so nothing is fetched while it runs, and its
+  `IPAddressDeny=any` / `IPAddressAllow=localhost` firewall holds it to the
+  display's localhost socket. The unit also sandboxes it (read-only system
+  directories, no new privileges).
 - **Turning the wake word off sticks.** The switch in the display's settings
   sheet is saved in `~/.local/share/homeos-voice/state.json` and survives
   restarts. With it off, the mic is opened but nothing is analysed until
@@ -95,6 +98,11 @@ seconds, so the two can start in any order.
   timings. `debug` logs include transcripts; don't leave it on.
 - The WebSocket listens on localhost only and has no authentication. Don't
   set `server.host` to `0.0.0.0` on a shared network.
+- **Web pages can't use it.** A site open in a browser on the Pi could
+  otherwise reach `ws://127.0.0.1:8765`, switch the mic on and read what was
+  said. Browsers always send an `Origin` header and the display doesn't, so
+  any connection with one is refused (HTTP 403) unless it's listed in
+  `server.allowed_origins` (empty by default).
 - For a hard guarantee, unplug the USB mic, or use one with a mute switch.
 
 ## How a question flows
@@ -203,10 +211,12 @@ behind it.
 |---|---|
 | `{"type":"listen"}` | Push-to-talk. Interrupts speech; ignored if a session is already running |
 | `{"type":"cancel"}` | Ends the session without a transcript, stops speech, and goes `idle` |
-| `{"type":"speak","text":str,"id":str}` | Queues speech. Waits for a session in progress to finish. `id` is optional (one is made up) |
+| `{"type":"speak","text":str,"id":str}` | Queues speech. Waits for a session in progress to finish. `id` is optional (one is made up) and at most 200 characters. Text past 2,000 characters is cut at a word break. With 16 replies already waiting, it's refused with an `error` and an immediate `spoken` |
 | `{"type":"stop_speaking"}` | Stops speech and drops anything queued; each pending id gets `spoken` |
 | `{"type":"set","wakeword_enabled":bool}` | Switches the wake word; answered with a fresh `hello` to every client |
 
+- A frame over 64 KiB closes the connection (code 1009); a handshake with
+  an `Origin` header not in `server.allowed_origins` is refused with 403.
 - `level` is the frame's loudness mapped from −60…0 dBFS onto 0…1, so normal
   speech reads about 0.4–0.8 and can drive the orb directly.
 - `hello.wakeword` is true only when the wake word is switched on *and*

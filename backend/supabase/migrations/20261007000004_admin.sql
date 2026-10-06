@@ -28,20 +28,26 @@ $$;
 
 -- Latest sign of life in a family: devices checking in, edits to shared
 -- content, chores, photos, assistant use. Admin-only (called by admin_*).
+-- Families can write most of these timestamps themselves, so values in the
+-- future (past a few minutes of clock skew, e.g. 'infinity') are ignored
+-- rather than making the family look active forever.
 create function public.family_last_activity(fid uuid)
 returns timestamptz
 language sql stable security definer set search_path = public as $$
+  with h as (select now() + interval '10 minutes' as horizon)
   select greatest(
-    (select f.created_at from public.families f where f.id = fid),
-    (select max(last_seen_at) from public.devices where family_id = fid),
-    (select max(updated_at) from public.events where family_id = fid),
-    (select max(updated_at) from public.tasks where family_id = fid),
-    (select max(completed_at) from public.task_completions where family_id = fid),
-    (select max(i.updated_at) from public.list_items i join public.lists l on l.id = i.list_id where l.family_id = fid),
-    (select max(created_at) from public.media_items where family_id = fid),
-    (select max(created_at) from public.points_ledger where family_id = fid),
-    (select max(created_at) from public.family_memories where family_id = fid),
-    (select max(created_at) from public.assistant_usage where family_id = fid))
+    (select f.created_at from public.families f where f.id = fid and f.created_at <= h.horizon),
+    (select max(last_seen_at) from public.devices where family_id = fid and last_seen_at <= h.horizon),
+    (select max(updated_at) from public.events where family_id = fid and updated_at <= h.horizon),
+    (select max(updated_at) from public.tasks where family_id = fid and updated_at <= h.horizon),
+    (select max(completed_at) from public.task_completions where family_id = fid and completed_at <= h.horizon),
+    (select max(i.updated_at) from public.list_items i join public.lists l on l.id = i.list_id
+      where l.family_id = fid and i.updated_at <= h.horizon),
+    (select max(created_at) from public.media_items where family_id = fid and created_at <= h.horizon),
+    (select max(created_at) from public.points_ledger where family_id = fid and created_at <= h.horizon),
+    (select max(created_at) from public.family_memories where family_id = fid and created_at <= h.horizon),
+    (select max(created_at) from public.assistant_usage where family_id = fid and created_at <= h.horizon))
+  from h
 $$;
 
 -- Platform invite state for the console: revoked, used, expired or active.

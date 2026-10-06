@@ -72,6 +72,7 @@ async def run(cfg: Config, *, simulate: bool = False) -> None:
         refractory=cfg.wakeword.refractory,
         resume_delay=cfg.wakeword.resume_delay,
         store=store,
+        allowed_origins=cfg.server.allowed_origins,
     )
     server = await service.serve(cfg.server.host, cfg.server.port)
     port = server.sockets[0].getsockname()[1]

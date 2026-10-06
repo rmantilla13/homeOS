@@ -65,6 +65,19 @@ select tests.throws(format($$update members set user_id = %L where id = %L$$, :'
                     'accounts join a family through an invite', 'parent cannot link an account directly');
 select tests.throws(format($$update members set user_id = %L where id = %L$$, :'stranger', :'m_emma'),
                     'accounts join a family through an invite', 'parent cannot swap an account');
+-- Mom is a parent of fam2 too, but Emma never accepted an invite there.
+select tests.logout();
+insert into members (family_id, user_id, display_name, role) values (:'fam2', :'mom', 'Mom', 'parent');
+select tests.login(:'mom');
+select tests.throws(format($$update members set family_id = %L where id = %L$$, :'fam2', :'m_emma'),
+                    'accounts join a family through an invite', 'parent cannot move an account into another family');
+select tests.eq(tests.affected(format($$insert into members (family_id, display_name) values (%L, 'Moving kid')$$, :'fam')), 1, 'kid without an account');
+select tests.eq(tests.affected(format($$update members set family_id = %L where display_name = 'Moving kid'$$, :'fam2')), 1,
+                'rows without an account can move between the parent''s families');
+select tests.eq(tests.affected($$delete from members where display_name = 'Moving kid'$$), 1, 'cleanup');
+select tests.logout();
+delete from members where family_id = :'fam2';
+select tests.login(:'mom');
 select tests.eq(tests.affected(format($$update members set user_id = null where id = %L$$, :'m_emma')), 1, 'parent may unlink a kid');
 select tests.eq(tests.affected($$delete from members where display_name = 'Baby'$$), 1, 'parent deletes a kid');
 

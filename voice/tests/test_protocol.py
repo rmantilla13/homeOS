@@ -6,10 +6,13 @@ import asyncio
 import json
 import time
 
+import pytest
 from helpers import client, fast_sim, running, types
+from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosedError, InvalidStatus
 
 from homeos_voice import protocol
-from homeos_voice.service import StateStore
+from homeos_voice.service import MAX_QUEUED_SPEECH, MAX_SPEAK_CHARS, StateStore
 
 IDLE = {"type": "state", "state": "idle"}
 SPEAKING = {"type": "state", "state": "speaking"}
@@ -242,6 +245,8 @@ async def test_bad_messages_get_an_error_only_for_the_sender():
         json.dumps({"type": "speak"}),
         json.dumps({"type": "speak", "text": "hi", "id": ["x"]}),
         json.dumps({"type": "set", "wakeword_enabled": "yes"}),
+        json.dumps({"type": "speak", "text": "hi", "id": "x" * (protocol.MAX_ID_CHARS + 1)}),
+        "[" * 5000,  # nested past the JSON decoder's recursion limit
         b"\x00\x01",
     ]
     async with running() as (_, _, url), client(url) as a, client(url) as b:
@@ -306,6 +311,98 @@ async def test_state_reflects_reality_for_late_joiners():
         async with client(url, greeted=False) as late:
             assert (await late.recv())["type"] == "hello"
             assert await late.recv() == SPEAKING
+
+
+async def test_browser_pages_cant_connect():
+    # Any web page open in a browser on the Pi could reach ws://127.0.0.1:8765,
+    # turn the mic on and read transcripts. Browsers always send Origin; the
+    # display (QWebSocket) and local tools don't.
+    async with running() as (_, _, url):
+        for origin in ("http://evil.example", "null", "http://127.0.0.1:8765"):
+            with pytest.raises(InvalidStatus) as refused:
+                async with connect(url, origin=origin):
+                    pass
+            assert refused.value.response.status_code == 403
+        async with client(url) as c:
+            await c.send(type="listen")
+            assert (await c.until({"type": "transcript"}))[0]["type"] == "wake"
+
+
+async def test_allowed_origins_can_connect():
+    async with running(allowed_origins=["http://localhost:8080"]) as (_, _, url):
+        async with connect(url, origin="http://localhost:8080") as ws:
+            assert json.loads(await ws.recv())["type"] == "hello"
+        async with client(url):
+            pass  # no Origin is still fine
+        with pytest.raises(InvalidStatus):
+            async with connect(url, origin="http://localhost:9999"):
+                pass
+
+
+async def test_long_speech_is_cut_to_the_limit():
+    backend = fast_sim(word_time=0.0001)
+    async with running(backend) as (_, _, url), client(url) as c:
+        await c.send(type="speak", text="word " * 10_000, id="long")
+        await c.until({"type": "spoken", "id": "long"})
+        (said,) = backend.spoken
+        assert len(said) <= MAX_SPEAK_CHARS
+        assert said.endswith("word")  # cut between words, not inside one
+
+
+async def test_the_speech_queue_is_bounded():
+    async with running(fast_sim(word_time=1.0)) as (service, _, url), client(url) as c:
+        await c.send(type="speak", text="a long reply", id="now")
+        await c.until(SPEAKING)
+        extra = 3
+        for i in range(MAX_QUEUED_SPEECH + extra):
+            await c.send(type="speak", text="more", id=f"q{i}")
+        last = f"q{MAX_QUEUED_SPEECH + extra - 1}"
+        got = await c.until({"type": "spoken", "id": last})
+        # The overflow is refused (to the sender) and answered at once; the rest wait.
+        assert types(got).count("error") == extra
+        assert [m["id"] for m in got if m["type"] == "spoken"] == [
+            f"q{i}" for i in range(MAX_QUEUED_SPEECH, MAX_QUEUED_SPEECH + extra)]
+        assert len(service._speech_queue) == MAX_QUEUED_SPEECH
+
+
+async def test_an_id_that_isnt_valid_utf8_is_still_answered():
+    # A lone surrogate can't be encoded as UTF-8; it used to kill the speech
+    # task, leaving later replies queued forever.
+    async with running() as (_, _, url), client(url) as c:
+        await c.ws.send('{"type":"speak","text":"hi","id":"\\ud800"}')
+        await c.send(type="speak", text="next one", id="after")
+        got = await c.until(IDLE)
+        assert [m["id"] for m in got if m["type"] == "spoken"] == ["\ud800", "after"]
+        await c.ws.send('{"type":"speak","text":"","id":"\\udfff"}')
+        assert await c.recv() == {"type": "spoken", "id": "\udfff"}
+
+
+async def test_an_empty_id_is_echoed():
+    async with running() as (_, _, url), client(url) as c:
+        await c.send(type="speak", text="hi", id="")
+        assert (await c.until({"type": "spoken"}))[-1]["id"] == ""
+
+
+async def test_oversized_frames_close_the_connection():
+    async with running() as (service, _, url), client(url) as c:
+        await c.ws.send(json.dumps({"type": "speak", "text": "x" * 100_000}))
+        with pytest.raises(ConnectionClosedError):
+            await c.recv()
+        assert service.state == "idle"
+
+
+async def test_a_crashed_background_task_is_logged_at_once(monkeypatch, caplog):
+    # Without a done callback the traceback only surfaced when the task was
+    # garbage collected, often at shutdown.
+    def boom(speech_id: str) -> dict:
+        raise RuntimeError("bug after speaking")
+
+    async with running() as (_, _, url), client(url) as c:
+        monkeypatch.setattr(protocol, "spoken", boom)
+        await c.send(type="speak", text="hi", id="b")
+        await c.until(IDLE)
+        await asyncio.sleep(0.05)
+        assert any("background task failed" in r.getMessage() for r in caplog.records)
 
 
 def test_message_builders_match_the_spec():

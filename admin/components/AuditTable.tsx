@@ -5,6 +5,7 @@ import type { AuditEntry } from "@/lib/types";
 
 const TONES: Record<string, Tone> = {
   delete_family: "danger",
+  delete_family_files: "danger",
   delete_user: "danger",
   ban_user: "danger",
   revoke_platform_invite: "warn",
@@ -31,7 +32,7 @@ function Target({ e }: { e: AuditEntry }) {
     case "family": {
       // Status changes don't record the name; the id prefix still tells families apart.
       const label = str(d.name) ?? `Family ${e.target_id?.slice(0, 8) ?? ""}`.trim();
-      return e.action === "delete_family" || !e.target_id ? (
+      return e.action === "delete_family" || e.action === "delete_family_files" || !e.target_id ? (
         <span>{label}</span>
       ) : (
         <Link href={`/families/${e.target_id}`}>{label}</Link>

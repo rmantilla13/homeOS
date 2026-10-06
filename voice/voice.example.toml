@@ -16,6 +16,10 @@
 # is no authentication, so keep it on localhost.
 #host = "127.0.0.1"
 #port = 8765
+# Web pages allowed to connect, by exact origin, e.g. ["http://localhost:8080"].
+# Browsers send one; the display doesn't. Empty refuses every browser page, so
+# a site open on the Pi can't turn the mic on.
+#allowed_origins = []
 
 [audio]
 # Microphone: a device index or part of its name, from

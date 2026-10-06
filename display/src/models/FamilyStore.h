@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDate>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QSettings>
@@ -84,6 +85,7 @@ private:
     void loadDemo();
     void loadLive();
     void withSession(std::function<void()> fn);
+    void checkIn();
     void startPairing();
     void pollPairing();
     void rebuild();
@@ -101,6 +103,11 @@ private:
     QTimer m_pairTimer;
     QString m_pairingCode;
     QString m_pairingSecret;
+    // Bumped when the device's session is dropped (re-pair, lost session) so
+    // answers to requests made before are ignored.
+    int m_generation = 0;
+    // When this display last set devices.last_seen_at (monotonic; invalid until it has).
+    QElapsedTimer m_lastCheckIn;
 
     // Raw rows as loaded (demo JSON or Supabase).
     QVariantList m_rawMembers, m_rawEvents, m_rawTasks, m_rawRewards, m_rawMeals, m_rawLists, m_rawMedia;

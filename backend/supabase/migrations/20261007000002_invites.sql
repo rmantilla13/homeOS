@@ -434,6 +434,9 @@ begin
       end if;
     elsif new.user_id is not null and new.user_id is distinct from old.user_id then
       raise exception 'accounts join a family through an invite';
+    elsif old.user_id is not null and new.family_id <> old.family_id then
+      -- A parent of two families can't carry someone's account into the other one.
+      raise exception 'accounts join a family through an invite';
     end if;
   end if;
 

@@ -25,7 +25,8 @@ Rectangle {
     }
 
     function send(text) {
-        if (!text || !text.trim()) return
+        // While a reply streams the message would be dropped: keep it typed.
+        if (!text || !text.trim() || AI.busy) return
         AI.ask(text)
         input.text = ""
     }

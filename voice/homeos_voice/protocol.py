@@ -11,6 +11,8 @@ from . import PROTOCOL_VERSION
 STATES = ("idle", "listening", "transcribing", "speaking")
 WAKE_SOURCES = ("wakeword", "button")
 CLIENT_TYPES = ("listen", "cancel", "speak", "stop_speaking", "set")
+# A speak id is echoed in `spoken` to every client.
+MAX_ID_CHARS = 200
 
 
 class ProtocolError(ValueError):
@@ -58,7 +60,13 @@ def error(message: str) -> dict[str, Any]:
 
 
 def encode(message: dict[str, Any]) -> str:
-    return json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+    text = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+    try:
+        text.encode()
+    except UnicodeEncodeError:
+        # A lone surrogate (in a client's id, say) can't be sent as UTF-8; escape it.
+        text = json.dumps(message, separators=(",", ":"))
+    return text
 
 
 # Client → server
@@ -71,7 +79,7 @@ def parse_client_message(raw: str | bytes) -> dict[str, Any]:
         raise ProtocolError("expected a JSON text frame")
     try:
         msg = json.loads(raw)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, RecursionError):  # RecursionError: absurdly deep nesting
         raise ProtocolError("not valid JSON") from None
     if not isinstance(msg, dict):
         raise ProtocolError("expected a JSON object")
@@ -86,8 +94,11 @@ def parse_client_message(raw: str | bytes) -> dict[str, Any]:
         speech_id = msg.get("id")
         if isinstance(speech_id, bool) or not isinstance(speech_id, (str, int, type(None))):
             raise ProtocolError("speak id must be a string")
-        return {"type": "speak", "text": text,
-                "id": None if speech_id is None else str(speech_id)}
+        if speech_id is not None:
+            speech_id = str(speech_id)
+            if len(speech_id) > MAX_ID_CHARS:
+                raise ProtocolError(f"speak id must be at most {MAX_ID_CHARS} characters")
+        return {"type": "speak", "text": text, "id": speech_id}
     if kind == "set":
         enabled = msg.get("wakeword_enabled")
         if not isinstance(enabled, bool):

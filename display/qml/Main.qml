@@ -37,6 +37,12 @@ ApplicationWindow {
             voiceTarget = ""
             return true
         }
+        // No microphone or speech-to-text: the service would refuse `listen`
+        // and the mic would look stuck on until the watchdog.
+        if (!Voice.canTranscribe) {
+            showToast(qsTr("Voice needs a microphone (see docs/VOICE.md)"))
+            return false
+        }
         dismissKeyboard()
         Voice.stopSpeaking()
         voiceTarget = "chat"
@@ -97,6 +103,10 @@ ApplicationWindow {
             if (window.voiceTarget === "chat") {
                 window.voiceTarget = ""
                 pttWatchdog.stop()
+                // Speaking wins over a reply still streaming, as with the
+                // wake word; otherwise ask() would drop what was said.
+                if (AI.busy)
+                    AI.stop()
                 AI.ask(text)
             } else if (quick.phase === "listening") {
                 quick.hear(text)

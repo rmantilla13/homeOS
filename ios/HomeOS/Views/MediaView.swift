@@ -261,6 +261,7 @@ struct MediaViewer: View {
         .confirmationDialog("Delete this from the family library?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { deleteCurrent() }
         }
+        .showsStoreErrors()  // a full-screen cover: Media's alert can't show over it
     }
 
     private var chrome: some View {

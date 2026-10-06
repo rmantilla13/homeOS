@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 
 FRAME_SECONDS = FRAME_SAMPLES / SAMPLE_RATE
 
+# Held while our PortAudio output stream is open, which a re-scan would close.
+portaudio_in_use = threading.Lock()
+
 
 class AudioError(Exception):
     """No usable microphone or speaker, or the audio stack is missing."""
@@ -31,6 +34,20 @@ def load_sounddevice() -> Any:
     except OSError as e:  # sounddevice raises this when libportaudio is missing
         raise AudioError(f"PortAudio isn't available ({e}); apt install libportaudio2") from None
     return sd
+
+
+def rescan_devices(sd: Any) -> None:
+    """PortAudio reads the device list only when it's initialised, so a mic
+    plugged in later stays invisible until it's re-initialised. Skipped (until
+    the next try) while a reply is playing through PortAudio."""
+    if not portaudio_in_use.acquire(blocking=False):
+        return
+    try:
+        if getattr(sd, "_initialized", 0) > 0:
+            sd._terminate()
+        sd._initialize()
+    finally:
+        portaudio_in_use.release()
 
 
 def describe_devices() -> str:
@@ -102,8 +119,10 @@ class Microphone:
         self._stream: Any = None
         self._dropped = 0
 
-    def start(self, loop: asyncio.AbstractEventLoop) -> None:
+    def start(self, loop: asyncio.AbstractEventLoop, *, rescan: bool = False) -> None:
         sd = load_sounddevice()
+        if rescan:
+            rescan_devices(sd)
         devices = list(sd.query_devices())
         default_input = sd.default.device[0]
         errors = []
@@ -247,8 +266,8 @@ class SoundDevicePlayer:
     def play(self, rate: int, chunks: Iterable[bytes], stop: threading.Event) -> None:
         sd = load_sounddevice()
         piece = rate // 10 * 2  # 100 ms, so a stop takes effect quickly
-        with sd.RawOutputStream(samplerate=rate, channels=1, dtype="int16",
-                                device=self.device) as out:
+        with portaudio_in_use, sd.RawOutputStream(samplerate=rate, channels=1, dtype="int16",
+                                                  device=self.device) as out:
             for chunk in chunks:
                 for offset in range(0, len(chunk), piece):
                     if stop.is_set():

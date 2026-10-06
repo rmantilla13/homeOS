@@ -103,11 +103,26 @@ final class FamilyStore {
     func start() async {
         for await (event, session) in supabase.auth.authStateChanges {
             guard [.initialSession, .signedIn, .signedOut].contains(event) else { continue }
-            if session == nil {
+            var signedIn = session != nil
+            // The initial session is also nil when the saved one couldn't be
+            // refreshed. Offline, that's still a signed-in account: show "Try
+            // again" rather than the welcome screen. A refusal means signed out.
+            if !signedIn, event == .initialSession, supabase.auth.currentSession != nil {
+                do {
+                    _ = try await supabase.auth.session
+                    signedIn = true
+                } catch is URLError {
+                    errorMessage = AssistantError.unreachable.message
+                    continue
+                } catch {
+                    // The server turned the saved session down.
+                }
+            }
+            if signedIn {
+                await loadFamily()
+            } else {
                 clearSession()
                 phase = .signedOut
-            } else {
-                await loadFamily()
             }
         }
     }
@@ -204,7 +219,14 @@ final class FamilyStore {
             async let points: [MemberPoints] = supabase.from("member_points").select().eq("family_id", value: fid).execute().value
             async let lists: [FamilyList] = supabase.from("lists").select().eq("family_id", value: fid)
                 .order("sort_order").execute().value
-            async let items: [ListItem] = supabase.from("list_items").select().order("created_at").limit(500).execute().value
+            // list_items has no family_id: filter through its list. Newest first, so
+            // a long history of checked-off items can't push new ones past the limit.
+            async let items: [ListItem] = supabase.from("list_items")
+                .select("*, lists!inner(family_id)")
+                .eq("lists.family_id", value: fid)
+                .order("created_at", ascending: false)
+                .limit(500)
+                .execute().value
             async let meals: [MealPlan] = supabase.from("meal_plans").select().eq("family_id", value: fid)
                 .gte("date", value: mealsFrom).lte("date", value: mealsTo).execute().value
             async let memories: [FamilyMemory] = supabase.from("family_memories").select().eq("family_id", value: fid)
@@ -223,9 +245,9 @@ final class FamilyStore {
             self.points = Dictionary((try await points).map { ($0.memberId, $0.balance) }, uniquingKeysWith: { a, _ in a })
             let familyLists = try await lists
             self.lists = familyLists
-            // list_items has no family_id; keep the ones on this family's lists.
+            // Keep the ones on this family's lists, oldest first as they were added.
             let listIds = Set(familyLists.map(\.id))
-            self.listItems = try await items.filter { listIds.contains($0.listId) }
+            self.listItems = try await items.reversed().filter { listIds.contains($0.listId) }
             self.meals = try await meals
             self.memories = try await memories
             self.profiles = try await profiles
@@ -256,6 +278,12 @@ final class FamilyStore {
     /// The RPCs raise short lowercase sentences meant for people ("invite code expired").
     private static func message(for error: Error) -> String {
         if let error = error as? PostgrestError { return error.message.sentenceCased }
+        // Edge functions answer a 4xx/5xx with {"error": "..."}; show that, not the status code.
+        struct FunctionErrorBody: Decodable { let error: String }
+        if let functionsError = error as? FunctionsError, case let .httpError(_, data) = functionsError,
+           let body = try? JSONDecoder().decode(FunctionErrorBody.self, from: data) {
+            return body.error.sentenceCased
+        }
         return error.localizedDescription
     }
 
@@ -318,6 +346,12 @@ final class FamilyStore {
         let value: (String) -> String? = { name in items.first { $0.name == name }?.value }
         if let problem = value("error_description") ?? value("error") {
             errorMessage = problem.replacingOccurrences(of: "+", with: " ")
+            return
+        }
+        // Any app or web page can open a homeos:// link, so tokens in one must
+        // never quietly swap the account already signed in on this iPhone.
+        if value("access_token") != nil, supabase.auth.currentSession != nil {
+            errorMessage = "You're already signed in. Sign out first to use that link."
             return
         }
         redeemAfterAuth = true
@@ -690,6 +724,12 @@ final class FamilyStore {
         let rejected = completions.first {
             $0.taskId == task.id && $0.memberId == member.id && $0.forDate == today && $0.status == "rejected"
         }
+        // Only a parent may delete a rejected try (RLS), and it holds the day's
+        // unique key, so anyone else's retry would just fail on that key.
+        if rejected != nil && !isParent {
+            errorMessage = "A parent turned this one down today. Ask them to undo it, then try again."
+            return
+        }
         let approveNow = task.requiresApproval && isParent
         completions.removeAll { $0.id == rejected?.id }
         completions.append(TaskCompletion(id: id, taskId: task.id, memberId: member.id, forDate: today,
@@ -931,7 +971,8 @@ final class FamilyStore {
                 .limit(200)
                 .execute().value
             guard currentThreadId == thread.id else { return }
-            chat = rows.reversed().map(\.chatMessage)
+            // Anything sent while the history loaded (and its streaming reply) stays after it.
+            chat = rows.reversed().map(\.chatMessage) + chat
         } catch {
             report(error)
         }

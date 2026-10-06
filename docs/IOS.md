@@ -71,7 +71,7 @@ your **Profile**.
 | Tab | What's there |
 |---|---|
 | **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask homeOS anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
-| **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, homeOS in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with on-device speech recognition and fills in the text field; you review it, then tap send. |
+| **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, homeOS in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. |
 | **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details or to delete it. The **+** button adds an event (title, place, all-day, start/end, who). |
 | **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. A parent's tap is approved right away; anyone else's waits for a parent. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
 | **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes. Its backdrop takes the current photo's average color. |
@@ -115,7 +115,7 @@ every URL to `FamilyStore.handleOpenURL`.
 | Link | What happens |
 |---|---|
 | `homeos://invite/<CODE>` | Saves the code as pending. Signed out: prefills Welcome and checks it. No family: prefills "Enter an invite code". In a family already: a sheet offers to join that family (the app switches to it) or start a new one. Dismissing it forgets the code. |
-| `homeos://auth-callback…` | Finishes an email link: implicit-grant tokens in the fragment (admin email invites) go to `auth.setSession`, a PKCE `code` (sign-up confirmations) to `auth.session(from:)`. A pending family invite is then accepted as in step 3. |
+| `homeos://auth-callback…` | Finishes an email link: implicit-grant tokens in the fragment (admin email invites) go to `auth.setSession`, a PKCE `code` (sign-up confirmations) to `auth.session(from:)`. A pending family invite is then accepted as in step 3. Any app or web page can open a `homeos://` link, so tokens are ignored while someone is already signed in ("Sign out first to use that link"); a PKCE code can't be replayed, because it only works with the verifier this iPhone stored at sign-up. |
 
 The parent's share sheet text includes both the link and the code, so the code
 still works for someone who opens the message on another device.
@@ -170,8 +170,9 @@ families sees one at a time; the choice is remembered on the phone.
   `URLSession.bytes`. It splits lines itself (`AsyncBytes.lines` drops the
   blank lines that end SSE events) and parses `thread`, `delta`, `action`,
   `done` and `error`. Deltas grow the last bubble, actions add chips, `done`
-  replaces the text with the final reply. If the stream drops before `done`,
-  whatever arrived stays; with nothing, you get "I couldn't reach homeOS".
+  replaces the text with the final reply. If the stream drops before `done`
+  (or cuts `done` off mid-way), whatever arrived stays; with nothing, you get
+  "I couldn't reach homeOS".
   Non-200 answers show the function's `{error}` message (401 asks you to sign
   in again; 403 covers a suspended family or no family).
 - After a reply that did something (actions), the app reloads the family data.
@@ -235,8 +236,15 @@ profile screens reuse the glow header, pills and cards.
 
 - Pull to refresh reloads everything. Realtime subscriptions aren't wired up
   yet.
+- Opening the app offline with an expired access token doesn't sign you out:
+  supabase-swift then reports no initial session, but the saved one is still
+  in the keychain, so the loading screen shows the error and **Try again**. A
+  refresh the server refuses (revoked, banned) still lands on the welcome
+  screen.
 - Every query names the family on screen (`family_id`); `list_items` has no
-  family column, so items are kept when their list belongs to the family.
+  family column, so it's filtered through its list
+  (`lists!inner(family_id)`). The newest 500 items load, so a long history of
+  checked-off items can't hide new ones.
 - Events load from 45 days back to 120 days ahead. Recurring events (`rrule`)
   aren't expanded yet; only the first occurrence shows.
 - Chores count as due today from a simple read of their RRULE: `FREQ=DAILY`, or
@@ -245,6 +253,8 @@ profile screens reuse the glow header, pills and cards.
 - A parent marking a chore done inserts the completion and then calls
   `review_completion(approve: true)`. A rejected completion from earlier the
   same day is deleted first, because of the unique key on (task, member, date).
+  Only parents may delete completions (RLS), so anyone else retrying a rejected
+  chore is asked to get a parent to undo it first.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
   `DateTimeOriginal`. Videos are uploaded as-is, with `duration_seconds`, size
@@ -271,8 +281,14 @@ output of the migrations (a throwaway Postgres running `preview_invite`,
 `accept_family_invite`, `create_family_invite`, `create_family`, and the
 `profiles`, `family_invites`, `assistant_threads` and `assistant_messages`
 rows), and the SSE line handling against the `assistant` function's event
-format. It hasn't been type-checked or run, so expect a short round of
-compile fixes. These are the calls to check first:
+format. CI has built it since commit 2a50d0d; it hasn't been run against a
+live project yet. Calls added by the review after that build, to check first
+if CI breaks: `FunctionsError.httpError` in `FamilyStore.message(for:)`,
+`auth.currentSession` plus `try await auth.session` with `catch is URLError`
+in `FamilyStore.start()`, `auth.currentSession` in `completeAuthCallback`, the
+`lists!inner(family_id)` filter on `list_items` in `refresh()`, and
+`if case .error = event` at the end of `AssistantClient.stream`. The riskiest
+calls from the first build:
 
 - `@Environment(FamilyStore.self) private var store: FamilyStore?` (the
   optional observable environment initializer) in `MemberAvatar`,
@@ -293,9 +309,9 @@ compile fixes. These are the calls to check first:
 - The `@Observable` stored property with a `private(set)` initializer reading
   `UserDefaults` (`pendingInviteCode`), `Services/FamilyStore.swift:45`.
 - Decoding a scalar RPC result (`uuid`) straight into `UUID`,
-  `Services/FamilyStore.swift:384` and `:408`.
+  `Services/FamilyStore.swift:418` and `:442`.
 - From before: `supabase.storage.from(_:).remove(paths:)`
-  (`Services/FamilyStore.swift:464`, `:883`; it exists in 2.55.3),
+  (`Services/FamilyStore.swift:498`, `:923`; it exists in 2.55.3),
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
   `Services/Dictation.swift:101`), the `AVAsyncProperty` loads in
   `MediaTools.videoMetadata` (`Services/MediaTools.swift:183`–`:192`), and

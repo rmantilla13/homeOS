@@ -8,8 +8,9 @@ Existing state (do not break): migrations `20261006000001_core_schema.sql`
 (families, members, devices, events, tasks, completions, rewards, points
 ledger, lists, meals, media, RLS helpers `my_family_ids()`,
 `is_family_member()`, `is_family_parent()`, `my_member_id()`, RPCs
-`create_family(family_name, my_name, tz)`, `review_completion`,
-`redeem_reward`, `resolve_redemption`, `adjust_points`),
+`create_family(family_name, my_name, tz)`, `review_completion(completion,
+approve)`, `redeem_reward(reward, member)`, `resolve_redemption(redemption,
+fulfilled)`, `adjust_points(member, delta, reason)`),
 `20261006000002_storage_realtime.sql` (bucket `family-media`, realtime),
 `20261006000003_family_memories.sql`. Edge functions `pair-device` and
 `assistant`.
@@ -25,6 +26,11 @@ Migrations are added after the existing ones, never edited in place:
 - `20261007000003_assistant_threads.sql`: threads, messages, usage
 - `20261007000004_admin.sql`: admin RPCs, audit log
 - `20261007000005_storage_avatars.sql`: `avatars` bucket and policies (Supabase-only, like 000002)
+- `20261007000006_review_flags.sql`: `review_completion` and `resolve_redemption`
+  raise `approve is required` / `fulfilled is required` on a null flag (a null
+  used to cancel a redemption without refunding it)
+- `20261007000007_family_guards.sql`: `tasks_guard` and the color format
+  checks (§1.8), on tables from 20261006000001
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -179,12 +185,16 @@ public.family_invites (              -- lets someone JOIN an existing family
   (`user_id = null`). Raises `the last parent can't leave` if the caller is
   the only parent with a linked account.
 
-**Member guards** (trigger `members_guard`, before update or delete on members)
+**Member guards** (trigger `members_guard`, before insert, update or delete on members)
 
 - Non-parents may update only their own row, and only `display_name`,
   `color` and `avatar_url`. Changing `role`, `family_id` or `user_id` raises.
   Add an RLS update policy `members_update_self`
   (`using (user_id = auth.uid())`) alongside the existing parent policy.
+- Nobody, parents included, may link an account to a row directly (insert or
+  update `user_id`), or move a row that has an account to another family:
+  `accounts join a family through an invite`. Rows without an account can
+  move between families the caller is a parent of.
 - Deleting a member, or demoting a parent, raises if it would leave the
   family with no parent linked to an account.
 - These checks skip when there's no `auth.uid()` (service role or
@@ -223,7 +233,7 @@ public.assistant_messages (
   thread_id   uuid not null references assistant_threads on delete cascade,
   family_id   uuid not null references families on delete cascade,
   role        text not null check (role in ('user','assistant')),
-  content     text not null,
+  content     text not null check (length(content) <= 100000),   -- clients can insert rows the assistant replays
   actions     jsonb not null default '[]',
   mode        text not null default 'chat' check (mode in ('chat','quick')),
   created_by  uuid references auth.users on delete set null default auth.uid(),
@@ -282,11 +292,41 @@ every mutation writes an audit row.
 | `admin_usage_by_day(days int default 30)` | `table(day date, requests int, input_tokens bigint, output_tokens bigint, families int)` |
 | `admin_list_audit(lim int default 100, off int default 0)` | `table(id, created_at, admin_email, action, target_type, target_id, details)` |
 
+`last_activity` and `families_active_7d` come from `family_last_activity()`:
+the latest of the family's own timestamps (devices' `last_seen_at`, edits,
+chores, media, points, memories, assistant use). Families write most of these
+themselves, so values later than `now() + 10 minutes` are ignored.
+
+`admin_delete_family` deletes rows only. The console deletes a family through
+the `admin` function (§2.2), which also removes its Storage files.
+
 ### 1.7 Storage: avatars
 
-- Private bucket `avatars`, with objects at `<user_id>/<file>`.
+- Private bucket `avatars`, with objects at `<user_id>/<file>`; at most 5 MB,
+  `image/jpeg`, `image/png`, `image/webp` or `image/heic`.
 - **Upload, update, delete:** the owner only (the first folder equals `auth.uid()::text`).
 - **Read:** the owner, or anyone who shares a family with that user.
+
+### 1.8 Direct-write guards
+
+Family members, kids and the kitchen display included, write shared tables
+straight through PostgREST (`tasks_all`, `events_all`, `members_update_self`).
+These checks skip, like `members_guard`, when there's no `auth.uid()` and for
+platform admins.
+
+- **`tasks_guard`** (before insert or update on `tasks`): only a parent of the
+  family may add a chore with `points > 0` and `requires_approval = false`
+  (`only a parent can add points that skip approval`), or change a chore's
+  `points`, `requires_approval` or `family_id` (`only a parent can change a
+  chore's points or approval`). Anyone may still add chores that need approval
+  (the assistant's `add_chore`), chores without points, and edit or archive
+  them.
+- **Colors:** `members.color` and `events.color` must match `^#[0-9A-Fa-f]{6}$`
+  (constraints `members_color_hex`, `events_color_hex`). The display, the iOS
+  app and the admin console all render them; `#RRGGBB` is the one form all
+  three read the same way.
+- **Devices:** a display may update its own `devices` row (`devices_touch`);
+  it sets `last_seen_at` (§5).
 
 ---
 
@@ -298,19 +338,32 @@ authorization, apikey, content-type, x-client-info`, and
 `Access-Control-Allow-Methods: POST, OPTIONS`. The admin console calls them
 from a browser.
 
+Every function answers with JSON and the CORS headers, errors included
+(`{ "error": string }`): 405 for anything but `POST`, 413
+`request body too large` above 64 KiB (256 KiB for `assistant`, whose legacy
+body carries a conversation), 400 `invalid JSON`, and a JSON 500 for anything
+unexpected. `assistant` and `admin` answer 401 when Supabase Auth rejects the
+token and 503 (`couldn't check your sign-in; try again in a moment`) when
+Auth can't be reached, so clients don't treat an outage as being signed out.
+
 ### 2.1 `assistant` (v2)
 
 `POST` with the caller's JWT. Body:
 
 ```
 {
-  "message": "What's for dinner?",      // new user message (preferred)
+  "message": "What's for dinner?",      // new user message (preferred), at most 4000 characters
   "thread_id": "uuid" | null,           // continue a thread; omit to start one
+  "family_id": "uuid" | null,           // optional: the family a NEW thread is for (people in two families);
+                                        // ignored when thread_id is given; default: the caller's first active family
   "mode": "chat" | "quick",             // quick = short spoken answer (wake word, Siri)
   "stream": true | false,
   "messages": [{ "role", "text" }]      // LEGACY: if present and "message" absent, behave like v1 (no persistence)
 }
 ```
+
+Uuids are matched case-insensitively. Legacy turns are clipped to 4000
+characters each (the last 20 are kept).
 
 **Behavior, in order**
 
@@ -323,14 +376,23 @@ from a browser.
    - refuse when today's usage rows for the family (UTC day) reach
      `coalesce(families.assistant_daily_limit, platform_settings.assistant_daily_limit)`
      (`"We've hit today's assistant limit. Try again tomorrow."`, still a 200 reply)
+   - The request takes its usage row before calling Claude and counts the
+     family's rows for today up to its own, so concurrent requests can't all
+     slip under the limit; a refused request gives its row back. A gate reply
+     in v2 is stored in the thread like any other reply.
 3. **Who's asking:** a person gets their `profiles.display_name` and member
    role, added to the system prompt as "You're talking with {name} ({role})".
    A device account (`app_metadata.kind = 'device'`) gets "the family screen
    in the kitchen; could be anyone in the family".
 4. **Thread:** create one if `thread_id` is absent, titled from the first ~48
-   characters of the message. Otherwise verify the caller owns it. History is
-   the last 20 messages for chat and the last 6 for quick. Insert the user
-   message before calling Claude.
+   characters of the message. Otherwise verify the caller owns it (404
+   `thread not found` if not, or if it's gone). History is the last 20
+   messages for chat and the last 6 for quick, each clipped to 4000
+   characters (owners can insert rows directly). Insert the user message
+   before calling Claude.
+   The family snapshot is bounded (row limits per table, open list items
+   only, each value on one line and clipped) and framed in the system prompt
+   as data typed by family members, not instructions.
 5. **Claude:** `claude-opus-5-5`, `output_config.effort` `low`, adaptive
    thinking omitted (it's the default), and
    `fallbacks: "default"` with beta `server-side-fallback-2026-07-01`. Keep
@@ -341,8 +403,10 @@ from a browser.
    spoken aloud. No lists, no markdown, no emoji. Say times and numbers
    naturally."* Its `max_tokens` is 2000; chat uses 16000.
 6. Insert the assistant message (`content`, `actions`, `mode`), bump the
-   thread's `updated_at`, and insert a usage row (summed tokens and tool
-   calls) with the service role.
+   thread's `updated_at`, and fill in the request's usage row (summed tokens
+   and tool calls) with the service role. A request that never reached the
+   model leaves no usage row. A reply longer than the column allows (100,000
+   characters) is stored clipped.
 
 **Response when `stream` is false:**
 `{ "reply": string, "actions": [{type, summary}], "thread_id": uuid, "message_id": number }`.
@@ -357,29 +421,36 @@ event is `event: <name>\ndata: <json>\n\n`, in this order:
 - `done`: `{ "reply": string, "actions": [...], "thread_id": uuid, "message_id": number }` (last)
 - `error`: `{ "message": string }` (terminal, instead of `done`)
 
-**Errors:** 401 without auth, 400 for a bad body, 403 when the family is
-suspended or the caller has no family, 502 for model API failures (non-stream
-only; streams end with an `error` event).
+**Errors:** 401 without auth (or a token Auth rejects), 400 for a bad body,
+403 when the family is suspended or the caller has no family (or isn't in
+`family_id`), 404 when `thread_id` isn't the caller's thread (clients then
+start a new thread), 413 for a body over 256 KiB, 503 when Supabase Auth
+can't be reached, 502 for model API failures (non-stream only; streams end
+with an `error` event).
 
 ### 2.2 `admin`
 
 `POST` with the caller's JWT. The function verifies the caller with
 `rpc('is_platform_admin')` using the caller's client, then uses the service
-role. Body: `{ "action": ..., ... }`.
+role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 
 | `action` | Params | Effect |
 |---|---|---|
-| `invite_email` | `email`, `note?`, `redirect_to?` | Creates a platform invite (`admin_create_platform_invite` via the service role; the audit row carries the admin's id) and calls `auth.admin.inviteUserByEmail(email, { data: { invite_code }, redirectTo })`. Returns `{ code }`. |
-| `ban_user` | `user_id` | `auth.admin.updateUserById(id, { ban_duration: '876000h' })` |
+| `invite_email` | `email`, `note?`, `redirect_to?` | Creates a platform invite (`admin_create_platform_invite` with the admin's own JWT, so `created_by` and the RPC's audit row name the admin) and calls `auth.admin.inviteUserByEmail(email, { data: { invite_code }, redirectTo })`. Returns `{ ok, code, invite_id, expires_at }`; if the email fails, `{ error, code, invite_id }` with Auth's status. |
+| `ban_user` | `user_id` | Refuses to ban yourself. `auth.admin.updateUserById(id, { ban_duration: '876000h' })` |
 | `unban_user` | `user_id` | `ban_duration: 'none'` |
-| `delete_user` | `user_id` | Refuses to delete yourself. `auth.admin.deleteUser` |
+| `delete_user` | `user_id` | Refuses to delete yourself. `auth.admin.deleteUser`, then removes the user's `avatars/<user_id>/` files |
+| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }`; a cleanup failure doesn't undo the deletion. |
 
-Every action writes `admin_audit_log` with the service role. Responses are
-`{ ok: true, ... }`, or `{ error }` with status 4xx or 5xx.
+Every action writes `admin_audit_log` with the service role (`delete_family`
+writes `delete_family_files` with the cleanup result; the RPC writes
+`delete_family`). Responses are `{ ok: true, ... }`, or `{ error }` with
+status 4xx or 5xx (404 for an unknown user or family).
 
 ### 2.3 `pair-device` (existing)
 
-No contract change. Device users must not get profiles (see 1.1).
+No contract change beyond the common errors above (the body must be a JSON
+object, at most 64 KiB). Device users must not get profiles (see 1.1).
 
 ---
 
@@ -393,7 +464,9 @@ and Inter, with a dark-mode variant. There's no UI kit dependency.
 
 **Auth:** email and password sign-in through Supabase. Middleware refreshes
 the session. Every page except `/login` requires a session and
-`is_platform_admin()`; anyone else is redirected to `/login?error=not_admin`.
+`is_platform_admin()`. Signed-out visitors are redirected to
+`/login?next=<path>` (same-site paths only), signed-in non-admins to
+`/login?error=not_admin`. Session cookies are httpOnly.
 
 **Pages**
 
@@ -401,14 +474,17 @@ the session. Every page except `/login` requires a session and
   tokens chart from `admin_usage_by_day` (hand-rolled SVG, no chart library),
   recent audit entries.
 - `/families`: searchable table. `/families/[id]` shows the detail, with
-  Suspend/Unsuspend (asks for a reason), Delete (typed confirmation), and the
+  Suspend/Unsuspend (asks for a reason), Delete (typed confirmation; via the
+  `admin` function's `delete_family`, so Storage files go too), and the
   members, devices, invites and usage lists.
 - `/users`: searchable table with admin, banned and device badges. Actions:
   Make or remove admin, Ban/Unban, Delete (via the `admin` function).
 - `/invites`: create a platform invite (email optional, note, max uses,
   expiry), optionally emailing it (`admin` → `invite_email`). The list shows
   status and has copy-code and revoke actions.
-- `/settings`: invite-only toggle, assistant enabled, daily limit.
+- `/settings`: invite-only toggle, assistant enabled, daily limit. Saving
+  sends only the values this form changed (null leaves the others), so a
+  stale form can't undo another admin's change.
 - `/audit`: paginated audit log.
 
 **Env:** `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
@@ -450,6 +526,9 @@ port configurable). JSON text frames:
 
 - **Server → client:**
   - `{"type":"hello","version":"1","wakeword":bool,"wakeword_name":str,"tts":bool,"stt":bool}` on connect
+    (followed by the current `state`), and again to every client whenever the
+    wake-word setting or the capabilities change (after `set`, a mic plugged
+    in or removed). Clients must accept `hello` at any time.
   - `{"type":"state","state":"idle|listening|transcribing|speaking"}`
   - `{"type":"wake","source":"wakeword|button"}`
   - `{"type":"level","rms":0.0-1.0}` (throttled to 15/s, only while listening)
@@ -465,6 +544,16 @@ port configurable). JSON text frames:
 - The wake word is ignored while the service is speaking, so it doesn't hear
   itself, and while a session is already active. Multiple clients are
   allowed, and all of them receive broadcasts.
+- **Limits:** frames are at most 64 KiB (larger ones close the connection
+  with 1009). `speak.id` is at most 200 characters; `speak.text` past 2,000
+  characters is cut at a word break; with 16 replies waiting, a further
+  `speak` gets an `error` plus an immediate `spoken`. Every `speak` gets
+  exactly one `spoken` with its id. Bad frames get an `error` sent to that
+  client only.
+- **Origin:** a handshake that carries an `Origin` header is refused with 403
+  unless the origin is listed in config `server.allowed_origins` (default
+  empty). Browsers always send one, so a web page on the device can't reach
+  the mic; the display's `QWebSocket` sends none and must keep it that way.
 
 **Other pieces**
 
@@ -502,6 +591,8 @@ port configurable). JSON text frames:
   parses SSE from `QNetworkReply::readyRead`.
 - `Assistant` sends `{message, thread_id, mode, stream: true}`.
 - It keeps `threadId` in QSettings (`assistant/threadId`); "New chat" clears it.
+  A 404 for a stored thread (deleted from the phone) clears it and resends
+  without `thread_id`; a 401 refreshes the session once and resends.
 - The last assistant bubble grows with each `delta`, action chips appear on
   `action`, and `done` finalizes. On HTTP or stream errors it shows a
   friendly message.
@@ -537,8 +628,14 @@ port configurable). JSON text frames:
 
 **Push-to-talk:** the mic button in the AssistantPanel and on the Home card
 calls `Voice.listen()`. The transcript is sent as a chat message, not quick
-mode. If `!Voice.available`, show the toast "Voice needs the homeOS voice
-service (see docs/VOICE.md)".
+mode (a reply still streaming is stopped first). If `!Voice.available`, show
+the toast "Voice needs the homeOS voice service (see docs/VOICE.md)"; if the
+service has no speech-to-text (`hello.stt` false, e.g. no mic), show "Voice
+needs a microphone (see docs/VOICE.md)".
+
+**Check-in:** while live, the display sets `last_seen_at` on its own
+`devices` row (the id saved at pairing) at most every 5 minutes; the iOS app
+and the admin console show it.
 
 **Settings sheet:** a gear button in the nav rail, above the moon, opens
 `SettingsSheet.qml` with:
@@ -622,8 +719,9 @@ with xcodegen and `CODE_SIGNING_ALLOWED=NO`.
 - **`ci.yml`:** jobs on `ubuntu-24.04`
   - `backend`: install PostgreSQL 16 from apt and run `backend/tests/run.sh`
     (it must work as a non-root user and pick a free port)
-  - `functions`: `denoland/setup-deno`, `deno check` on each function's `index.ts`
-  - `display`: apt Qt 6 packages, build with cmake, then a smoke run with
+  - `functions`: `denoland/setup-deno`, `deno check` on each function's `index.ts`,
+    then `deno test` in `backend/supabase/functions`
+  - `display`: apt Qt 6 packages, build with cmake, `ctest`, then a smoke run with
     `QT_QPA_PLATFORM=offscreen ./homeos-display --demo` for 5 s; it must still be running
-  - `admin`: Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`
+  - `admin`: Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`, `npm test`
   - `voice`: Python 3.11, `pip install -e voice[dev]`, `pytest voice`

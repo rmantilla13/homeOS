@@ -18,6 +18,9 @@ insert into devices (family_id, user_id) values (:'fam', :'device');
 
 select tests.eq((select public from storage.buckets where id = 'avatars'), false, 'avatars bucket is private');
 select tests.eq((select public from storage.buckets where id = 'family-media'), false, 'family-media bucket is private');
+select tests.eq((select file_size_limit from storage.buckets where id = 'avatars'), 5242880::bigint, 'avatars capped at 5 MB');
+select tests.ok((select 'image/jpeg' = any(allowed_mime_types) and not 'text/html' = any(allowed_mime_types)
+                 from storage.buckets where id = 'avatars'), 'avatars take images only');
 
 -- Avatars: write only into your own folder.
 select tests.login(:'mom');

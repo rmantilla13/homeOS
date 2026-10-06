@@ -19,16 +19,24 @@ const dateTimeFormat = new Intl.DateTimeFormat("en-US", {
 export const formatNumber = (n: number) => integer.format(n);
 export const formatCompact = (n: number) => (Math.abs(n) < 10_000 ? integer.format(n) : compactFormat.format(n));
 
+// Timestamps come from family-writable rows, and Postgres also stores values
+// JavaScript can't read ('infinity', years past 9999). Those are shown as
+// they are instead of throwing, so one odd row can't take a page down.
+function format(f: Intl.DateTimeFormat, iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? f.format(t) : iso;
+}
+
 export function formatDate(iso: string | null | undefined): string {
-  return iso ? dateFormat.format(new Date(iso)) : "—";
+  return iso ? format(dateFormat, iso) : "—";
 }
 
 export function formatShortDate(iso: string): string {
-  return shortDate.format(new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso));
+  return format(shortDate, iso.length === 10 ? `${iso}T00:00:00Z` : iso);
 }
 
 export function formatDateTime(iso: string | null | undefined): string {
-  return iso ? dateTimeFormat.format(new Date(iso)) : "—";
+  return iso ? format(dateTimeFormat, iso) : "—";
 }
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -43,7 +51,9 @@ const relative = new Intl.RelativeTimeFormat("en-US", { numeric: "auto", style: 
 
 export function formatRelative(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return "never";
-  const seconds = Math.round((Date.parse(iso) - now) / 1000);
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const seconds = Math.round((t - now) / 1000);
   if (Math.abs(seconds) < 60) return seconds <= 0 ? "just now" : "in a moment";
   for (const [unit, size] of UNITS) {
     if (Math.abs(seconds) >= size) return relative.format(Math.trunc(seconds / size), unit);
@@ -53,6 +63,14 @@ export function formatRelative(iso: string | null | undefined, now = Date.now())
 
 export const plural = (n: number, one: string, many = `${one}s`) => `${formatNumber(n)} ${n === 1 ? one : many}`;
 
+// A member color that is safe to put in a style attribute, or null. Colors are
+// free text that family members set themselves; anything but a hex color
+// ("red;position:fixed", "url(https://…)") would be CSS in the admin's page.
+export function cssColor(value: unknown): string | null {
+  const v = typeof value === "string" ? value.trim() : "";
+  return /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v) ? v : null;
+}
+
 // Audit action ids → words.
 const ACTIONS: Record<string, string> = {
   create_platform_invite: "Created invite",
@@ -60,6 +78,7 @@ const ACTIONS: Record<string, string> = {
   invite_email: "Emailed invite",
   set_family_status: "Changed family status",
   delete_family: "Deleted family",
+  delete_family_files: "Removed family files",
   update_settings: "Updated settings",
   set_admin: "Changed admin access",
   ban_user: "Banned user",

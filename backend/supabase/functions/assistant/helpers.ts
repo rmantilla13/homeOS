@@ -16,6 +16,21 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 export const MAX_MESSAGE_CHARS = 4000;
 const LEGACY_HISTORY = 20;
 
+// `text` cut to at most `max` UTF-16 units, ending in "…" when it was cut.
+// Never splits a surrogate pair.
+export function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let cut = text.slice(0, max - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return cut + "…";
+}
+
+// Family-typed text for the system prompt, on one line and clipped, so a
+// list item or memory can't add prompt lines of its own or blow up its size.
+export function oneLine(value: unknown, max: number): string {
+  return clip(String(value ?? "").replace(/\s+/g, " ").trim(), max);
+}
+
 export interface V2Request {
   kind: "v2";
   message: string;
@@ -47,8 +62,9 @@ export function parseRequest(body: unknown): ParsedRequest {
         isObject(m) && (m.role === "user" || m.role === "assistant") &&
         typeof m.text === "string" && m.text.trim() !== ""
       )
-      .map((m) => ({ role: m.role, text: m.text }))
-      .slice(-LEGACY_HISTORY);
+      .slice(-LEGACY_HISTORY)
+      // Old clients send the whole conversation; cap each turn as v2 caps its message.
+      .map((m) => ({ role: m.role, text: clip(m.text, MAX_MESSAGE_CHARS) }));
     while (history.length && history[0].role !== "user") history.shift();
     if (!history.length || history[history.length - 1].role !== "user") {
       return invalid("messages must end with a user message");
@@ -64,24 +80,26 @@ export function parseRequest(body: unknown): ParsedRequest {
   if (body.mode != null && body.mode !== "chat" && body.mode !== "quick") return invalid('mode must be "chat" or "quick"');
   if (body.stream != null && typeof body.stream !== "boolean") return invalid("stream must be true or false");
 
+  // Ids are compared as strings later, and Postgres returns them lowercase.
   return {
     kind: "v2",
     message,
-    threadId: (body.thread_id as string | undefined) ?? null,
+    threadId: (body.thread_id as string | undefined)?.toLowerCase() ?? null,
     mode: (body.mode as Mode | undefined) ?? "chat",
     stream: body.stream === true,
-    familyId: (body.family_id as string | undefined) ?? null,
+    familyId: (body.family_id as string | undefined)?.toLowerCase() ?? null,
   };
 }
 
 // Stored thread messages (oldest first) → Claude messages. Empty rows are
-// skipped and the history must open with a user turn.
+// skipped and the history must open with a user turn. Owners can insert rows
+// straight through PostgREST, so each one is clipped like a new message.
 export function historyToMessages(rows: { role: unknown; content: unknown }[]): Anthropic.Beta.BetaMessageParam[] {
   const out: Anthropic.Beta.BetaMessageParam[] = [];
   for (const r of rows) {
     if ((r.role !== "user" && r.role !== "assistant") || typeof r.content !== "string" || !r.content.trim()) continue;
     if (!out.length && r.role !== "user") continue;
-    out.push({ role: r.role, content: r.content });
+    out.push({ role: r.role, content: clip(r.content, MAX_MESSAGE_CHARS) });
   }
   return out;
 }
@@ -116,7 +134,7 @@ export type Caller =
 export function whoIsAsking(caller: Caller): string {
   return caller.kind === "device"
     ? "You're talking with the family screen in the kitchen; could be anyone in the family."
-    : `You're talking with ${caller.name} (${caller.role}).`;
+    : `You're talking with ${oneLine(caller.name, 60)} (${caller.role}).`; // the name is user-set
 }
 
 export const isParent = (caller: Caller): boolean => caller.kind === "person" && caller.role === "parent";

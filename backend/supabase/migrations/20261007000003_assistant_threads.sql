@@ -18,7 +18,9 @@ create table public.assistant_messages (
   thread_id   uuid not null references public.assistant_threads on delete cascade,
   family_id   uuid not null references public.families on delete cascade,
   role        text not null check (role in ('user', 'assistant')),
-  content     text not null,
+  -- Clients write rows here that the assistant replays as history, so keep
+  -- them bounded; a 16k-token reply fits easily.
+  content     text not null check (length(content) <= 100000),
   actions     jsonb not null default '[]',
   mode        text not null default 'chat' check (mode in ('chat', 'quick')),
   created_by  uuid references auth.users on delete set null default auth.uid(),

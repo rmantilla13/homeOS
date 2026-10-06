@@ -107,6 +107,8 @@ struct AssistantView: View {
             if !text.isEmpty { draft = text }
         }
         .onDisappear { dictation.cancel() }
+        // A full-screen cover: Home's error alert can't show over it.
+        .showsStoreErrors()
         .alert("Voice", isPresented: Binding(
             get: { dictation.errorMessage != nil },
             set: { if !$0 { dictation.errorMessage = nil } }

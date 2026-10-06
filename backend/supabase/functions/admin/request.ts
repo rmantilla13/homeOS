@@ -5,7 +5,8 @@ import { isUuid } from "../_shared/http.ts";
 
 export type AdminRequest =
   | { action: "invite_email"; email: string; note: string | null; redirectTo: string | null }
-  | { action: "ban_user" | "unban_user" | "delete_user"; userId: string };
+  | { action: "ban_user" | "unban_user" | "delete_user"; userId: string }
+  | { action: "delete_family"; familyId: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -35,7 +36,10 @@ export function parseAdminRequest(body: unknown): AdminRequest | { error: string
     case "delete_user":
       if (!isUuid(b.user_id)) return { error: "user_id must be a uuid" };
       return { action: b.action, userId: b.user_id.toLowerCase() };
+    case "delete_family":
+      if (!isUuid(b.family_id)) return { error: "family_id must be a uuid" };
+      return { action: "delete_family", familyId: b.family_id.toLowerCase() };
     default:
-      return { error: "action must be invite_email, ban_user, unban_user or delete_user" };
+      return { error: "action must be invite_email, ban_user, unban_user, delete_user or delete_family" };
   }
 }

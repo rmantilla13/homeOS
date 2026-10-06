@@ -206,6 +206,21 @@ async def test_push_to_talk_works_with_the_wake_word_off():
     await rig.stop()
 
 
+async def test_cancel_before_the_session_runs_keeps_the_wake_word_working():
+    # `listen` and `cancel` arriving in one read are handled back to back, so
+    # the session task is cancelled before it starts. Its capture queue used to
+    # stay attached: every frame went into it (growing without bound) and the
+    # wake word was never scored again.
+    rig = Rig()
+    rig.start()
+    assert rig.service.wake("button")
+    rig.service.cancel()
+    assert rig.backend._capture is None
+    rig.mic.feed(QUIET, QUIET, WAKE)
+    await rig.wait_for({"type": "wake", "source": "wakeword"})
+    await rig.stop()
+
+
 async def test_mic_failure_mid_session_ends_it_with_an_error(monkeypatch):
     monkeypatch.setattr(pipeline, "MIC_TIMEOUT_SECONDS", 0.2)
     rig = Rig()
@@ -237,14 +252,16 @@ async def test_stop_speaking_stops_the_audio_thread():
 async def test_microphone_comes_and_goes(monkeypatch):
     monkeypatch.setattr(pipeline, "MIC_RETRY_SECONDS", 0.05)
     attempts: list[str] = []
+    rescans: list[bool] = []
     mics: list[FakeMic] = []
 
     class FlakyMicrophone(FakeMic):
         def __init__(self, device: Any, channel: int) -> None:
             super().__init__()
 
-        def start(self, loop: Any) -> None:
+        def start(self, loop: Any, *, rescan: bool = False) -> None:
             attempts.append("start")
+            rescans.append(rescan)
             if len(attempts) == 1:
                 raise AudioError("no microphone found; plug in a USB mic (the panel has none)")
             mics.append(self)
@@ -262,6 +279,8 @@ async def test_microphone_comes_and_goes(monkeypatch):
     mics[0].feed(AudioError("the microphone stopped sending audio"))  # unplugged
     await rig.wait_for({"type": "hello", "stt": False})
     assert attempts[:3] == ["start", "start", "close"]
+    # Every retry asks PortAudio for a fresh device list (a mic plugged in later).
+    assert rescans[:2] == [False, True]
     await rig.stop()
 
 

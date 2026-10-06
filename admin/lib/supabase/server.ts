@@ -10,6 +10,8 @@ import type { SupabaseConfig } from "@/lib/env";
 export async function createSupabaseServerClient(config: SupabaseConfig): Promise<SupabaseClient> {
   const cookieStore = await cookies();
   return createServerClient(config.url, config.anonKey, {
+    // Only the server uses the session, so page scripts never need the tokens.
+    cookieOptions: { httpOnly: true },
     cookies: {
       getAll() {
         return cookieStore.getAll();

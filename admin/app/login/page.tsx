@@ -22,7 +22,8 @@ const ERRORS: Record<string, string> = {
 export default async function LoginPage({ searchParams }: Props) {
   const sp = await searchParams;
   const demo = await isDemo();
-  const error = ERRORS[readString(sp.error)];
+  const code = readString(sp.error);
+  const error = Object.hasOwn(ERRORS, code) ? ERRORS[code] : undefined; // not ?error=__proto__
   const next = safeNextPath(readString(sp.next));
 
   return (

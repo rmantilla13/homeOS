@@ -186,6 +186,75 @@ private slots:
         QVERIFY(!r.error.isEmpty());
     }
 
+    void abortDropsBufferedEvent()
+    {
+        // The second event is only missing its blank line when the caller
+        // aborts: nothing may be delivered after abort().
+        m_response = {"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close",
+                      {"event: delta\ndata: {\"text\":\"a\"}\n\nevent: done\ndata: {\"reply\":\"a\"}\n"},
+                      false};
+        SupabaseClient client(baseUrl(), "anon-key");
+        Result r;
+        run(client, r, [](QNetworkReply *reply, Result &) { reply->abort(); });
+        QCOMPARE(r.events.size(), 1);
+        QCOMPARE(r.events.first().first, QStringLiteral("delta"));
+        QCOMPARE(r.finishCount, 1);
+    }
+
+    void refreshRotatesSession()
+    {
+        const QByteArray json = "{\"access_token\":\"new-access\",\"refresh_token\":\"new-refresh\"}";
+        m_response = {"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(json.size()) + "\r\nConnection: close",
+                      {json}};
+        SupabaseClient client(baseUrl(), "anon-key");
+        client.setRefreshToken("old-refresh");
+        int calls = 0;
+        bool ok = false;
+        client.refreshSession([&](bool result) { ++calls; ok = result; });
+        QTRY_COMPARE(calls, 1);
+        QVERIFY(ok);
+        QVERIFY(client.hasSession());
+        QCOMPARE(client.refreshToken(), QStringLiteral("new-refresh"));
+        QVERIFY(m_lastRequest.contains("\"refresh_token\":\"old-refresh\""));
+    }
+
+    void refreshAfterSessionClearedIsIgnored_data()
+    {
+        QTest::addColumn<QByteArray>("head");
+        QTest::addColumn<QByteArray>("json");
+        QTest::addColumn<bool>("accepted");
+        QTest::newRow("accepted") << QByteArray("HTTP/1.1 200 OK")
+                                  << QByteArray("{\"access_token\":\"a2\",\"refresh_token\":\"r2\"}") << true;
+        QTest::newRow("rejected") << QByteArray("HTTP/1.1 400 Bad Request")
+                                  << QByteArray("{\"error\":\"invalid_grant\"}") << false;
+    }
+    void refreshAfterSessionClearedIsIgnored()
+    {
+        // Re-pair (clearSession) while a refresh is in flight: its answer
+        // must neither bring the old device session back (it would be saved
+        // and sign the display back in after a restart) nor report it lost.
+        QFETCH(QByteArray, head);
+        QFETCH(QByteArray, json);
+        m_response = {head + "\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(json.size()) + "\r\nConnection: close",
+                      {json}};
+        SupabaseClient client(baseUrl(), "anon-key");
+        client.setRefreshToken("old-refresh");
+        int calls = 0;
+        bool ok = true;
+        client.refreshSession([&](bool result) { ++calls; ok = result; });
+        client.clearSession();
+        QSignalSpy changed(&client, &SupabaseClient::sessionChanged);
+        QSignalSpy lost(&client, &SupabaseClient::sessionLost);
+        QTRY_COMPARE(calls, 1);
+        QVERIFY(!ok);
+        QVERIFY(!client.hasSession());
+        QCOMPARE(client.refreshToken(), QString());
+        QCOMPARE(changed.size(), 0);
+        QCOMPARE(lost.size(), 0);
+    }
+
     void connectionRefused()
     {
         QTcpServer probe;

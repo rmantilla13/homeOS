@@ -130,16 +130,20 @@ class AudioBackend:
         """Keep a microphone open, reopening it if it's unplugged."""
         loop = asyncio.get_running_loop()
         warned = False
+        # PortAudio lists devices once; later attempts re-scan for a mic plugged in since.
+        rescan = False
         while True:
             mic = Microphone(self.cfg.audio.input_device, self.cfg.audio.input_channel)
             try:
-                mic.start(loop)
+                mic.start(loop, rescan=rescan)
             except Exception as e:  # AudioError, or PortAudio failing outright
                 if not warned:
                     log.warning("%s; trying again every %d s", e, MIC_RETRY_SECONDS)
                     warned = True
                 await asyncio.sleep(MIC_RETRY_SECONDS)
                 continue
+            finally:
+                rescan = True
             warned = False
             self._set_mic_ok(True)
             try:
@@ -182,14 +186,18 @@ class AudioBackend:
     def begin_capture(self) -> None:
         self._capture = asyncio.Queue()
 
+    def end_capture(self) -> None:
+        # Frames go back to the wake word instead of piling up for nobody.
+        self._capture = None
+
     async def capture(self, session: Session) -> str:
         queue = self._capture
         if queue is None:
             queue = self._capture = asyncio.Queue()
-        v = self.cfg.vad
-        endpointer = Endpointer(self._new_vad(), silence=v.silence, max_length=v.max_length,
-                                no_speech=v.no_speech)
         try:
+            v = self.cfg.vad
+            endpointer = Endpointer(self._new_vad(), silence=v.silence,
+                                    max_length=v.max_length, no_speech=v.no_speech)
             while endpointer.reason is None:
                 try:
                     frame = await asyncio.wait_for(queue.get(), MIC_TIMEOUT_SECONDS)

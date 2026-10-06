@@ -82,9 +82,14 @@ struct AssistantClient {
                 if event.isFinal { return }
             }
         }
-        // The stream closed without a trailing blank line.
+        // The stream closed without a trailing blank line. A complete last event
+        // still counts; a `done` cut off mid-way can't be read, so it's dropped
+        // and the text that already streamed stays instead of becoming an error.
         if !line.isEmpty { _ = parser.feed(line: String(decoding: line, as: UTF8.self)) }
-        if let event = parser.finish().flatMap(Self.decode) { await onEvent(event) }
+        if let raw = parser.finish(), let event = Self.decode(raw) {
+            if case .error = event, raw.name == "done" { return }
+            await onEvent(event)
+        }
     }
 
     /// A short spoken-style answer in a new thread (Siri). No streaming.

@@ -25,7 +25,7 @@ export default async function FamiliesPage({ searchParams }: Props) {
   await requireAdmin();
   const sp = await searchParams;
   const q = readString(sp.q);
-  const deleted = readString(sp.deleted);
+  const deleted = readString(sp.deleted) === "1";
   const result = await listFamilies(q || null, readPage(sp.page));
 
   return (
@@ -37,7 +37,7 @@ export default async function FamiliesPage({ searchParams }: Props) {
       />
       {deleted ? (
         <div style={{ marginBottom: 20 }}>
-          <Message tone="ok">Deleted {deleted} and everything in it.</Message>
+          <Message tone="ok">Family deleted, with everything in it.</Message>
         </div>
       ) : null}
       <Card flush>

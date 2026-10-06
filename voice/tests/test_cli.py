@@ -13,8 +13,10 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import pytest
 from helpers import Client, types
 from websockets.asyncio.client import connect
+from websockets.exceptions import InvalidStatus
 
 
 @asynccontextmanager
@@ -72,6 +74,15 @@ async def test_simulate_end_to_end_over_stdin_and_websocket(tmp_path):
 
         send_line(proc, "quit")
         assert await asyncio.to_thread(proc.wait, 10) == 0
+
+
+async def test_browser_origins_are_refused_by_the_real_service(tmp_path):
+    async with service_process(tmp_path) as (proc, url):
+        with pytest.raises(InvalidStatus):
+            async with connect(url, origin="http://evil.example"):
+                pass
+        async with connect(url) as ws:  # the display sends no Origin
+            assert json.loads(await ws.recv())["type"] == "hello"
 
 
 async def test_sigterm_shuts_down_cleanly(tmp_path):

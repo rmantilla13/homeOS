@@ -9,7 +9,7 @@
 // so seeing the 6-digit code on screen is not enough to steal the session.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { json, preflight } from "../_shared/http.ts";
+import { json, preflight, readJson } from "../_shared/http.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -147,20 +147,26 @@ async function redeem(body: { code?: string; secret?: string }) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return preflight();
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
-  let body: Record<string, string>;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "invalid JSON" }, 400);
+  const read = await readJson(req);
+  if ("error" in read) return read.error;
+  if (typeof read.body !== "object" || read.body === null || Array.isArray(read.body)) {
+    return json({ error: "body must be a JSON object" }, 400);
   }
-  switch (body.action) {
-    case "start":
-      return start(body);
-    case "claim":
-      return claim(req, body);
-    case "redeem":
-      return redeem(body);
-    default:
-      return json({ error: "action must be start, claim or redeem" }, 400);
+  const body = read.body as Record<string, string>;
+  // Anything unexpected still answers with JSON and the CORS headers.
+  try {
+    switch (body.action) {
+      case "start":
+        return await start(body);
+      case "claim":
+        return await claim(req, body);
+      case "redeem":
+        return await redeem(body);
+      default:
+        return json({ error: "action must be start, claim or redeem" }, 400);
+    }
+  } catch (err) {
+    console.error(`pair-device ${body.action} failed:`, err);
+    return json({ error: "something went wrong" }, 500);
   }
 });
