@@ -85,6 +85,9 @@ Item {
                         color: Theme.text
                         background: Rectangle { radius: 18; color: Theme.surfaceAlt }
                         leftPadding: 24
+                        // Commit letters as they're typed. With word prediction the
+                        // keyboard holds the word back, so Add would stay greyed out.
+                        inputMethodHints: Qt.ImhNoPredictiveText
                         onAccepted: add()
                         function add() { Store.addListItem(planner.list.id, text); text = "" }
                     }

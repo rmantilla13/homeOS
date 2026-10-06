@@ -4,8 +4,13 @@ project(homeos-display VERSION 0.2.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Qml Quick Concurrent Multimedia WebSockets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Qml Quick Concurrent Multimedia WebSockets ShaderTools)
 qt_standard_project_setup()
+# Qt 6.8+ (Raspberry Pi OS / Debian Trixie) warns unless this is set: give each
+# QML subfolder its own qmldir. Older Qt (6.4 on Ubuntu 24.04) doesn't know it.
+if(QT_KNOWN_POLICY_QTP0004)
+    qt_policy(SET QTP0004 NEW)
+endif()
 
 option(HOMEOS_BUILD_TESTS "Build the display's unit tests" ON)
 
@@ -53,6 +58,7 @@ qt_add_qml_module(homeos-display
         qml/components/Icon.qml
         qml/components/IconButton.qml
         qml/components/Glow.qml
+        qml/components/GradientTile.qml
         qml/components/Tag.qml
         qml/components/SegmentedControl.qml
         qml/components/TimeGrid.qml
@@ -82,6 +88,13 @@ qt_add_qml_module(homeos-display
     RESOURCES
         resources/demo/family.json
         qml/components/KeyboardPanel.qml
+)
+
+# ShaderEffect fragment shaders, baked to .qsb at build time (qrc:/HomeOS/shaders/).
+qt_add_shaders(homeos-display "shaders"
+    PREFIX /HomeOS
+    FILES
+        shaders/gradienttile.frag
 )
 
 target_link_libraries(homeos-display PRIVATE homeos-core

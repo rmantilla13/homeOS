@@ -28,14 +28,18 @@ fi
 
 step() { printf '\n\033[1;35m==> %s\033[0m\n' "$*"; }
 
+# The speech models' runtimes (onnxruntime, CTranslate2) only come for 64-bit.
+case "$(dpkg --print-architecture)" in
+    arm64|amd64) ;;
+    *) echo "The voice service needs a 64-bit OS (Raspberry Pi OS 64-bit)." >&2; exit 1 ;;
+esac
+
 step "Installing packages"
 sudo apt-get update
-# portaudio for the mic, espeak-ng as the fallback voice, alsa-utils for aplay
-# (playback) and arecord (troubleshooting); the rest builds any Python package
-# that has no prebuilt wheel for this Python.
-sudo apt-get install -y \
-    python3 python3-venv python3-dev build-essential \
-    portaudio19-dev libportaudio2 espeak-ng alsa-utils
+# Python for the venv, PortAudio for the mic, espeak-ng as the fallback voice,
+# alsa-utils for aplay (playback) and arecord (troubleshooting). Everything
+# else comes as prebuilt Python wheels, so no compilers are needed.
+sudo apt-get install -y python3 python3-venv libportaudio2 espeak-ng alsa-utils
 
 step "Installing homeos-voice into $venv"
 # The venv belongs to the service user, so nothing in the repo or the venv
@@ -43,16 +47,15 @@ step "Installing homeos-voice into $venv"
 sudo mkdir -p "$venv"
 sudo chown "$user": "$venv"
 [ -x "$venv/bin/python" ] || python3 -m venv "$venv"
-"$venv/bin/pip" install --upgrade pip wheel
-"$venv/bin/pip" install --upgrade "$repo/voice[audio,stt,tts]"
-# openwakeword asks for tflite-runtime on Linux, which has no wheels for newer
-# Pythons (Raspberry Pi OS Trixie ships 3.13). We run its ONNX models, so fall
-# back to installing it without that dependency.
-if ! "$venv/bin/pip" install --upgrade "$repo/voice[wake]"; then
-    echo "Installing openwakeword without tflite-runtime (ONNX models only)"
-    "$venv/bin/pip" install --upgrade onnxruntime numpy scipy scikit-learn tqdm requests
-    "$venv/bin/pip" install --upgrade --no-deps "openwakeword>=0.6,<0.7"
-fi
+"$venv/bin/pip" install --upgrade pip
+# Every dependency has a prebuilt wheel for the Pi (about 180 MB in all), so
+# nothing is compiled; --only-binary keeps it that way, failing in seconds
+# rather than starting an hour-long build that couldn't work anyway.
+"$venv/bin/pip" install --upgrade --only-binary=:all: "$repo/voice[audio,stt,tts,wake]"
+# openwakeword requires tflite-runtime, which has no wheels for Python 3.12+
+# (Raspberry Pi OS Trixie has 3.13). We run its ONNX models, so it goes in
+# without its dependencies; the `wake` extra above brought everything else.
+"$venv/bin/pip" install --only-binary=:all: --no-deps "openwakeword>=0.6,<0.7"
 
 step "Configuring"
 sudo usermod -aG audio "$user"

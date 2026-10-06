@@ -38,6 +38,7 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
     m_screensaver = qEnvironmentVariable("HOMEOS_SCREENSAVER");
     if (m_screensaver.isEmpty())
         m_screensaver = QSettings().value("display/screensaver", "photos").toString();
+    m_animatedTiles = QSettings().value("display/animatedTiles", true).toBool();
 
     const QDir backlights(QStringLiteral("/sys/class/backlight"));
     const QStringList devices = backlights.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -155,4 +156,13 @@ void DisplayController::setScreensaver(const QString &style)
     m_screensaver = style;
     QSettings().setValue("display/screensaver", style);
     emit screensaverChanged();
+}
+
+void DisplayController::setAnimatedTiles(bool on)
+{
+    if (on == m_animatedTiles)
+        return;
+    m_animatedTiles = on;
+    QSettings().setValue("display/animatedTiles", on);
+    emit animatedTilesChanged();
 }

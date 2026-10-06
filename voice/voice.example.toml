@@ -31,7 +31,9 @@
 #output = "auto"
 # For aplay, an ALSA device from `aplay -L`, e.g. "default:CARD=vc4hdmi0" for
 # the Pi 5's HDMI0 port (the panel's speakers). For sounddevice, an index or
-# name. Empty uses the system default.
+# name. Empty uses the system default; for aplay, HDMI0's card (vc4hdmi0)
+# whenever there is one, as a USB mic can take card 0 at boot. That wins over
+# `defaults.pcm.card` in an asound.conf, so to play anywhere else, set this.
 #output_device = ""
 
 [wakeword]
@@ -52,6 +54,8 @@
 # the room's echo can fade.
 #resume_delay = 0.5
 # "onnx" or "tflite", for built-in models (files go by their extension).
+# tflite needs tflite-runtime, which Python 3.12+ (Raspberry Pi OS Trixie)
+# can't install, so keep onnx there.
 #inference_framework = "onnx"
 
 [vad]

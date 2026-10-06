@@ -47,8 +47,13 @@ QNetworkRequest SupabaseClient::request(const QString &path, const QUrlQuery &qu
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     req.setRawHeader("apikey", m_anonKey.toUtf8());
-    const QString bearer = m_accessToken.isEmpty() ? m_anonKey : m_accessToken;
-    req.setRawHeader("Authorization", "Bearer " + bearer.toUtf8());
+    // Signed out, a legacy anon key (a JWT) doubles as the bearer token; the
+    // newer sb_publishable_ keys aren't JWTs, so they go in apikey only.
+    const QString bearer = !m_accessToken.isEmpty() ? m_accessToken
+                         : m_anonKey.startsWith(QLatin1String("eyJ")) ? m_anonKey
+                                                                      : QString();
+    if (!bearer.isEmpty())
+        req.setRawHeader("Authorization", "Bearer " + bearer.toUtf8());
     req.setTransferTimeout(15000);
     return req;
 }
@@ -89,8 +94,11 @@ void SupabaseClient::refreshSession(std::function<void(bool)> done)
     }
     QUrlQuery q;
     q.addQueryItem("grant_type", "refresh_token");
+    // No user token here: request() sends only what the key type allows.
     QNetworkRequest req = request("/auth/v1/token", q);
-    req.setRawHeader("Authorization", "Bearer " + m_anonKey.toUtf8());
+    req.setRawHeader("Authorization", QByteArray());
+    if (m_anonKey.startsWith(QLatin1String("eyJ")))
+        req.setRawHeader("Authorization", "Bearer " + m_anonKey.toUtf8());
     const QString sent = m_refreshToken;
     const QJsonObject body{{"refresh_token", sent}};
 

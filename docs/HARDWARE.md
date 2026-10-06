@@ -22,8 +22,11 @@ Setup steps: [PI_SETUP.md](PI_SETUP.md).
 - **Software support:** Raspberry Pi OS ships the Qt 6 packages the app is
   built and tested against, and Pi documentation and community support are
   the best available.
-- **Video:** iPhone videos are HEVC, which the Pi 5 decodes in hardware. The
-  Pi 5 has no H.264 hardware decoder, but the CPU handles H.264 at 1080p.
+- **Video:** iPhone videos are HEVC. The Pi 5 has an HEVC hardware decoder
+  (and none for H.264), but on Raspberry Pi OS Trixie the app's video player
+  (Qt 6.8 with FFmpeg) doesn't use it by default, so the CPU decodes it. That's
+  fine at 1080p; 4K clips may stutter (see the troubleshooting in
+  [PI_SETUP.md](PI_SETUP.md#troubleshooting)).
 - **Room to grow:** GPIO, I²C and UART connect the sensors below, the AI HAT+
   adds local AI if needed, and the Compute Module 5 is the path to a custom
   board.

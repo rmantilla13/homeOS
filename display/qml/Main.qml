@@ -149,6 +149,7 @@ ApplicationWindow {
                 anchors.fill: parent; index: 0; current: window.currentScreen
                 HomeScreen {
                     anchors.fill: parent
+                    shown: window.currentScreen === 0 && !assistant.open
                     onOpenScreen: index => window.currentScreen = index
                     onOpenAssistant: question => {
                         assistant.open = true
@@ -164,7 +165,10 @@ ApplicationWindow {
             }
             Page { anchors.fill: parent; index: 1; current: window.currentScreen; CalendarScreen { anchors.fill: parent } }
             Page { anchors.fill: parent; index: 2; current: window.currentScreen; TasksScreen { anchors.fill: parent } }
-            Page { anchors.fill: parent; index: 3; current: window.currentScreen; RewardsScreen { anchors.fill: parent } }
+            Page {
+                anchors.fill: parent; index: 3; current: window.currentScreen
+                RewardsScreen { anchors.fill: parent; shown: window.currentScreen === 3 && !assistant.open }
+            }
             Page {
                 anchors.fill: parent; index: 4; current: window.currentScreen
                 MediaScreen { anchors.fill: parent; onOpenViewer: (items, i) => viewer.show(items, i) }

@@ -1,0 +1,15 @@
+# Supabase CLI settings for homeOS (supabase link, db push, functions deploy).
+# Anything not listed here uses the CLI's defaults.
+project_id = "homeos"
+
+# Each function checks its caller itself (the signed-in person, a display's
+# pairing secret, or a platform admin), so the gateway's JWT check is off.
+# That also keeps them working with Supabase's newer non-JWT API keys.
+[functions.assistant]
+verify_jwt = false
+
+[functions.admin]
+verify_jwt = false
+
+[functions.pair-device]
+verify_jwt = false

@@ -219,6 +219,36 @@ private slots:
         QVERIFY(m_lastRequest.contains("\"refresh_token\":\"old-refresh\""));
     }
 
+    // A legacy anon key is a JWT and goes in Authorization too; a publishable
+    // key isn't, so it goes in apikey only.
+    void signedOutAuthHeaderDependsOnKeyType_data()
+    {
+        QTest::addColumn<QString>("key");
+        QTest::addColumn<bool>("bearer");
+        QTest::newRow("legacy anon JWT") << "eyJhbGciOiJIUzI1NiJ9.anon.sig" << true;
+        QTest::newRow("publishable") << "sb_publishable_abc123" << false;
+    }
+
+    void signedOutAuthHeaderDependsOnKeyType()
+    {
+        QFETCH(QString, key);
+        QFETCH(bool, bearer);
+        const QByteArray json = "{\"access_token\":\"a\",\"refresh_token\":\"r\"}";
+        m_response = {"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(json.size()) + "\r\nConnection: close",
+                      {json}};
+        SupabaseClient client(baseUrl(), key);
+        client.setRefreshToken("old-refresh");
+        int calls = 0;
+        client.refreshSession([&](bool) { ++calls; });
+        QTRY_COMPARE(calls, 1);
+        const QByteArray lower = m_lastRequest.toLower();
+        QVERIFY(lower.contains("apikey: " + key.toLower().toUtf8()));
+        QCOMPARE(lower.contains("authorization: bearer " + key.toLower().toUtf8()), bearer);
+        if (!bearer)
+            QVERIFY(!lower.contains("authorization:"));
+    }
+
     void refreshAfterSessionClearedIsIgnored_data()
     {
         QTest::addColumn<QByteArray>("head");

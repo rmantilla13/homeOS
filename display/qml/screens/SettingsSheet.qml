@@ -5,7 +5,8 @@ import HomeOS
 import HomeOS.Core
 
 // Display settings, from the gear in the nav rail: screen saver style, voice
-// (wake word, spoken replies), about this display, and re-pairing.
+// (wake word, spoken replies), animated tiles, about this display, and
+// re-pairing.
 Popup {
     id: sheet
     modal: true
@@ -178,6 +179,31 @@ Popup {
                                 Toggle {
                                     checked: Voice.speakReplies
                                     onToggled: on => Voice.speakReplies = on
+                                }
+                            }
+                        }
+                    }
+
+                    SectionLabel { Layout.topMargin: 12; text: qsTr("DISPLAY") }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: displayRows.implicitHeight
+                        radius: 24
+                        color: Theme.surfaceAlt
+                        ColumnLayout {
+                            id: displayRows
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 18
+                            anchors.rightMargin: 20
+                            spacing: 0
+                            SettingRow {
+                                icon: "sparkle"
+                                title: qsTr("Animated tiles")
+                                detail: qsTr("Let the colors on Home and Rewards drift slowly")
+                                Toggle {
+                                    checked: Device.animatedTiles
+                                    onToggled: on => Device.animatedTiles = on
                                 }
                             }
                         }
