@@ -72,6 +72,7 @@ on)
     # with the other, and a boot with both enabled can drop both.
     sudo systemctl daemon-reload
     sudo systemctl disable --now homeos-display 2>/dev/null || true
+    sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
     sudo systemctl unmask homeos-preview 2>/dev/null || true
     if ! sudo systemctl enable --now homeos-preview; then
         echo "Preview did not stay up on the first start. It stays enabled and will keep retrying." >&2
@@ -98,6 +99,7 @@ off)
     sudo systemctl disable --now homeos-preview 2>/dev/null || true
     sudo rm -f /etc/homeos/preview.env /etc/homeos/preview.passwd
     sudo systemctl unmask homeos-display 2>/dev/null || true
+    sudo systemctl enable homeos-bootscreen 2>/dev/null || true
     if ! sudo systemctl enable --now homeos-display; then
         echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
     fi
