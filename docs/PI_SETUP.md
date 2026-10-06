@@ -103,9 +103,10 @@ The script takes 20–30 minutes. It:
   app to `/usr/local/bin/homeos-display`
 - finds the HDMI output (`/etc/homeos/kms.json`) and writes the settings file
   `/etc/homeos/display.env` (kept when you re-run it)
-- stops the text console from blanking the screen or showing a cursor behind
-  the app (in `/boot/firmware/cmdline.txt`; the original is saved as
-  `cmdline.txt.homeos-backup`)
+- turns off the rainbow splash and the kernel log, and stops the text
+  console from blanking the screen or showing a cursor behind the app
+  (`/boot/firmware/cmdline.txt` and `config.txt`; the originals are saved
+  as `cmdline.txt.homeos-backup` and `config.txt.homeos-backup`)
 - sends sound to the screen's speakers at half volume (full volume on this
   panel is mostly hiss; the gear menu turns the speakers off or up, and the
   screen's own buttons still work), and turns off Wi-Fi power saving, which
@@ -117,11 +118,13 @@ The script takes 20–30 minutes. It:
 ## 4. What you should see
 
 When the install script finishes, homeOS should already be on the screen.
-After a reboot, boot messages scroll by for about half a minute, then homeOS
-fills the screen with sample data. The console login prompt does not stay up,
-and you do not run `systemctl` to bring it back. Tap the chores and rewards to
-try it. Videos under **Media** play with sound from the screen's speakers.
-After two minutes without a touch, the photo frame starts; a tap wakes it.
+After a reboot, the screen stays dark for a few seconds, then homeOS fills it.
+Boot text and the rainbow splash stay off the panel, and homeOS does not wait
+for Wi-Fi before painting (it connects when the network is up). The console
+login prompt does not stay up, and you do not run `systemctl` to bring it
+back. Tap the chores and rewards to try it. Videos under **Media** play with
+sound from the screen's speakers. After two minutes without a touch, the photo
+frame starts; a tap wakes it.
 
 ## 5. Connect it to your family
 
@@ -173,7 +176,8 @@ Start with the logs: `journalctl -u homeos-display -b`.
 | Symptom | Fix |
 |---|---|
 | A login prompt is on the screen after reboot | Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1 now and on every later boot. You should not need `sudo systemctl enable --now homeos-display`. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
-| Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
+| Boot text or the rainbow square stays on the screen for a long time, or homeOS appears only after Wi-Fi connects | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. The script turns the splash and kernel log off, and the display service no longer waits for the network. |
+| Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every second. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio tty`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |

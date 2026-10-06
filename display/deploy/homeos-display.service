@@ -11,8 +11,10 @@ After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.se
 # the panel may be off. Restart= covers that. Do not pin a card index: on the
 # Pi 5 the HDMI card and the GPU card swap.
 After=systemd-udev-trigger.service
-After=network-online.target
-Wants=network-online.target
+# Do not wait for network-online. That target sits until Wi-Fi associates
+# (or until its timeout, when the network is down) and the panel stays on
+# the console the whole time. The app paints immediately and connects when
+# the network shows up.
 Wants=systemd-logind.service
 Wants=user@@UID@.service
 After=user@@UID@.service
@@ -50,7 +52,9 @@ TTYVTDisallocate=yes
 UtmpIdentifier=tty1
 ExecStart=/usr/local/bin/homeos-display
 Restart=always
-RestartSec=3
+# A missing screen or a GPU that is still starting exits the process. Come
+# back quickly so the panel does not sit on the console.
+RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
