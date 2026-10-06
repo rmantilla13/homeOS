@@ -208,7 +208,7 @@ hook, the assistant).
 |---|---|
 | Sign-in page says Supabase isn't configured | One of the two `NEXT_PUBLIC_SUPABASE_*` variables is missing or not a URL. They are read at request time, so restart (or redeploy) after setting them. |
 | "That account isn't an Ohana platform admin" | The account has no `platform_admins` row (see above). |
-| "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The server log has the database error. |
+| "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The page shows the database's sentence. A numeric reference means an unexpected crash; that text is in the server log. |
 | Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
 | A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its files are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |

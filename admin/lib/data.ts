@@ -86,6 +86,21 @@ async function adminFunction<T>(db: SupabaseClient, body: Record<string, unknown
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0) || 0);
+
+function record<T extends object>(value: unknown, fn: string): T {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new DataError(`${fn} didn't come back from the database. Apply the platform migrations (docs/ADMIN.md).`);
+  }
+  return value as T;
+}
+
+function list<T>(value: unknown, fn: string): T[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    throw new DataError(`${fn} didn't come back as a list. Apply the platform migrations (docs/ADMIN.md).`);
+  }
+  return value as T[];
+}
 const pageArgs = (page: number) => ({ lim: PAGE_SIZE + 1, off: Math.max(page - 1, 0) * PAGE_SIZE });
 function paged<T>(rows: T[], page: number): Page<T> {
   return { rows: rows.slice(0, PAGE_SIZE), page, hasMore: rows.length > PAGE_SIZE };
@@ -112,7 +127,9 @@ export async function requireAdmin(): Promise<Admin> {
   try {
     state = await adminState();
   } catch (err) {
-    if (err instanceof DataError) redirect("/login?error=config");
+    // Only a missing project config is a sign-in problem. Other DataErrors
+    // (a failed session read, for example) keep their sentence on the page.
+    if (err instanceof DataError && err.message === NOT_CONFIGURED) redirect("/login?error=config");
     throw err;
   }
   if (state.status === "signed_out") redirect("/login");
@@ -148,7 +165,7 @@ export async function signOut(): Promise<void> {
 
 export async function getOverview(): Promise<Overview> {
   const src = await source();
-  const o = src.demo ? demo.demoOverview() : await rpc<Overview>(src.db, "admin_overview");
+  const o = src.demo ? demo.demoOverview() : record<Overview>(await rpc(src.db, "admin_overview"), "admin_overview");
   return {
     families: num(o.families),
     families_active_7d: num(o.families_active_7d),
@@ -172,8 +189,10 @@ const toUsageDay = (d: UsageDay): UsageDay => ({
 
 export async function getUsageByDay(days = 30): Promise<UsageDay[]> {
   const src = await source();
-  const rows = src.demo ? demo.demoUsageByDay(days) : await rpc<UsageDay[]>(src.db, "admin_usage_by_day", { days });
-  return (rows ?? []).map(toUsageDay);
+  const rows = src.demo
+    ? demo.demoUsageByDay(days)
+    : list<UsageDay>(await rpc(src.db, "admin_usage_by_day", { days }), "admin_usage_by_day");
+  return rows.map(toUsageDay);
 }
 
 export async function listFamilies(search: string | null, page: number): Promise<Page<FamilyRow>> {
@@ -181,9 +200,9 @@ export async function listFamilies(search: string | null, page: number): Promise
   const { lim, off } = pageArgs(page);
   const rows = src.demo
     ? demo.demoListFamilies(search, lim, off)
-    : await rpc<FamilyRow[]>(src.db, "admin_list_families", { search: search || null, lim, off });
+    : list<FamilyRow>(await rpc(src.db, "admin_list_families", { search: search || null, lim, off }), "admin_list_families");
   return paged(
-    (rows ?? []).map((r) => ({
+    rows.map((r) => ({
       ...r,
       member_count: num(r.member_count),
       parent_count: num(r.parent_count),
@@ -213,7 +232,10 @@ export const getFamilyDetail = cache(async (id: string): Promise<FamilyDetail | 
     console.error("rpc admin_family_detail failed:", error.message);
     throw new DataError(error.message);
   }
-  const d = data as FamilyDetail;
+  const d = record<FamilyDetail>(data, "admin_family_detail");
+  if (!d.family) {
+    throw new DataError("admin_family_detail didn't include the family. Apply the platform migrations (docs/ADMIN.md).");
+  }
   return {
     family: d.family,
     members: d.members ?? [],
@@ -228,21 +250,24 @@ export async function listUsers(search: string | null, page: number): Promise<Pa
   const { lim, off } = pageArgs(page);
   const rows = src.demo
     ? demo.demoListUsers(search, lim, off)
-    : await rpc<UserRow[]>(src.db, "admin_list_users", { search: search || null, lim, off });
-  return paged((rows ?? []).map((u) => ({ ...u, families: u.families ?? [] })), page);
+    : list<UserRow>(await rpc(src.db, "admin_list_users", { search: search || null, lim, off }), "admin_list_users");
+  return paged(rows.map((u) => ({ ...u, families: u.families ?? [] })), page);
 }
 
 export async function listPlatformInvites(includeInactive: boolean): Promise<PlatformInvite[]> {
   const src = await source();
   const rows = src.demo
     ? demo.demoListInvites(includeInactive)
-    : await rpc<PlatformInvite[]>(src.db, "admin_list_platform_invites", { include_inactive: includeInactive });
-  return (rows ?? []).map((i) => ({ ...i, max_uses: num(i.max_uses), use_count: num(i.use_count) }));
+    : list<PlatformInvite>(
+        await rpc(src.db, "admin_list_platform_invites", { include_inactive: includeInactive }),
+        "admin_list_platform_invites",
+      );
+  return rows.map((i) => ({ ...i, max_uses: num(i.max_uses), use_count: num(i.use_count) }));
 }
 
 export async function getSettings(): Promise<Settings> {
   const src = await source();
-  const s = src.demo ? demo.demoSettings() : await rpc<Settings>(src.db, "admin_get_settings");
+  const s = src.demo ? demo.demoSettings() : record<Settings>(await rpc(src.db, "admin_get_settings"), "admin_get_settings");
   return {
     invite_only: s.invite_only,
     assistant_enabled: s.assistant_enabled,
@@ -258,9 +283,9 @@ export async function listAudit(page: number, pageSize = PAGE_SIZE): Promise<Pag
   const off = Math.max(page - 1, 0) * pageSize;
   const rows = src.demo
     ? demo.demoListAudit(lim, off)
-    : await rpc<AuditEntry[]>(src.db, "admin_list_audit", { lim, off });
-  const list = (rows ?? []).map((e) => ({ ...e, id: num(e.id), details: e.details ?? {} }));
-  return { rows: list.slice(0, pageSize), page, hasMore: list.length > pageSize };
+    : list<AuditEntry>(await rpc(src.db, "admin_list_audit", { lim, off }), "admin_list_audit");
+  const entries = rows.map((e) => ({ ...e, id: num(e.id), details: e.details ?? {} }));
+  return { rows: entries.slice(0, pageSize), page, hasMore: entries.length > pageSize };
 }
 
 // ─────────────────────────── Mutations ───────────────────────────
