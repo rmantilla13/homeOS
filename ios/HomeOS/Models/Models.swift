@@ -137,12 +137,15 @@ struct NewTask: Encodable {
     var points: Int
     var rrule: String?
     var requiresApproval: Bool
+    /// The member who added it. Omitted when nil.
+    var createdBy: UUID? = nil
 
     enum CodingKeys: String, CodingKey {
         case title, icon, points, rrule
         case familyId = "family_id"
         case assigneeId = "assignee_id"
         case requiresApproval = "requires_approval"
+        case createdBy = "created_by"
     }
 }
 

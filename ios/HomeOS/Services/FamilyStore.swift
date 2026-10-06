@@ -4,6 +4,36 @@ import Supabase
 
 let supabase = SupabaseClient(supabaseURL: Config.supabaseURL, supabaseKey: Config.supabaseAnonKey)
 
+/// Event fields a family member may change. An empty place is stored as null.
+/// `rrule` and `created_by` are not sent, so a repeating event stays repeating.
+private struct EventPatch: Encodable {
+    var title: String
+    var location: String?
+    var startsAt: Date
+    var endsAt: Date
+    var allDay: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case title, location
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
+        case allDay = "all_day"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(title, forKey: .title)
+        if let location {
+            try container.encode(location, forKey: .location)
+        } else {
+            try container.encodeNil(forKey: .location)
+        }
+        try container.encode(startsAt, forKey: .startsAt)
+        try container.encode(endsAt, forKey: .endsAt)
+        try container.encode(allDay, forKey: .allDay)
+    }
+}
+
 /// App-wide state: auth, the current family, and its data. Views read from
 /// here and call its async actions; row-level security scopes every query
 /// to the signed-in user's families, and each query also names the family on
@@ -632,10 +662,30 @@ final class FamilyStore {
 
     func addEvent(title: String, location: String?, start: Date, end: Date, allDay: Bool, memberIds: Set<UUID>) async {
         guard let family else { return }
-        let event = NewEvent(familyId: family.id, title: title, location: location, startsAt: start,
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        let event = NewEvent(familyId: family.id, title: title, location: blankToNil(location), startsAt: start,
                              endsAt: max(end, start), allDay: allDay, createdBy: me?.id)
         await perform {
             try await supabase.from("events").insert(event).execute()
+            if !memberIds.isEmpty {
+                let links = memberIds.map { ["event_id": event.id.uuidString, "member_id": $0.uuidString] }
+                try await supabase.from("event_members").insert(links).execute()
+            }
+        }
+    }
+
+    /// Changes the title, place, time, and who an event is for. Recurrence (`rrule`) is left as stored.
+    func updateEvent(_ event: FamilyEvent, title: String, location: String?, start: Date, end: Date, allDay: Bool, memberIds: Set<UUID>) async {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        await perform {
+            try await supabase.from("events")
+                .update(EventPatch(title: title, location: blankToNil(location), startsAt: start,
+                                    endsAt: max(end, start), allDay: allDay))
+                .eq("id", value: event.id.uuidString)
+                .execute()
+            try await supabase.from("event_members").delete().eq("event_id", value: event.id.uuidString).execute()
             if !memberIds.isEmpty {
                 let links = memberIds.map { ["event_id": event.id.uuidString, "member_id": $0.uuidString] }
                 try await supabase.from("event_members").insert(links).execute()
@@ -665,6 +715,11 @@ final class FamilyStore {
     // MARK: Chores
 
     func addTask(_ task: NewTask) async {
+        let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        var task = task
+        task.title = title
+        if task.createdBy == nil { task.createdBy = me?.id }
         await perform { try await supabase.from("tasks").insert(task).execute() }
     }
 
@@ -768,7 +823,8 @@ final class FamilyStore {
     // MARK: Rewards & points
 
     func addReward(title: String, icon: String?, cost: Int) async {
-        guard let family else { return }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let family, !title.isEmpty, cost > 0 else { return }
         await perform { try await supabase.from("rewards").insert(NewReward(familyId: family.id, title: title, icon: icon, cost: cost)).execute() }
     }
 
@@ -931,17 +987,58 @@ final class FamilyStore {
         }
     }
 
+    /// Deletes one photo or video: the `media_items` row (family-member RLS, not the admin console)
+    /// and its objects in the `family-media` bucket.
     func deleteMedia(_ item: MediaItem) async {
-        media.removeAll { $0.id == item.id }
+        await deleteMedia([item])
+    }
+
+    /// Deletes several items the same way as `deleteMedia(_:)`. One confirmation in the UI covers the batch.
+    func deleteMedia(_ items: [MediaItem]) async {
+        var unique: [MediaItem] = []
+        var seen = Set<UUID>()
+        for item in items where seen.insert(item.id).inserted { unique.append(item) }
+        guard !unique.isEmpty else { return }
+        let ids = Set(unique.map(\.id))
+        media.removeAll { ids.contains($0.id) }
+        var removed: [MediaItem] = []
         do {
-            try await supabase.from("media_items").delete().eq("id", value: item.id.uuidString).execute()
-            var paths = [item.storagePath]
-            if let thumb = item.thumbnailPath, thumb != item.storagePath { paths.append(thumb) }
-            _ = try await supabase.storage.from(Config.mediaBucket).remove(paths: paths)
+            for item in unique {
+                try await supabase.from("media_items").delete().eq("id", value: item.id.uuidString).execute()
+                removed.append(item)
+            }
+            try await removeStoredFiles(storagePaths(for: removed))
         } catch {
+            // Rows already deleted should not keep their files if a later row fails.
+            if !removed.isEmpty {
+                try? await removeStoredFiles(storagePaths(for: removed))
+            }
             report(error)
             await refreshMedia()
         }
+    }
+
+    private func removeStoredFiles(_ paths: [String]) async throws {
+        var start = 0
+        while start < paths.count {
+            let end = min(start + 100, paths.count)
+            _ = try await supabase.storage.from(Config.mediaBucket).remove(paths: Array(paths[start..<end]))
+            start = end
+        }
+    }
+
+    /// The file plus its poster, without repeating a path.
+    private func storagePaths(for items: [MediaItem]) -> [String] {
+        var paths: [String] = []
+        var seen = Set<String>()
+        for item in items {
+            var candidates = [item.storagePath]
+            if let thumb = item.thumbnailPath { candidates.append(thumb) }
+            for path in candidates where !path.isEmpty && seen.insert(path).inserted {
+                paths.append(path)
+            }
+        }
+        return paths
     }
 
     /// Signed URLs last an hour; reuse them until they're close to expiring.
@@ -1120,6 +1217,11 @@ final class FamilyStore {
     }
 
     // MARK: Helpers
+
+    private func blankToNil(_ text: String?) -> String? {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     /// Runs a write, then reloads. On failure the optimistic local change is
     /// replaced by the server's state. Returns whether the write succeeded.
