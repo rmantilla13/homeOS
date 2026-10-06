@@ -68,11 +68,18 @@ on)
     fi
 
     # The kiosk needs the panel; without one it would just keep restarting.
+    # Disable it so both are not wanted by multi-user.target. Each conflicts
+    # with the other, and a boot with both enabled can drop both.
     sudo systemctl daemon-reload
     sudo systemctl disable --now homeos-display 2>/dev/null || true
     sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
-    sudo systemctl enable homeos-preview
-    sudo systemctl restart homeos-preview
+    sudo systemctl unmask homeos-preview 2>/dev/null || true
+    if ! sudo systemctl enable --now homeos-preview; then
+        echo "Preview did not stay up on the first start. It stays enabled and will keep retrying." >&2
+    fi
+    if ! sudo systemctl restart homeos-preview; then
+        echo "Preview did not stay up yet. It will keep retrying." >&2
+    fi
 
     step "Preview is running"
     if [ "$lan" = 1 ]; then
@@ -91,9 +98,15 @@ on)
 off)
     sudo systemctl disable --now homeos-preview 2>/dev/null || true
     sudo rm -f /etc/homeos/preview.env /etc/homeos/preview.passwd
+    sudo systemctl unmask homeos-display 2>/dev/null || true
+    # Next reboot only. Starting the video now would cover the app.
     sudo systemctl enable homeos-bootscreen 2>/dev/null || true
-    sudo systemctl enable homeos-display
-    sudo systemctl restart homeos-display
+    if ! sudo systemctl enable --now homeos-display; then
+        echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
+    fi
+    if ! sudo systemctl restart homeos-display; then
+        echo "homeos-display did not stay up yet. It will keep retrying." >&2
+    fi
     echo "Preview is off; homeOS runs on the panel again."
     ;;
 status)

@@ -7,6 +7,10 @@ Description=homeOS wall display
 # After logins are allowed, logind is up, and any boot splash has let go of
 # the screen. The user manager (lingering) creates the runtime dir and PipeWire.
 After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.service
+# udev has created device nodes. HDMI's DRM node can still appear later, and
+# the panel may be off. Restart= covers that. Do not pin a card index: on the
+# Pi 5 the HDMI card and the GPU card swap.
+After=systemd-udev-trigger.service
 After=network-online.target
 Wants=network-online.target
 Wants=systemd-logind.service

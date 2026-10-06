@@ -322,10 +322,13 @@ if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     sudo systemctl disable --now homeos-display 2>/dev/null || true
     sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
 else
-    # A previous install may have left this disabled or masked. enable alone
-    # does not start it, and a reboot only starts units that are enabled, so
-    # enable and restart (restart starts it when it was stopped). A screen that
-    # is still off makes the process exit; Restart= in the unit keeps trying.
+    # A previous install may have left this disabled or masked. enable writes
+    # the multi-user.target.wants symlink, which is what a reboot starts.
+    # --now starts it in this boot. restart then loads the binary this run
+    # just installed (enable --now leaves an already-running process alone)
+    # and also starts the unit if that first start did not stay up. Do not
+    # skip this when the unit is inactive: that is a fresh install, and a
+    # unit systemd dropped from the previous boot transaction.
     sudo systemctl unmask homeos-display
     sudo systemctl unmask homeos-bootscreen 2>/dev/null || true
     # Enabled for the next reboot only. Starting it now would fight the app
@@ -334,7 +337,9 @@ else
     if ! sudo systemctl enable homeos-bootscreen; then
         echo "Boot video was not enabled. The app still starts; re-run the installer to try the video again." >&2
     fi
-    sudo systemctl enable homeos-display
+    if ! sudo systemctl enable --now homeos-display; then
+        echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
+    fi
     if ! sudo systemctl restart homeos-display; then
         echo "homeos-display did not stay up yet. It will keep retrying, including on the next boot." >&2
     fi
