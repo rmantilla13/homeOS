@@ -1,6 +1,6 @@
 // Copy to Local.xcconfig (that file stays uncommitted).
-// Team ID: developer.apple.com → Membership Details → Team ID (10 characters).
-HOMEOS_TEAM_ID = YOURTEAMID
+// Team 92X9CP6C6D is already the default. Set this only to use another team.
+HOMEOS_TEAM_ID = 92X9CP6C6D
 
 // Register this identifier under Certificates, Identifiers & Profiles, then
 // pick the same one when you create the app in App Store Connect.

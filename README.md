@@ -127,8 +127,7 @@ See [docs/VOICE.md](docs/VOICE.md).
 ### iOS app
 
 ```bash
-brew install xcodegen
-cd ios && xcodegen && open HomeOS.xcodeproj
+open ios/HomeOS.xcodeproj
 ```
 
 Put your Supabase URL and anon key in `ios/Config/Local.xcconfig` (see

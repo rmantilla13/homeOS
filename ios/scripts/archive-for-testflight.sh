@@ -7,15 +7,16 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 local_cfg="$root/Config/Local.xcconfig"
+defaults="$root/Config/Defaults.xcconfig"
 
 if [[ ! -f "$local_cfg" ]]; then
-  echo "Copy ios/Config/Local.xcconfig.example to ios/Config/Local.xcconfig and fill it in." >&2
+  echo "Copy ios/Config/Local.xcconfig.example to ios/Config/Local.xcconfig and set the Supabase URL and anon key." >&2
   exit 1
 fi
 
 value() {
-  # Last assignment wins, matching xcconfig include order.
-  sed -n "s/^$1 = \\(.*\\)$/\\1/p" "$local_cfg" | tail -n 1
+  # Defaults, then Local.xcconfig. The last assignment wins.
+  sed -n "s/^$1 = \\(.*\\)$/\\1/p" "$defaults" "$local_cfg" | tail -n 1
 }
 
 team="$(value HOMEOS_TEAM_ID)"
@@ -35,16 +36,11 @@ if [[ -z "$anon" || "$anon" == YOUR-ANON-KEY ]]; then
   exit 1
 fi
 
-if ! command -v xcodegen >/dev/null; then
-  echo "Install XcodeGen: brew install xcodegen" >&2
-  exit 1
-fi
 if ! command -v xcodebuild >/dev/null; then
   echo "Archive from a Mac with Xcode 16 or newer." >&2
   exit 1
 fi
 
-xcodegen generate
 rm -rf "$root/build/HomeOS.xcarchive" "$root/build/export"
 xcodebuild \
   -project HomeOS.xcodeproj \
@@ -62,4 +58,4 @@ xcodebuild \
   -allowProvisioningUpdates
 
 echo "IPA is in ios/build/export. Upload it with Xcode Organizer or the Transporter app."
-echo "Each upload needs a new CURRENT_PROJECT_VERSION in ios/project.yml."
+echo "Each upload needs a new CURRENT_PROJECT_VERSION in ios/HomeOS.xcodeproj/project.pbxproj."

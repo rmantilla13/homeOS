@@ -777,23 +777,21 @@ email, sign out.
 - An `AppShortcutsProvider` adds phrases such as "Ask \(.applicationName)"
   and "Ask \(.applicationName) a question"; Siri then asks for the question.
 
-**CI:** `.github/workflows/ios.yml` builds for the simulator on `macos-15`
-with xcodegen and `CODE_SIGNING_ALLOWED=NO`.
+**CI:** `.github/workflows/ios.yml` builds the checked-in `HomeOS.xcodeproj`
+for the simulator on `macos-15` with `CODE_SIGNING_ALLOWED=NO`.
 
-**TestFlight:** version 1.0.0 (build 1) in `ios/project.yml`. The archive
-reads the team id, bundle id, Supabase URL, anon key and media API origin
-from `ios/Config/Local.xcconfig`. `ios/scripts/archive-for-testflight.sh`
-exports an App Store Connect IPA. The app icon, privacy manifest and
-`ITSAppUsesNonExemptEncryption = false` ship in the binary. Details are in
-[IOS.md](IOS.md).
+**TestFlight:** the checked-in Xcode project is signed for team `92X9CP6C6D`,
+version 1.0.0 (build 1), bundle id `com.homeos.app`. The archive reads the
+Supabase URL, anon key and media API origin from `ios/Config/Local.xcconfig`.
+`ios/scripts/archive-for-testflight.sh` exports an App Store Connect IPA.
+Details are in [IOS.md](IOS.md).
 
 ---
 
 ## 7. CI (`.github/workflows/`)
 
 - **`ios.yml`:** on push and PR, when `ios/**` or the workflow changes:
-  `brew install xcodegen`, `cd ios && xcodegen generate`, then
-  `xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
+  `xcodebuild -project ios/HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
   Pick the newest Xcode 16+ with `maxim-lobanov/setup-xcode` or `xcode-select`.
 - **`ci.yml`:** jobs on `ubuntu-24.04`
   - `backend`: install PostgreSQL 16 from apt and run `backend/tests/run.sh`

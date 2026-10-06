@@ -1,4 +1,5 @@
-# Generate the Xcode project with: brew install xcodegen && xcodegen
+# The Xcode project is checked in at HomeOS.xcodeproj (team 92X9CP6C6D).
+# Open that. xcodegen generate replaces it.
 # TestFlight: fill ios/Config/Local.xcconfig, then ios/scripts/archive-for-testflight.sh
 name: HomeOS
 options:

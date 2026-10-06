@@ -10,8 +10,7 @@ families and invites fit together is in [PLATFORM.md](PLATFORM.md).
 ## Build and run
 
 ```bash
-brew install xcodegen
-cd ios && xcodegen && open HomeOS.xcodeproj
+open ios/HomeOS.xcodeproj
 ```
 
 1. Put your Supabase URL and anon key in `ios/Config/Local.xcconfig`
@@ -26,12 +25,14 @@ cd ios && xcodegen && open HomeOS.xcodeproj
 4. Pick an iPhone simulator or a device and run. Build with Xcode 16 or newer:
    the code relies on its SDK treating every SwiftUI `View` as `@MainActor`.
 
-`project.yml` is the source of truth for the project. Don't edit the generated
-`.xcodeproj` or `Info.plist`; change `project.yml` and run `xcodegen` again.
-It declares the `homeos` URL scheme, a shared `HomeOS` scheme (for
-`xcodebuild`), and the photo library, camera, microphone and speech
-recognition usage strings. Siri needs no extra keys or entitlements: App
-Shortcuts are found by the App Intents metadata step of a normal build.
+`ios/HomeOS.xcodeproj` is the project Xcode opens. It is already signed for
+team `92X9CP6C6D`, bundle id `com.homeos.app`, version 1.0.0 (1). The shared
+scheme, `Package.resolved` (supabase-swift 2.55.3), and `Info.plist` are in
+the repo. Xcode's personal UI state (`xcuserdata`, `UserInterfaceState.xcuserstate`)
+stays on your Mac. `project.yml` describes the same target. Regenerating with
+XcodeGen replaces the checked-in project, so open the `.xcodeproj` instead.
+Siri needs no extra keys or entitlements: App Shortcuts are found by the App
+Intents metadata step of a normal build.
 
 ## Code map
 
@@ -201,8 +202,8 @@ app's chat history. The Profile screen shows a `SiriTipView` for it.
 
 `.github/workflows/ios.yml` runs on pushes and pull requests that touch
 `ios/**` or the workflow. On `macos-15` it selects the newest stable Xcode
-(`maxim-lobanov/setup-xcode`, failing if that's older than 16), installs
-XcodeGen with Homebrew, runs `xcodegen generate`, and builds:
+(`maxim-lobanov/setup-xcode`, failing if that's older than 16) and builds the
+checked-in project:
 
 ```bash
 xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator \
@@ -210,23 +211,23 @@ xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator \
 ```
 
 Swift packages are checked out into `.spm` and cached on the hash of
-`project.yml` (no `Package.resolved` is committed, so a fresh run resolves the
-newest supabase-swift 2.x). When the build fails, the full `xcodebuild` log is
-uploaded as the `xcodebuild-log` artifact.
+`Package.resolved` (supabase-swift 2.55.3). When the build fails, the full
+`xcodebuild` log is uploaded as the `xcodebuild-log` artifact.
 
 ## TestFlight
 
 The project is set up to archive. Uploading still happens on a Mac, signed in
 to Xcode with an Apple Developer account. Version **1.0.0** and build **1**
-come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`.
-Each upload needs a new build number there; then run `xcodegen` again.
+come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode project.
+Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
+`ios/HomeOS.xcodeproj/project.pbxproj` (and `ios/project.yml`).
 
-1. Join the Apple Developer Program. In Membership Details, copy the
-   10-character Team ID.
+1. The Xcode project is already signed for team `92X9CP6C6D` and bundle id
+   `com.homeos.app`. Sign in to Xcode with the Apple ID on that team.
 2. Copy `ios/Config/Local.xcconfig.example` to `ios/Config/Local.xcconfig`
-   (that copy is gitignored). Set the team id, the bundle id, the Supabase
-   URL and anon key, and the admin app origin (`MEDIA_API_URL`). Write URLs as
-   `https:/$()/host` so xcconfig does not treat `//` as a comment.
+   (that copy is gitignored). Set the Supabase URL, anon key, and the admin
+   app origin (`MEDIA_API_URL`). Write URLs as `https:/$()/host` so xcconfig
+   does not treat `//` as a comment.
 3. On the developer site, register that bundle id (no extra capabilities).
    In App Store Connect, create an iOS app named homeOS with the same bundle
    id. The primary category is Lifestyle.
