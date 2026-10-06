@@ -94,7 +94,7 @@ struct ProfileView: View {
                     }
                 }
                 Section {
-                    SiriTipView(intent: AskHomeOSIntent())
+                    SiriTipView(intent: AskOhanaOSIntent())
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 } header: {

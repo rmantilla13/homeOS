@@ -10,23 +10,27 @@ families and invites fit together is in [PLATFORM.md](PLATFORM.md).
 ## Build and run
 
 ```bash
-open ios/HomeOS.xcodeproj
+open ios/OhanaOS.xcodeproj
 ```
 
 1. Put your Supabase URL and anon key in `ios/Config/Local.xcconfig`
    (copy `Local.xcconfig.example`) or, for a simulator-only run, in
-   `ios/HomeOS/App/Config.swift`. `Local.xcconfig` wins when it is filled in.
+   `ios/OhanaOS/App/Config.swift`. `Local.xcconfig` wins when it is filled in.
 2. Apply the migrations and deploy the `pair-device` and `assistant` edge
    functions (see the README).
 3. In Supabase → Authentication → URL Configuration, add
-   `homeos://auth-callback` to **Redirect URLs**. Email confirmations and admin
+   `ohanaos://auth-callback` to **Redirect URLs**. Email confirmations and admin
    email invites then open the app and sign you in. Without it, those links
    land on the Site URL and you sign in in the app by hand.
 4. Pick an iPhone simulator or a device and run. Build with Xcode 16 or newer:
    the code relies on its SDK treating every SwiftUI `View` as `@MainActor`.
 
-`ios/HomeOS.xcodeproj` is the project Xcode opens. It is already signed for
-team `92X9CP6C6D`, bundle id `com.homeos.app`, version 1.0.0 (1). The shared
+The product name on the Home Screen is **Ohana**. The Xcode project, the
+software name (`CFBundleName`), and the company are **OhanaOS**. The bundle
+id is `com.ohanaos.ohana`.
+
+`ios/OhanaOS.xcodeproj` is the project Xcode opens. It is already signed for
+team `92X9CP6C6D`, bundle id `com.ohanaos.ohana`, version 1.0.0 (1). The shared
 scheme, `Package.resolved` (supabase-swift 2.55.3), and `Info.plist` are in
 the repo. Xcode's personal UI state (`xcuserdata`, `UserInterfaceState.xcuserstate`)
 stays on your Mac. `project.yml` describes the same target. Regenerating with
@@ -37,10 +41,10 @@ Intents metadata step of a normal build.
 ## Code map
 
 ```
-ios/HomeOS/
+ios/OhanaOS/
 ├── App/
-│   ├── HomeOSApp.swift       RootView: loading (with retry) / welcome / family setup / tabs; deep links
-│   ├── AskHomeOSIntent.swift Siri: AskHomeOSIntent + HomeOSShortcuts (App Shortcuts)
+│   ├── OhanaOSApp.swift      RootView: loading (with retry) / welcome / family setup / tabs; deep links
+│   ├── AskOhanaOSIntent.swift Siri: AskOhanaOSIntent + OhanaOSShortcuts (App Shortcuts)
 │   └── Config.swift          Supabase URL and key (Local.xcconfig or the fallbacks), bucket names, auth callback URL
 ├── Models/       Codable rows mirroring the migrations (snake_case keys), invites, profiles,
 │                 assistant threads and messages, chat types, InviteCode, DayKey
@@ -112,13 +116,13 @@ the messages in PLATFORM.md → "Errors the apps show" appear verbatim.
 
 ### Deep links
 
-The `homeos` URL scheme is registered in `project.yml`; `HomeOSApp` passes
+The `ohanaos` URL scheme is registered in `project.yml`; `OhanaOSApp` passes
 every URL to `FamilyStore.handleOpenURL`.
 
 | Link | What happens |
 |---|---|
-| `homeos://invite/<CODE>` | Saves the code as pending. Signed out: prefills Welcome and checks it. No family: prefills "Enter an invite code". In a family already: a sheet offers to join that family (the app switches to it) or start a new one. Dismissing it forgets the code. |
-| `homeos://auth-callback…` | Finishes an email link: implicit-grant tokens in the fragment (admin email invites) go to `auth.setSession`, a PKCE `code` (sign-up confirmations) to `auth.session(from:)`. A pending family invite is then accepted as in step 3. Any app or web page can open a `homeos://` link, so tokens are ignored while someone is already signed in ("Sign out first to use that link"); a PKCE code can't be replayed, because it only works with the verifier this iPhone stored at sign-up. |
+| `ohanaos://invite/<CODE>` | Saves the code as pending. Signed out: prefills Welcome and checks it. No family: prefills "Enter an invite code". In a family already: a sheet offers to join that family (the app switches to it) or start a new one. Dismissing it forgets the code. |
+| `ohanaos://auth-callback…` | Finishes an email link: implicit-grant tokens in the fragment (admin email invites) go to `auth.setSession`, a PKCE `code` (sign-up confirmations) to `auth.session(from:)`. A pending family invite is then accepted as in step 3. Any app or web page can open an `ohanaos://` link, so tokens are ignored while someone is already signed in ("Sign out first to use that link"); a PKCE code can't be replayed, because it only works with the verifier this iPhone stored at sign-up. |
 
 The parent's share sheet text includes both the link and the code, so the code
 still works for someone who opens the message on another device.
@@ -150,7 +154,7 @@ downloaded from the private bucket with the session and cached per path and
   and points), an optional email (only that address can use it), and how long
   it works (1–60 days). It calls `create_family_invite`, then shows the code
   with **Share** (share sheet text with the code and the
-  `homeos://invite/CODE` link) and **Copy code**. The Family tab lists pending
+  `ohanaos://invite/CODE` link) and **Copy code**. The Family tab lists pending
   invites (share, copy, revoke via `revoke_family_invite`) and the last few
   accepted ones (who joined and when). A member without a login has an
   "Invite {name} to get a login" button in their editor.
@@ -183,7 +187,7 @@ families sees one at a time; the choice is remembered on the phone.
 
 ## Siri
 
-`AskHomeOSIntent` (`App/AskHomeOSIntent.swift`) is an `AppIntent` with one
+`AskOhanaOSIntent` (`App/AskOhanaOSIntent.swift`) is an `AppIntent` with one
 parameter, `question`. `perform()` calls the assistant with `mode: "quick"`,
 `stream: false` and no thread (`AssistantClient.quickAnswer`), and returns the
 reply as both the spoken dialog and the intent's value, so Shortcuts can use
@@ -192,7 +196,7 @@ signed out, Siri says "Sign in to Ohana on your iPhone first." It asks you to
 unlock the iPhone first (`authenticationPolicy = .requiresAuthentication`), so
 a locked phone doesn't read out the family's plans.
 
-`HomeOSShortcuts` (an `AppShortcutsProvider`) registers "Ask Ohana", "Ask
+`OhanaOSShortcuts` (an `AppShortcutsProvider`) registers "Ask Ohana", "Ask
 Ohana a question" and "Ask my family assistant in Ohana". A String parameter
 can't be part of a phrase, so Siri then asks "What would you like to ask
 Ohana?". Each Siri question starts its own thread, which then shows up in the
@@ -206,7 +210,7 @@ app's chat history. The Profile screen shows a `SiriTipView` for it.
 checked-in project:
 
 ```bash
-xcodebuild -project HomeOS.xcodeproj -scheme HomeOS -sdk iphonesimulator \
+xcodebuild -project OhanaOS.xcodeproj -scheme OhanaOS -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
@@ -220,16 +224,16 @@ The project is set up to archive. Uploading still happens on a Mac, signed in
 to Xcode with an Apple Developer account. Version **1.0.0** and build **1**
 come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode project.
 Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
-`ios/HomeOS.xcodeproj/project.pbxproj` (and `ios/project.yml`).
+`ios/OhanaOS.xcodeproj/project.pbxproj` (and `ios/project.yml`).
 
 1. The Xcode project is already signed for team `92X9CP6C6D` and bundle id
-   `com.homeos.app`. Sign in to Xcode with the Apple ID on that team.
+   `com.ohanaos.ohana`. Sign in to Xcode with the Apple ID on that team.
 2. Copy `ios/Config/Local.xcconfig.example` to `ios/Config/Local.xcconfig`
    (that copy is gitignored). Set the Supabase URL, anon key, and the admin
    app origin (`MEDIA_API_URL`). Write URLs as `https:/$()/host` so xcconfig
    does not treat `//` as a comment.
 3. On the developer site, register that bundle id (no extra capabilities).
-   In App Store Connect, create an iOS app named homeOS with the same bundle
+   In App Store Connect, create an iOS app named Ohana with the same bundle
    id. The primary category is Lifestyle.
 4. Sign in to Xcode with that Apple ID. From `ios/`:
 
@@ -238,7 +242,7 @@ Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
 ```
 
    The script refuses to archive while the team id or Supabase values are
-   still placeholders. It writes `ios/build/HomeOS.xcarchive` and an IPA under
+   still placeholders. It writes `ios/build/Ohana.xcarchive` and an IPA under
    `ios/build/export`. In Xcode you can do the same thing with Product →
    Archive, then Distribute App → TestFlight & App Store. Drag the IPA into
    the Transporter app if you are not using the Organizer.
@@ -249,17 +253,17 @@ Each upload needs a new build number in `CURRENT_PROJECT_VERSION` in
 What the binary already answers, so the upload is not blocked on them:
 
 - App icon, the same house-on-gradient mark as `admin/app/icon.svg`, full
-  bleed at 1024 px with no transparency (`HomeOS/Assets.xcassets`).
+  bleed at 1024 px with no transparency (`OhanaOS/Assets.xcassets`).
 - Launch screen color, the warm canvas `#F1EFEB` (night `#121317`).
 - Export compliance: only standard HTTPS, so `ITSAppUsesNonExemptEncryption`
   is false and App Store Connect does not ask again on each build.
-- Privacy manifest (`HomeOS/PrivacyInfo.xcprivacy`). The app reads
+- Privacy manifest (`OhanaOS/PrivacyInfo.xcprivacy`). The app reads
   `UserDefaults` for the pending invite and the family on screen (reason
   `CA92.1`). It does not track. Data linked to the account, for the app to
   function: email, name, user id, photos and videos, and other content
   (events, chores, lists, meals, memory, chat). Use those same answers in the
   App Store Connect privacy questionnaire. Dictation uses Apple's speech
-  recognizer and is not stored by homeOS.
+  recognizer and is not stored by Ohana.
 - A build with no Supabase URL stays on the loading screen and says it is
   not connected, instead of opening Welcome against a placeholder host.
 
@@ -363,7 +367,7 @@ calls from the first build:
 - `@Environment(FamilyStore.self) private var store: FamilyStore?` (the
   optional observable environment initializer) in `MemberAvatar`,
   `Theme/Theme.swift:282`.
-- App Intents in `App/AskHomeOSIntent.swift`: `static let description:
+- App Intents in `App/AskOhanaOSIntent.swift`: `static let description:`
   IntentDescription?` (line 8; whether the requirement is optional),
   `authenticationPolicy = .requiresAuthentication` (line 10),
   `@Parameter(title:requestValueDialog:)` with a string literal (line 12),

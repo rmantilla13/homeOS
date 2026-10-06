@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.SPM_DIR }}
-          key: spm-${{ runner.os }}-${{ hashFiles('ios/HomeOS.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/OhanaOS.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
       - name: Build
@@ -55,8 +55,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild \
-            -project HomeOS.xcodeproj \
-            -scheme HomeOS \
+            -project OhanaOS.xcodeproj \
+            -scheme OhanaOS \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -clonedSourcePackagesDirPath "$SPM_DIR" \

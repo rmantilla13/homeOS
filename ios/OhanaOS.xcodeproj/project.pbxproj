@@ -12,14 +12,14 @@
 		14A3FB69BB8E5833600893B6 /* MediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82BE1E835CE5824F86ADD45E /* MediaView.swift */; };
 		1A5EF9DC9BAEC1A8B32E7E99 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34BD42DB1A314E235B1B577B /* ProfileView.swift */; };
 		21007E27D2C4B9985B3D754D /* MediaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB416FD34C67C69B866D03D /* MediaTools.swift */; };
-		29027DBB6AF6955683DAD4E9 /* HomeOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0CBC26D42FD8055A96BE91 /* HomeOSApp.swift */; };
+		29027DBB6AF6955683DAD4E9 /* OhanaOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0CBC26D42FD8055A96BE91 /* OhanaOSApp.swift */; };
 		304BDC1FF3B06067AA1086F7 /* OnboardingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FF80350CF6DCDDF5A376D6 /* OnboardingViews.swift */; };
 		3BD8F827578B9D97A5B9A66A /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7BC18C4A8415421468351C /* Components.swift */; };
 		3C1E871AD8A1AC5A248EACD4 /* RewardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99126F8EEA0DF6914A1B3C19 /* RewardsView.swift */; };
 		3CD36DE20681AD48325E3DE1 /* FamilyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97FA5C72D74AE5FF374E80C7 /* FamilyView.swift */; };
 		5C8AE8C00A7EECEF2BB1F88F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF70A7A801EF22A694E2F52 /* Theme.swift */; };
 		6789BF823E28BCB83AD7EB5F /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888B35F1F21C16F3FE48909D /* Config.swift */; };
-		6F5215A0742BB9CE03312D2B /* AskHomeOSIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2ED37A2A544E94F2E8AC14 /* AskHomeOSIntent.swift */; };
+		6F5215A0742BB9CE03312D2B /* AskOhanaOSIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2ED37A2A544E94F2E8AC14 /* AskOhanaOSIntent.swift */; };
 		7B56E01B3BFFE0FA5EC250C5 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532F27CD277B26C47E0C8218 /* HomeView.swift */; };
 		9EF3E7571F3B452809E75146 /* ChoresView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474CC51F00365E63B593DC48 /* ChoresView.swift */; };
 		A68DEA62F60E95A10E890A3B /* AssistantClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CFB5C923443FB790593CC2B /* AssistantClient.swift */; };
@@ -40,7 +40,7 @@
 		3C7BC18C4A8415421468351C /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		474CC51F00365E63B593DC48 /* ChoresView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChoresView.swift; sourceTree = "<group>"; };
 		532F27CD277B26C47E0C8218 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
-		57700DFCC25246C8F5183CAE /* HomeOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HomeOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		57700DFCC25246C8F5183CAE /* Ohana.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ohana.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5CFB5C923443FB790593CC2B /* AssistantClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantClient.swift; sourceTree = "<group>"; };
 		637E61527FD59A65851BAC14 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C4E8A1B07D2F4A6E9B3C5D11 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -52,8 +52,8 @@
 		8DB21D8983184DD5830F6779 /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
 		97FA5C72D74AE5FF374E80C7 /* FamilyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyView.swift; sourceTree = "<group>"; };
 		99126F8EEA0DF6914A1B3C19 /* RewardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardsView.swift; sourceTree = "<group>"; };
-		AF2ED37A2A544E94F2E8AC14 /* AskHomeOSIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskHomeOSIntent.swift; sourceTree = "<group>"; };
-		CA0CBC26D42FD8055A96BE91 /* HomeOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeOSApp.swift; sourceTree = "<group>"; };
+		AF2ED37A2A544E94F2E8AC14 /* AskOhanaOSIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskOhanaOSIntent.swift; sourceTree = "<group>"; };
+		CA0CBC26D42FD8055A96BE91 /* OhanaOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhanaOSApp.swift; sourceTree = "<group>"; };
 		CFB416FD34C67C69B866D03D /* MediaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTools.swift; sourceTree = "<group>"; };
 		D2ECD4ADB41A1A6EA44E638C /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
 		DE3AA1D2D43BC54BC4028927 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -77,7 +77,7 @@
 		053AF4D087A602195F22FFFD /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				57700DFCC25246C8F5183CAE /* HomeOS.app */,
+				57700DFCC25246C8F5183CAE /* Ohana.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -110,7 +110,7 @@
 			path = Theme;
 			sourceTree = "<group>";
 		};
-		54011838C27F7ACC2D90E880 /* HomeOS */ = {
+		54011838C27F7ACC2D90E880 /* OhanaOS */ = {
 			isa = PBXGroup;
 			children = (
 				866CCE6D2C75E85CE576E03A /* Assets.xcassets */,
@@ -122,13 +122,13 @@
 				4C7EE6ED3DEE49ECD8A2AAC0 /* Theme */,
 				EA9B9FED231AC5B36DBD636C /* Views */,
 			);
-			path = HomeOS;
+			path = OhanaOS;
 			sourceTree = "<group>";
 		};
 		6508CB53D6F9287AF42F8B8B = {
 			isa = PBXGroup;
 			children = (
-				54011838C27F7ACC2D90E880 /* HomeOS */,
+				54011838C27F7ACC2D90E880 /* OhanaOS */,
 				E6A0C3D29F415C801B5E7F33 /* Signing.xcconfig */,
 				053AF4D087A602195F22FFFD /* Products */,
 			);
@@ -163,9 +163,9 @@
 		EEEF92CF01BD4F22556D9514 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				AF2ED37A2A544E94F2E8AC14 /* AskHomeOSIntent.swift */,
+				AF2ED37A2A544E94F2E8AC14 /* AskOhanaOSIntent.swift */,
 				888B35F1F21C16F3FE48909D /* Config.swift */,
-				CA0CBC26D42FD8055A96BE91 /* HomeOSApp.swift */,
+				CA0CBC26D42FD8055A96BE91 /* OhanaOSApp.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -173,9 +173,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		44359CBF0E7EE205CBCC15CD /* HomeOS */ = {
+		44359CBF0E7EE205CBCC15CD /* OhanaOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = B9058C8EF2799863C5D2C587 /* Build configuration list for PBXNativeTarget "HomeOS" */;
+			buildConfigurationList = B9058C8EF2799863C5D2C587 /* Build configuration list for PBXNativeTarget "OhanaOS" */;
 			buildPhases = (
 				B7E62CDF0032AF22C734B25E /* Sources */,
 				520352A753BDF7D3DA72D0CE /* Resources */,
@@ -185,12 +185,12 @@
 			);
 			dependencies = (
 			);
-			name = HomeOS;
+			name = OhanaOS;
 			packageProductDependencies = (
 				3C0EA9B08CC8B9722662650C /* Supabase */,
 			);
-			productName = HomeOS;
-			productReference = 57700DFCC25246C8F5183CAE /* HomeOS.app */;
+			productName = Ohana;
+			productReference = 57700DFCC25246C8F5183CAE /* Ohana.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -199,10 +199,11 @@
 		E261114FD0B34C20EC43EFD5 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				ORGANIZATIONNAME = OhanaOS;
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 			};
-			buildConfigurationList = 606C0F926FD56F21EA707678 /* Build configuration list for PBXProject "HomeOS" */;
+			buildConfigurationList = 606C0F926FD56F21EA707678 /* Build configuration list for PBXProject "OhanaOS" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -219,7 +220,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				44359CBF0E7EE205CBCC15CD /* HomeOS */,
+				44359CBF0E7EE205CBCC15CD /* OhanaOS */,
 			);
 		};
 /* End PBXProject section */
@@ -241,7 +242,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6F5215A0742BB9CE03312D2B /* AskHomeOSIntent.swift in Sources */,
+				6F5215A0742BB9CE03312D2B /* AskOhanaOSIntent.swift in Sources */,
 				A68DEA62F60E95A10E890A3B /* AssistantClient.swift in Sources */,
 				A835C41CCFD1F9C0F7838860 /* AssistantView.swift in Sources */,
 				EEDB74178D211DC52F642826 /* CalendarView.swift in Sources */,
@@ -251,7 +252,7 @@
 				D508E2E5EC37859B37B90023 /* Dictation.swift in Sources */,
 				B77D99DE746710C514E8301B /* FamilyStore.swift in Sources */,
 				3CD36DE20681AD48325E3DE1 /* FamilyView.swift in Sources */,
-				29027DBB6AF6955683DAD4E9 /* HomeOSApp.swift in Sources */,
+				29027DBB6AF6955683DAD4E9 /* OhanaOSApp.swift in Sources */,
 				7B56E01B3BFFE0FA5EC250C5 /* HomeView.swift in Sources */,
 				BC1693A86F1480B05EB550A7 /* InviteViews.swift in Sources */,
 				21007E27D2C4B9985B3D754D /* MediaTools.swift in Sources */,
@@ -331,14 +332,15 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 92X9CP6C6D;
-				INFOPLIST_FILE = HomeOS/Info.plist;
+				DEVELOPMENT_TEAM = "$(OHANAOS_TEAM_ID)";
+				INFOPLIST_FILE = OhanaOS/Info.plist;
+				PRODUCT_NAME = Ohana;
 				MARKETING_VERSION = 1.0.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.homeos.app;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OHANAOS_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -352,14 +354,15 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 92X9CP6C6D;
-				INFOPLIST_FILE = HomeOS/Info.plist;
+				DEVELOPMENT_TEAM = "$(OHANAOS_TEAM_ID)";
+				INFOPLIST_FILE = OhanaOS/Info.plist;
+				PRODUCT_NAME = Ohana;
 				MARKETING_VERSION = 1.0.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.homeos.app;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OHANAOS_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -432,7 +435,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		606C0F926FD56F21EA707678 /* Build configuration list for PBXProject "HomeOS" */ = {
+		606C0F926FD56F21EA707678 /* Build configuration list for PBXProject "OhanaOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				E184A63A5622EC058DE07A23 /* Debug */,
@@ -441,7 +444,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		B9058C8EF2799863C5D2C587 /* Build configuration list for PBXNativeTarget "HomeOS" */ = {
+		B9058C8EF2799863C5D2C587 /* Build configuration list for PBXNativeTarget "OhanaOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				47B7CE48987A6DD4082EB307 /* Debug */,

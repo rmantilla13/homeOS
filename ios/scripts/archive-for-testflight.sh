@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Archive a Release build and export an App Store Connect IPA.
 # Requires Xcode 16 and a filled-in ios/Config/Local.xcconfig.
-# Open the checked-in HomeOS.xcodeproj. Sign in to Xcode with the Apple ID
-# on team 92X9CP6C6D before running this.
+# Open the checked-in OhanaOS.xcodeproj. Sign in to Xcode with the Apple ID
+# on team 92X9CP6C6D before running this. The product is Ohana.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,12 +20,12 @@ value() {
   sed -n "s/^$1 = \\(.*\\)$/\\1/p" "$defaults" "$local_cfg" | tail -n 1
 }
 
-team="$(value HOMEOS_TEAM_ID)"
+team="$(value OHANAOS_TEAM_ID)"
 url="$(value SUPABASE_URL)"
 anon="$(value SUPABASE_ANON_KEY)"
 
 if [[ "$team" == YOURTEAMID || ! "$team" =~ ^[A-Z0-9]{10}$ ]]; then
-  echo "Set HOMEOS_TEAM_ID in ios/Config/Local.xcconfig to your 10-character Team ID." >&2
+  echo "Set OHANAOS_TEAM_ID in ios/Config/Local.xcconfig to your 10-character Team ID." >&2
   exit 1
 fi
 if [[ -z "$url" || "$url" == *YOUR-PROJECT* ]]; then
@@ -42,21 +42,21 @@ if ! command -v xcodebuild >/dev/null; then
   exit 1
 fi
 
-rm -rf "$root/build/HomeOS.xcarchive" "$root/build/export"
+rm -rf "$root/build/Ohana.xcarchive" "$root/build/export"
 xcodebuild \
-  -project HomeOS.xcodeproj \
-  -scheme HomeOS \
+  -project OhanaOS.xcodeproj \
+  -scheme OhanaOS \
   -configuration Release \
   -destination 'generic/platform=iOS' \
-  -archivePath "$root/build/HomeOS.xcarchive" \
+  -archivePath "$root/build/Ohana.xcarchive" \
   -allowProvisioningUpdates \
   archive
 xcodebuild \
   -exportArchive \
-  -archivePath "$root/build/HomeOS.xcarchive" \
+  -archivePath "$root/build/Ohana.xcarchive" \
   -exportPath "$root/build/export" \
   -exportOptionsPlist "$root/Config/ExportOptions.plist" \
   -allowProvisioningUpdates
 
 echo "IPA is in ios/build/export. Upload it with Xcode Organizer or the Transporter app."
-echo "Each upload needs a new CURRENT_PROJECT_VERSION in ios/HomeOS.xcodeproj/project.pbxproj."
+echo "Each upload needs a new CURRENT_PROJECT_VERSION in ios/OhanaOS.xcodeproj/project.pbxproj."

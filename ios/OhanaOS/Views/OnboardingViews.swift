@@ -216,7 +216,7 @@ struct WelcomeView: View {
         .animation(Theme.springy, value: invite)
         .showsStoreErrors()
         .task(id: store.pendingInviteCode) {
-            // A homeos://invite link prefills and checks the code.
+            // An ohanaos://invite link prefills and checks the code.
             guard let pending = store.pendingInviteCode else { return }
             if code != pending { code = pending }
             if store.pendingPreview == nil && !checking { await check() }
@@ -442,7 +442,7 @@ struct InviteLink: Identifiable {
     var id: String { code }
 }
 
-/// Opened by a homeos://invite link when you're already in a family.
+/// Opened by an ohanaos://invite link when you're already in a family.
 struct InviteLinkSheet: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss

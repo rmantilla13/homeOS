@@ -76,7 +76,7 @@ family always needs a family invite.
 1. An admin creates a platform invite in the console, optionally for one email
    address. The "email invite" action also sends a Supabase invite email
    carrying the code.
-2. The person opens the app (or `homeos://invite/K7QM-3XWD`) and taps
+2. The person opens the app (or `ohanaos://invite/K7QM-3XWD`) and taps
    **Check invite**. `preview_invite(code)` answers, without signing in,
    `{"valid": true, "kind": "platform", ...}`.
 3. They create an account. The app passes `invite_code` and `display_name` in
@@ -90,7 +90,7 @@ family always needs a family invite.
 
 1. A parent creates an invite in the iOS app: a role, optionally an existing
    member it's for, and optionally an email. The share sheet sends the code
-   and the `homeos://invite/<CODE>` link.
+   and the `ohanaos://invite/<CODE>` link.
 2. The invitee checks it: `preview_invite` returns the family name, the
    role, the inviter's name and the expiry. That's all it reveals; a bad code
    only gets a `reason`.

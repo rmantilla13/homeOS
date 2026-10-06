@@ -591,22 +591,22 @@ enum InviteCode {
         return "\(code.prefix(4))-\(code.suffix(4))"
     }
 
-    /// The code in a `homeos://invite/<CODE>` link.
+    /// The code in an `ohanaos://invite/<CODE>` link.
     static func from(url: URL) -> String? {
-        guard url.scheme?.lowercased() == "homeos", url.host?.lowercased() == "invite" else { return nil }
+        guard url.scheme?.lowercased() == Config.urlScheme, url.host?.lowercased() == "invite" else { return nil }
         let code = normalize(url.pathComponents.first { $0 != "/" } ?? "")
         return code.isEmpty ? nil : format(code)
     }
 
     static func link(_ code: String) -> URL? {
-        URL(string: "homeos://invite/\(format(code))")
+        URL(string: "\(Config.urlScheme)://invite/\(format(code))")
     }
 
     /// What the share sheet sends with a family invite.
     static func shareText(code: String, familyName: String?, expiresAt: Date) -> String {
         let display = format(code)
         let family = familyName.map { "\($0) on Ohana" } ?? "our family on Ohana"
-        let url = Self.link(display)?.absoluteString ?? "homeos://invite/\(display)"
+        let url = Self.link(display)?.absoluteString ?? "\(Config.urlScheme)://invite/\(display)"
         let expiry = expiresAt.formatted(date: .abbreviated, time: .omitted)
         return """
         Join \(family)! Open \(url) on your iPhone, or enter the invite code \(display) in the Ohana app. \
