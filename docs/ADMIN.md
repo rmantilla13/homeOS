@@ -31,9 +31,9 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
   the `admin` edge function for what needs the service role: Supabase Auth's
   admin API (`invite_email`, `ban_user`, `unban_user`, `delete_user`) and
   Storage (`delete_family`, which runs `admin_delete_family` as the admin and
-  then removes the family's photos from `family-media`; SQL alone
-  leaves the files behind). This app then deletes that family's videos from
-  the private Blob store. Deleting a user removes their `avatars` folder
+  then removes anything still in `family-media`; SQL alone leaves the files
+  behind). This app then deletes that family's photos and videos from the
+  private Blob store. Deleting a user removes their `avatars` folder
   the same way. In demo mode the same functions answer from fixtures instead
   (below).
 - **No service role key.** The console only ever has the public anon key and
@@ -169,7 +169,7 @@ with no Supabase values, never the production project.
 Optional hardening: turn on Vercel **Deployment Protection** (Vercel
 Authentication or a password) so only your team can reach the sign-in page.
 That also blocks phones and displays from `/api/media`. Leave those routes
-reachable by a family JWT, or video upload and playback stop.
+reachable by a family JWT, or photo and video upload and playback stop.
 
 ### Invite emails
 
@@ -218,7 +218,7 @@ hook, the assistant).
 | "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The server log has the database error. |
 | Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
 | A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its photos are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
-| Delete family says videos may still be in Blob storage | The rows are gone. In the Vercel Blob store, remove the folder named with that family's id. |
+| Delete family says photos and videos may still be in Blob storage | The rows are gone. In the Vercel Blob store, remove the folder named with that family's id. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |
 
 Dates and times in the console are shown in UTC; hover a relative time ("3 h

@@ -44,8 +44,8 @@ public:
     FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent = nullptr);
 
     void start();
-    // Origin of the admin app that signs private video URLs (no trailing slash).
-    // Empty means Blob videos have no playback URL; photos still play.
+    // Origin of the admin app that signs private photo and video URLs.
+    // Empty means Blob files have no playback URL. Rows still in Supabase play.
     void setMediaApiUrl(const QString &url);
 
     QString mode() const { return m_mode; }

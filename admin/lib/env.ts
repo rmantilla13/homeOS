@@ -17,7 +17,7 @@ export function demoMode(): boolean {
   return read("NEXT_PUBLIC_ADMIN_DEMO") === "1";
 }
 
-// Private Blob store for family videos. On Vercel, OIDC plus BLOB_STORE_ID is
+// Private Blob store for family photos and videos. On Vercel, OIDC plus BLOB_STORE_ID is
 // enough. A read-write token is what local dev and presigned uploads use when
 // OIDC isn't present. Either pair counts as configured.
 export function blobReady(): boolean {

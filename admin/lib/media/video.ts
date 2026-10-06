@@ -1,15 +1,22 @@
-// Rules for family videos stored in the private Vercel Blob store.
-// Photos never come through here; they stay in the Supabase family-media bucket.
+// Rules for family photos and videos in the private Vercel Blob store.
+// Profile avatars stay in the Supabase `avatars` bucket.
 // Pathnames are `<family_id>/<media_id>.<ext>`, the same shape as Storage objects.
 
 export const VIDEO_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+export const PHOTO_MAX_BYTES = 50 * 1024 * 1024;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-// iOS sends video/quicktime for .mov and video/<ext> otherwise. The extra
-// entries (video/mkv, video/3gp, video/3g2, video/x-m4v) accept that and the
-// usual container types.
-const VIDEO_CONTENT_TYPES: Record<string, string> = {
+// iOS re-encodes photos to JPEG and sends video/quicktime for .mov,
+// video/<ext> otherwise. The extra video entries accept that and the usual
+// container types.
+const MEDIA_CONTENT_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "image/gif": "gif",
   "video/mp4": "mp4",
   "video/quicktime": "mov",
   "video/m4v": "m4v",
@@ -23,27 +30,33 @@ const VIDEO_CONTENT_TYPES: Record<string, string> = {
   "video/3g2": "3g2",
 };
 
-export function videoExtension(contentType: string): string | null {
-  return VIDEO_CONTENT_TYPES[contentType.trim().toLowerCase()] ?? null;
+const PHOTO_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "heic", "gif"]);
+
+export function mediaExtension(contentType: string): string | null {
+  return MEDIA_CONTENT_TYPES[contentType.trim().toLowerCase()] ?? null;
 }
 
-export type VideoPath = { familyId: string; mediaId: string; ext: string };
+export function isPhotoExtension(ext: string): boolean {
+  return PHOTO_EXTENSIONS.has(ext);
+}
 
-// Rejects traversal, extra folders, photos, and anything that isn't
-// `<uuid>/<uuid>.<video ext>`. Ids come back lowercase.
-export function parseVideoPath(pathname: string): VideoPath | null {
+export type MediaPath = { familyId: string; mediaId: string; ext: string };
+
+// Rejects traversal, extra folders, and anything that isn't
+// `<uuid>/<uuid>.<photo or video ext>`. Ids come back lowercase.
+export function parseMediaPath(pathname: string): MediaPath | null {
   if (pathname.includes("..") || pathname.includes("\\") || pathname.includes("%") || pathname.startsWith("/")) {
     return null;
   }
   const match =
-    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(mp4|mov|m4v|webm|mkv|3gp|3g2)$/i.exec(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(jpg|jpeg|png|webp|heic|gif|mp4|mov|m4v|webm|mkv|3gp|3g2)$/i.exec(
       pathname,
     );
   if (!match) return null;
   return { familyId: match[1].toLowerCase(), mediaId: match[2].toLowerCase(), ext: match[3].toLowerCase() };
 }
 
-export function videoPathname(familyId: string, mediaId: string, ext: string): string {
+export function mediaPathname(familyId: string, mediaId: string, ext: string): string {
   return `${familyId.toLowerCase()}/${mediaId.toLowerCase()}.${ext}`;
 }
 
@@ -60,11 +73,14 @@ export function parseUploadRequest(body: unknown): { ok: true; value: UploadRequ
   const familyId = typeof record.family_id === "string" ? record.family_id.trim().toLowerCase() : "";
   if (!UUID.test(familyId)) return { ok: false, error: "family_id must be a UUID." };
   const contentType = typeof record.content_type === "string" ? record.content_type.trim().toLowerCase() : "";
-  const extension = videoExtension(contentType);
-  if (!extension) return { ok: false, error: "That video format isn't supported." };
+  const extension = mediaExtension(contentType);
+  if (!extension) return { ok: false, error: "That file format isn't supported." };
+  const maxBytes = isPhotoExtension(extension) ? PHOTO_MAX_BYTES : VIDEO_MAX_BYTES;
   const bytes = record.bytes;
-  if (typeof bytes !== "number" || !Number.isInteger(bytes) || bytes < 1 || bytes > VIDEO_MAX_BYTES) {
-    return { ok: false, error: "Video must be between 1 byte and 2 GB." };
+  if (typeof bytes !== "number" || !Number.isInteger(bytes) || bytes < 1 || bytes > maxBytes) {
+    const limit = isPhotoExtension(extension) ? "50 MB" : "2 GB";
+    const noun = isPhotoExtension(extension) ? "Photo" : "Video";
+    return { ok: false, error: `${noun} must be between 1 byte and ${limit}.` };
   }
   return { ok: true, value: { familyId, contentType, bytes, extension } };
 }
@@ -73,15 +89,15 @@ export function parsePathList(body: unknown): { ok: true; paths: unknown[] } | {
   if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON object." };
   const paths = (body as Record<string, unknown>).paths;
   if (!Array.isArray(paths)) return { ok: false, error: "paths must be an array." };
-  if (paths.length > 200) return { ok: false, error: "Ask for at most 200 videos at a time." };
+  if (paths.length > 200) return { ok: false, error: "Ask for at most 200 files at a time." };
   return { ok: true, paths };
 }
 
 export function parseDeleteRequest(body: unknown): { ok: true; pathname: string; familyId: string } | { ok: false; error: string } {
   if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON object." };
   const pathname = (body as Record<string, unknown>).pathname;
-  if (typeof pathname !== "string") return { ok: false, error: "That isn't a video path." };
-  const parsed = parseVideoPath(pathname);
-  if (!parsed) return { ok: false, error: "That isn't a video path." };
-  return { ok: true, pathname: videoPathname(parsed.familyId, parsed.mediaId, parsed.ext), familyId: parsed.familyId };
+  if (typeof pathname !== "string") return { ok: false, error: "That isn't a media path." };
+  const parsed = parseMediaPath(pathname);
+  if (!parsed) return { ok: false, error: "That isn't a media path." };
+  return { ok: true, pathname: mediaPathname(parsed.familyId, parsed.mediaId, parsed.ext), familyId: parsed.familyId };
 }

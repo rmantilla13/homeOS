@@ -346,7 +346,7 @@ struct MediaItem: Codable, Identifiable, Hashable {
     var familyId: UUID
     var storagePath: String
     var kind: String  // photo | video
-    /// `supabase` (family-media bucket) or `blob` (private Vercel Blob, videos only).
+    /// `supabase` (still in the family-media bucket) or `blob` (private Vercel Blob).
     var fileStore: String
     var width: Int?
     var height: Int?

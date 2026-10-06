@@ -275,8 +275,9 @@ export async function setFamilyStatus(id: string, status: FamilyStatus, reason: 
 }
 
 // Through the admin function (spec §2.2), which calls admin_delete_family as
-// this admin and then removes the family's photos from Storage. Videos live
-// in Blob, which this app removes afterwards. SQL alone would leave the files.
+// this admin and then removes anything still in the family's Storage folder.
+// Photos and videos live in Blob, which this app removes afterwards. SQL
+// alone would leave the files.
 export async function deleteFamily(id: string): Promise<void> {
   const src = await source();
   if (src.demo) return demo.demoDeleteFamily(id);

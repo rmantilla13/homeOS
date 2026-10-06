@@ -1,11 +1,12 @@
-// Family-member API for private video blobs. Phones and wall displays call
-// these with their Supabase JWT. The admin proxy lets /api/media through
-// before the platform-admin gate. Photos never use this module.
+// Family-member API for private photo and video blobs. Phones and wall
+// displays call these with their Supabase JWT. The admin proxy lets
+// /api/media through before the platform-admin gate. Profile avatars stay
+// in Supabase.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { BlobNotFoundError, del, issueSignedToken, presignUrl } from "@vercel/blob";
 import { blobReady, supabaseConfig } from "../env.ts";
-import { parseDeleteRequest, parsePathList, parseUploadRequest, parseVideoPath, videoPathname } from "./video.ts";
+import { mediaPathname, parseDeleteRequest, parseMediaPath, parsePathList, parseUploadRequest } from "./video.ts";
 
 const UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
 const PLAYBACK_TTL_MS = 6 * 60 * 60 * 1000;
@@ -63,7 +64,7 @@ async function inFamily(client: SupabaseClient, familyId: string): Promise<true 
 }
 
 function storageDown(): Response {
-  return json({ error: "Video storage isn't configured." }, 503);
+  return json({ error: "Media storage isn't configured." }, 503);
 }
 
 export async function handleMediaUpload(request: Request): Promise<Response> {
@@ -79,7 +80,7 @@ export async function handleMediaUpload(request: Request): Promise<Response> {
   if (!blobReady()) return storageDown();
 
   const id = crypto.randomUUID();
-  const pathname = videoPathname(upload.value.familyId, id, upload.value.extension);
+  const pathname = mediaPathname(upload.value.familyId, id, upload.value.extension);
   const validUntil = Date.now() + UPLOAD_TTL_MS;
   try {
     const issued = await issueSignedToken({
@@ -106,8 +107,8 @@ export async function handleMediaUpload(request: Request): Promise<Response> {
       content_type: upload.value.contentType,
     });
   } catch (err) {
-    console.error("video upload URL failed:", err);
-    return json({ error: "Couldn't start the video upload." }, 502);
+    console.error("media upload URL failed:", err);
+    return json({ error: "Couldn't start the upload." }, 502);
   }
 }
 
@@ -120,7 +121,7 @@ export async function handleMediaUrls(request: Request): Promise<Response> {
   const who = await caller(request);
   if (who instanceof Response) return who;
 
-  const parsedPaths = list.paths.map((entry) => (typeof entry === "string" ? parseVideoPath(entry) : null));
+  const parsedPaths = list.paths.map((entry) => (typeof entry === "string" ? parseMediaPath(entry) : null));
   const familyIds = [...new Set(parsedPaths.flatMap((path) => (path ? [path.familyId] : [])))];
   const allowed = new Set<string>();
   for (const familyId of familyIds) {
@@ -142,7 +143,7 @@ export async function handleMediaUrls(request: Request): Promise<Response> {
         urls.push("");
         continue;
       }
-      const pathname = videoPathname(path.familyId, path.mediaId, path.ext);
+      const pathname = mediaPathname(path.familyId, path.mediaId, path.ext);
       const { presignedUrl } = await presignUrl(issued, {
         access: "private",
         operation: "get",
@@ -153,8 +154,8 @@ export async function handleMediaUrls(request: Request): Promise<Response> {
     }
     return json({ urls });
   } catch (err) {
-    console.error("video playback URLs failed:", err);
-    return json({ error: "Couldn't sign video URLs." }, 502);
+    console.error("media playback URLs failed:", err);
+    return json({ error: "Couldn't sign media URLs." }, 502);
   }
 }
 
@@ -174,8 +175,8 @@ export async function handleMediaDelete(request: Request): Promise<Response> {
     await del(target.pathname);
   } catch (err) {
     if (!(err instanceof BlobNotFoundError)) {
-      console.error("video delete failed:", err);
-      return json({ error: "Couldn't delete that video." }, 502);
+      console.error("media delete failed:", err);
+      return json({ error: "Couldn't delete that file." }, 502);
     }
   }
   return json({ ok: true });

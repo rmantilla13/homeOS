@@ -6,12 +6,11 @@ import { DataError } from "@/lib/errors";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LEFT_BEHIND =
-  "The family is deleted, but its videos may still be in Blob storage. Remove that family's folder from the Blob store.";
+  "The family is deleted, but its photos and videos may still be in Blob storage. Remove that family's folder from the Blob store.";
 
-// After admin_delete_family removes the rows and the family-media folder.
-// Photos are already gone. Videos are objects under `<family_id>/`.
-// Missing Blob credentials skip this (a family of only photos still deletes).
-// A cleanup failure does not undo the deletion.
+// After admin_delete_family removes the rows and anything left in the
+// family-media bucket. New photos and videos are objects under `<family_id>/`.
+// Missing Blob credentials skip this. A cleanup failure does not undo the deletion.
 export async function deleteFamilyBlobs(familyId: string): Promise<void> {
   if (!blobReady()) {
     console.warn(`Blob storage isn't configured; videos for family ${familyId} were not removed.`);

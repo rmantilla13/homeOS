@@ -886,35 +886,18 @@ final class FamilyStore {
         let message: String
     }
 
-    /// Uploads a photo or video and records it. Photos go to the family-media
-    /// bucket. Videos go to the private Blob store through the admin app.
-    /// Returns false on failure. Call `refreshMedia()` after a batch.
+    /// Uploads a photo or video and records it. Both go to the private Blob
+    /// store through the admin app. Returns false on failure. Call
+    /// `refreshMedia()` after a batch.
     @discardableResult
     func upload(data: Data, isVideo: Bool, fileExtension: String, metadata: MediaMetadata) async -> Bool {
         guard let family else { return false }
-        if isVideo {
-            return await uploadVideo(data: data, fileExtension: fileExtension, metadata: metadata, familyId: family.id)
-        }
-        let id = UUID()
-        let ext = fileExtension.lowercased()
-        let path = "\(family.id.uuidString.lowercased())/\(id.uuidString.lowercased()).\(ext)"
-        let contentType = "image/\(ext == "jpg" ? "jpeg" : ext)"
-        let row = NewMediaItem(id: id, familyId: family.id, storagePath: path, kind: "photo",
-                               width: metadata.width, height: metadata.height,
-                               durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt, uploadedBy: me?.id)
-        do {
-            _ = try await supabase.storage.from(Config.mediaBucket)
-                .upload(path, data: data, options: FileOptions(contentType: contentType))
-            try await supabase.from("media_items").insert(row).execute()
-            return true
-        } catch {
-            report(error)
-            return false
-        }
+        let contentType = isVideo ? Self.videoContentType(fileExtension) : Self.photoContentType(fileExtension)
+        return await uploadToBlob(data: data, contentType: contentType, kind: isVideo ? "video" : "photo",
+                                  metadata: metadata, familyId: family.id)
     }
 
-    private func uploadVideo(data: Data, fileExtension: String, metadata: MediaMetadata, familyId: UUID) async -> Bool {
-        let contentType = Self.videoContentType(fileExtension)
+    private func uploadToBlob(data: Data, contentType: String, kind: String, metadata: MediaMetadata, familyId: UUID) async -> Bool {
         do {
             let ticket = try await mediaJSON("upload", [
                 "family_id": familyId.uuidString.lowercased(),
@@ -932,9 +915,9 @@ final class FamilyStore {
             let (_, response) = try await URLSession.shared.upload(for: put, from: data)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
-                throw MediaAPIError(message: "The video didn't upload.")
+                throw MediaAPIError(message: "The file didn't upload.")
             }
-            let row = NewMediaItem(id: id, familyId: familyId, storagePath: path, kind: "video",
+            let row = NewMediaItem(id: id, familyId: familyId, storagePath: path, kind: kind,
                                    width: metadata.width, height: metadata.height,
                                    durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt,
                                    uploadedBy: me?.id, fileStore: "blob")
@@ -943,6 +926,19 @@ final class FamilyStore {
         } catch {
             report(error)
             return false
+        }
+    }
+
+    /// JPEG after `preparePhoto`. Other still-image types are accepted if a
+    /// caller already encoded them.
+    private static func photoContentType(_ fileExtension: String) -> String {
+        switch fileExtension.lowercased() {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        case "webp": return "image/webp"
+        case "heic": return "image/heic"
+        case "gif": return "image/gif"
+        default: return "image/\(fileExtension.lowercased())"
         }
     }
 
@@ -970,7 +966,7 @@ final class FamilyStore {
 
     private func mediaJSON(_ name: String, _ body: [String: Any]) async throws -> [String: Any] {
         guard let url = mediaEndpoint(name) else {
-            throw MediaAPIError(message: "Videos need the media service URL (Config.mediaAPIURL).")
+            throw MediaAPIError(message: "Photos and videos need the media service URL (Config.mediaAPIURL).")
         }
         let token = try await supabase.auth.session.accessToken
         var request = URLRequest(url: url)
@@ -1014,7 +1010,8 @@ final class FamilyStore {
     }
 
     /// Signed URLs last an hour; reuse them until they're close to expiring.
-    /// Blob URLs come from the media service; photos still come from Storage.
+    /// Blob files come from the media service. Rows still in Storage use a
+    /// Storage signed URL.
     func signedURL(for item: MediaItem) async -> URL? {
         if let cached = signedURLs[item.storagePath], cached.expires > Date.now.addingTimeInterval(300) {
             return cached.url

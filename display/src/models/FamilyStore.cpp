@@ -281,7 +281,8 @@ void FamilyStore::loadLive()
 }
 
 // Signs Supabase paths and Blob paths separately, then keeps the row order.
-// A missing media URL leaves Blob videos with an empty url; photos still play.
+// A missing media URL leaves Blob photos and videos with an empty url.
+// Rows still in Supabase play.
 void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
 {
     if (generation != m_generation)
@@ -331,7 +332,7 @@ void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
         return;
     }
     if (m_mediaApiUrl.isEmpty()) {
-        qWarning() << "HOMEOS_MEDIA_URL is not set; videos in Blob storage have no playback URL";
+        qWarning() << "HOMEOS_MEDIA_URL is not set; photos and videos in Blob storage have no playback URL";
         finish();
         return;
     }

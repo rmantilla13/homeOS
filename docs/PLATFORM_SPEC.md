@@ -32,6 +32,7 @@ Migrations are added after the existing ones, never edited in place:
 - `20261007000007_family_guards.sql`: `tasks_guard` and the color format
   checks (§1.8), on tables from 20261006000001
 - `20261008000001_video_blob.sql`: `media_items.file_store` (§1.9)
+- `20261008000002_blob_photos.sql`: photos in Blob, extension must match kind (§1.9)
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -329,21 +330,24 @@ platform admins.
 - **Devices:** a display may update its own `devices` row (`devices_touch`);
   it sets `last_seen_at` (§5).
 
-### 1.9 Videos in Vercel Blob
+### 1.9 Photos and videos in Vercel Blob
 
-Photos stay in the private `family-media` bucket. New videos go to a private
-Vercel Blob store so a library of clips doesn't fill Supabase Storage.
-`media_items.file_store` is `supabase` or `blob` (default `supabase`).
-`blob` is allowed only when `kind = 'video'` (`media_items_blob_is_video`).
+New photos and new videos go to a private Vercel Blob store so a family
+library doesn't fill Supabase Storage. Profile avatars stay in the `avatars`
+bucket (§1.7). `media_items.file_store` is `supabase` or `blob` (default
+`supabase`). A `blob` photo's `storage_path` ends in `jpg`, `jpeg`, `png`,
+`webp`, `heic`, or `gif`; a `blob` video's ends in `mp4`, `mov`, `m4v`,
+`webm`, `mkv`, `3gp`, or `3g2` (`media_items_blob_matches_kind`).
 `storage_path` stays `<family_id>/<id>.<ext>` in either store. Rows already
-in Storage, videos included, stay `supabase`.
+in Storage stay `supabase` and keep playing from that bucket.
 
 The admin app (the Vercel project that owns the store) signs upload and
-playback URLs. Clients send their Supabase JWT. See §3, Media API.
+playback URLs. Clients send their Supabase JWT. See §3, Media API. Photos
+are capped at 50 MB; videos at 2 GiB.
 
 `admin_delete_family` still deletes rows only. The `admin` function still
-empties `family-media/<family_id>/`. The console then deletes Blob objects
-under that same prefix (§3).
+empties `family-media/<family_id>/` (files uploaded before Blob). The console
+then deletes Blob objects under that same prefix (§3).
 
 ---
 
@@ -513,13 +517,13 @@ The route checks `Authorization: Bearer <supabase access token>` with
 
 | Route | Body | Effect |
 |---|---|---|
-| `/api/media/upload` | `{ family_id, content_type, bytes }` | Member only. `bytes` is an integer from 1 to 2 GiB. Content type is one of `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. The client `PUT`s the bytes to `upload_url` (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'` and the returned `id` and `pathname`. |
-| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<video ext>`, or whose folder isn't a family the caller belongs to, comes back as `""`. Playback URLs last 6 hours. The wildcard read token stays on the server. |
+| `/api/media/upload` | `{ family_id, content_type, bytes }` | Member only. `bytes` is an integer from 1 to 50 MB for a photo and 1 to 2 GiB for a video. Photo types: `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/gif`. Video types: `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. The client `PUT`s the bytes to `upload_url` (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'`, `kind` `photo` or `video`, and the returned `id` and `pathname`. |
+| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>`, or whose folder isn't a family the caller belongs to, comes back as `""`. Playback URLs last 6 hours. The wildcard read token stays on the server. |
 | `/api/media/delete` | `{ pathname }` | Member of that folder only, then deletes the blob. `{ ok: true }`. |
 
 Errors are `{ "error": string }`: 400 bad JSON or body, 401 missing or
 rejected token, 403 not in the family, 413 body over 64 KiB, 502 Blob
-failed, 503 Supabase or Blob isn't configured. Photos are not accepted.
+failed, 503 Supabase or Blob isn't configured.
 Deployment Protection in front of the whole app blocks phones and displays;
 leave `/api/media` reachable by a family JWT.
 
@@ -530,8 +534,8 @@ role key.
 
 Deleting a family calls `delete_family` and then lists and deletes Blob
 objects under `<family_id>/`. If Blob credentials are missing, the delete
-still succeeds (a family of only photos). If Blob cleanup fails after the
-rows are gone, the console says the videos may still be in the store.
+still succeeds. If Blob cleanup fails after the rows are gone, the console
+says the photos and videos may still be in the store.
 
 **Env:** `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 `next build` must succeed without real values (render dynamically and read
@@ -683,11 +687,12 @@ needs a microphone (see docs/VOICE.md)".
 `devices` row (the id saved at pairing) at most every 5 minutes; the iOS app
 and the admin console show it.
 
-**Video playback:** `HOMEOS_MEDIA_URL` (settings key `media/url`) is the admin
-app origin. Rows with `file_store = 'blob'` are signed with
-`POST /api/media/urls` and the device access token (6 hours, same as Storage).
-Photos stay on `signUrls` for `family-media`. If the URL is unset, Blob
-videos get an empty `url` and a warning; photos still play.
+**Media playback:** `HOMEOS_MEDIA_URL` (settings key `media/url`) is the admin
+app origin. Rows with `file_store = 'blob'` (new photos and videos) are
+signed with `POST /api/media/urls` and the device access token (6 hours,
+same as Storage). Rows still in `family-media` stay on `signUrls`. If the
+URL is unset, Blob files get an empty `url` and a warning; older Storage
+files still play.
 
 **Settings sheet:** a gear button in the nav rail, above the moon, opens
 `SettingsSheet.qml` with:
@@ -751,14 +756,15 @@ email, sign out.
 
 **Media**
 
-- Photos are re-encoded as JPEG and uploaded to the `family-media` bucket.
-- Videos are uploaded only when `Config.mediaAPIURL` is the admin app's
+- Photos are re-encoded as JPEG, then uploaded the same way as videos.
+- Photos and videos upload only when `Config.mediaAPIURL` is the admin app's
   origin. The app asks `POST /api/media/upload` for a presigned URL, `PUT`s
   the bytes, and inserts `media_items` with `file_store = 'blob'`. An unset
-  URL fails the upload; videos are not written to Supabase Storage.
-- Playback of a `blob` row calls `POST /api/media/urls`. Photos still use a
-  Storage signed URL. Both are cached for an hour.
-- Deleting a blob video calls `POST /api/media/delete` before deleting the row.
+  URL fails the upload; family media is not written to Supabase Storage.
+  Profile avatars still use the `avatars` bucket.
+- Playback of a `blob` row calls `POST /api/media/urls`. A row still in
+  Storage uses a Storage signed URL. Both are cached for an hour.
+- Deleting a blob file calls `POST /api/media/delete` before deleting the row.
 
 **Siri:** `AskHomeOSIntent: AppIntent`
 
