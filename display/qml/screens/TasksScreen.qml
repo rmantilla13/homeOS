@@ -90,8 +90,8 @@ Item {
                             radius: 20
                             color: done ? Qt.rgba(0.24, 0.75, 0.48, 0.18) : pending ? Qt.rgba(0.96, 0.65, 0.14, 0.18) : Theme.surfaceAlt
                             scale: tap.pressed ? 0.97 : 1
-                            Behavior on scale { NumberAnimation { duration: 90 } }
-                            Behavior on color { ColorAnimation { duration: 250 } }
+                            Behavior on scale { NumberAnimation { duration: Theme.quick } }
+                            Behavior on color { ColorAnimation { duration: Theme.quick } }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -125,7 +125,7 @@ Item {
                                     color: taskCard.done ? Theme.success : taskCard.pending ? Theme.warning : "transparent"
                                     border.width: taskCard.done || taskCard.pending ? 0 : 4
                                     border.color: Theme.divider
-                                    Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                                    Behavior on color { ColorAnimation { duration: Theme.quick } }
                                     Icon {
                                         anchors.centerIn: parent
                                         visible: taskCard.done
@@ -145,8 +145,8 @@ Item {
                                     // Little celebration when a chore is ticked off.
                                     SequentialAnimation {
                                         id: pop
-                                        NumberAnimation { target: check; property: "scale"; to: 1.3; duration: 140; easing.type: Easing.OutQuad }
-                                        NumberAnimation { target: check; property: "scale"; to: 1.0; duration: 260; easing.type: Easing.OutBack }
+                                        NumberAnimation { target: check; property: "scale"; to: 1.3; duration: Theme.quick; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: check; property: "scale"; to: 1.0; duration: Theme.smooth; easing.type: Easing.OutBack }
                                     }
                                     Connections {
                                         target: taskCard

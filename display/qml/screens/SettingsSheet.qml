@@ -51,7 +51,7 @@ Popup {
             NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.smooth; easing.type: Easing.OutCubic }
         }
     }
-    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.quick } }
+    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.smooth } }
 
     background: Rectangle { radius: 32; color: Theme.surface }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.35) }
@@ -436,7 +436,7 @@ Popup {
                         Layout.preferredHeight: power.implicitHeight + 36
                         radius: 24
                         color: sheet.confirmingPower === "" ? Theme.surfaceAlt : Qt.rgba(0.94, 0.5, 0.35, 0.14)
-                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        Behavior on color { ColorAnimation { duration: Theme.quick } }
                         ColumnLayout {
                             id: power
                             anchors.left: parent.left
@@ -509,7 +509,7 @@ Popup {
                         Layout.preferredHeight: repair.implicitHeight + 36
                         radius: 24
                         color: sheet.confirmingRepair ? Qt.rgba(0.94, 0.5, 0.35, 0.14) : Theme.surfaceAlt
-                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        Behavior on color { ColorAnimation { duration: Theme.quick } }
 
                         ColumnLayout {
                             id: repair

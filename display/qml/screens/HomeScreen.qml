@@ -136,7 +136,7 @@ Item {
                                     height: parent.height; radius: 4
                                     width: parent.width * (memberTile.member.tasksTotal ? memberTile.member.tasksDone / memberTile.member.tasksTotal : 0)
                                     color: memberTile.strong
-                                    Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+                                    Behavior on width { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
                                 }
                             }
                         }

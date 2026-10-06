@@ -32,7 +32,7 @@ Rectangle {
         height: target ? target.height : 0
         radius: 26
         color: Theme.accent
-        Behavior on y { SpringAnimation { spring: 4; damping: 0.32; epsilon: 0.25 } }
+        Behavior on y { SpringAnimation { spring: 9; damping: 0.78; epsilon: 0.4 } }
     }
 
     ColumnLayout {
@@ -66,7 +66,7 @@ Rectangle {
                         name: modelData.icon
                         size: Theme.compact ? 26 : 30
                         color: active ? Theme.accentInk : Theme.textMuted
-                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        Behavior on color { ColorAnimation { duration: Theme.quick } }
                     }
                     Label {
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -74,7 +74,7 @@ Rectangle {
                         font.pixelSize: 14
                         font.weight: active ? Font.DemiBold : Font.Medium
                         color: active ? Theme.accentInk : Theme.textMuted
-                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        Behavior on color { ColorAnimation { duration: Theme.quick } }
                     }
                 }
                 TapHandler { id: navTap; onTapped: rail.selected(index) }

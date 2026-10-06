@@ -37,6 +37,6 @@ Item {
         anchors.fill: parent
         fillMode: VideoOutput.PreserveAspectCrop
         opacity: player.playbackState === MediaPlayer.PlayingState ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 800 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.smooth } }
     }
 }

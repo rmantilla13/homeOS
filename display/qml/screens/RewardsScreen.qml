@@ -103,7 +103,7 @@ Item {
                     color: Theme.surface
                     opacity: rewardCell.affordable ? 1 : 0.7
                     scale: rewardTap.pressed ? 0.97 : 1
-                    Behavior on scale { NumberAnimation { duration: 90 } }
+                    Behavior on scale { NumberAnimation { duration: Theme.quick } }
 
                     ColumnLayout {
                         anchors.fill: parent

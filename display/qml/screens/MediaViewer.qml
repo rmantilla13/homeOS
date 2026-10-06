@@ -35,11 +35,11 @@ Rectangle {
     opacity: open ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     scale: open ? 1 : 0.97
-    Behavior on scale { NumberAnimation { duration: Theme.smooth + 60; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
 
     // Shows through only while an image loads or for videos without a poster.
     color: current ? current.tintDeep : "#0E0F12"
-    Behavior on color { ColorAnimation { duration: 700 } }
+    Behavior on color { ColorAnimation { duration: Theme.quick } }
 
     MouseArea { anchors.fill: parent }   // keep taps from reaching the screen underneath
 
@@ -200,7 +200,7 @@ Rectangle {
                     height: 8
                     radius: 4
                     color: index === strip.currentIndex ? "white" : Qt.rgba(1, 1, 1, 0.45)
-                    Behavior on width { NumberAnimation { duration: Theme.smooth } }
+                    Behavior on width { NumberAnimation { duration: Theme.quick } }
                 }
             }
         }

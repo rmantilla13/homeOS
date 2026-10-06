@@ -33,7 +33,7 @@ Rectangle {
               : saver.style === "video" ? "VideoSaver.qml"
               : "SlideshowSaver.qml"
         opacity: status === Loader.Ready ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 800 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.smooth } }
     }
 
     // Shade so the clock stays legible and feels part of the picture.

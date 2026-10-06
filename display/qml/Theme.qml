@@ -6,8 +6,7 @@ import HomeOS.Core
 //
 // Device.mood picks one of four moods - morning (warm peach/coral), day
 // (clear blue), evening (violet/rose) and night (dark) - and every color
-// eases to the new palette over a couple of seconds, so the screen drifts
-// through the day instead of switching abruptly.
+// eases to the new palette over `moodFade`, a short shift rather than a cut.
 //
 // Settings → Dark mode (Device.darkMode, remembered) replaces that palette
 // with one warm near-black canvas. The accent stays the day blue.
@@ -70,7 +69,13 @@ Item {
     property color glowAmber:  p.glow[2]
     property color glowCream:  p.glow[3]
 
-    readonly property int moodFade: 2000
+    // Motion. Pages, sheets and the screen-saver veil use `smooth`.
+    // Small controls and color changes use `quick`. Ambient loops
+    // (gradient-tile drift, photo-frame crossfades) stay slow on purpose.
+    readonly property int quick: 100
+    readonly property int smooth: 160
+    // Palette and dark-mode colors. Same length as a small control fade.
+    readonly property int moodFade: quick
     Behavior on background { ColorAnimation { duration: theme.moodFade } }
     Behavior on surface    { ColorAnimation { duration: theme.moodFade } }
     Behavior on surfaceAlt { ColorAnimation { duration: theme.moodFade } }
@@ -88,10 +93,6 @@ Item {
     readonly property color accentInk: "#FFFFFF"
     readonly property color success:   "#3DB37A"
     readonly property color warning:   "#F2A93B"
-
-    // Motion.
-    readonly property int quick: 160
-    readonly property int smooth: 300
 
     readonly property string fontFamily: "Inter"  // falls back to the system sans if missing
     readonly property string emojiFont: "Noto Color Emoji"

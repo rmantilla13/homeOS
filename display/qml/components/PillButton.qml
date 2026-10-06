@@ -12,7 +12,7 @@ AbstractButton {
     implicitWidth: Math.max(Theme.touchTarget * 2, label.implicitWidth + 56)
     opacity: enabled ? 1 : 0.4
     scale: pressed ? 0.96 : 1
-    Behavior on scale { NumberAnimation { duration: 90 } }
+    Behavior on scale { NumberAnimation { duration: Theme.quick } }
 
     background: Rectangle {
         radius: height / 2
