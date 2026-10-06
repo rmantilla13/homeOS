@@ -151,9 +151,18 @@ with no Supabase values, never the production project.
    (`supabase functions deploy admin`). Supabase gives the function its service
    role key automatically.
 
+The production deployment also answers `POST /api/assistant-identity`. That
+is not a console page. The `assistant` edge function calls it with the
+signed-in person's Supabase JWT, and the route returns a short-lived Vercel
+OIDC token for Anthropic workload identity federation (see
+[PLATFORM.md](PLATFORM.md)). It does not use an Anthropic API key, and it
+does not take a service role key. `NEXT_PUBLIC_SUPABASE_URL` is the issuer
+it trusts. Don't set `NEXT_PUBLIC_ADMIN_DEMO` on this project.
+
 Optional hardening: turn on Vercel **Deployment Protection** (Vercel
 Authentication or a password) so only your team can reach the sign-in page
-at all.
+at all. Protection also blocks `/api/assistant-identity`. Leave it off, or
+exclude that path, or the assistant cannot reach Claude.
 
 ### Invite emails
 

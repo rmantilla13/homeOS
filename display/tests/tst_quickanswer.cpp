@@ -13,13 +13,15 @@
 #include "models/FamilyStore.h"
 #include "voice/VoiceClient.h"
 
-// Stands in for DisplayController: the theme only reads the mood.
+// Stands in for DisplayController: the theme reads the mood and dark mode.
 class FakeDevice : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString mood READ mood CONSTANT)
+    Q_PROPERTY(bool darkMode READ darkMode CONSTANT)
 public:
     QString mood() const { return QStringLiteral("day"); }
+    bool darkMode() const { return false; }
 };
 
 // The wake-word card (QuickAnswer.qml) driven the way Main.qml drives it,

@@ -23,6 +23,8 @@ class DisplayController : public QObject
     Q_PROPERTY(QString screensaver READ screensaver WRITE setScreensaver NOTIFY screensaverChanged)
     // Slow drift on the gradient tiles (Settings → Animated tiles). Remembered across restarts.
     Q_PROPERTY(bool animatedTiles READ animatedTiles WRITE setAnimatedTiles NOTIFY animatedTilesChanged)
+    // Settings → Dark mode. Off keeps the time-of-day palette. Remembered across restarts.
+    Q_PROPERTY(bool darkMode READ darkMode WRITE setDarkMode NOTIFY darkModeChanged)
 
 public:
     explicit DisplayController(QObject *parent = nullptr);
@@ -39,6 +41,8 @@ public:
     void setScreensaver(const QString &style);
     bool animatedTiles() const { return m_animatedTiles; }
     void setAnimatedTiles(bool on);
+    bool darkMode() const { return m_darkMode; }
+    void setDarkMode(bool on);
 
     Q_INVOKABLE void wake();
     Q_INVOKABLE void sleepNow();
@@ -54,6 +58,7 @@ signals:
     void brightnessChanged();
     void screensaverChanged();
     void animatedTilesChanged();
+    void darkModeChanged();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -75,4 +80,5 @@ private:
     int m_maxBacklight = 0;
     QString m_screensaver;
     bool m_animatedTiles = true;
+    bool m_darkMode = false;
 };

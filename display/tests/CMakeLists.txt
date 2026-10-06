@@ -8,6 +8,15 @@ target_link_libraries(tst_system PRIVATE Qt6::Network Qt6::Test)
 add_test(NAME tst_system COMMAND tst_system)
 set_tests_properties(tst_system PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+qt_add_executable(tst_display tst_display.cpp
+    ../src/hardware/DisplayController.h
+    ../src/hardware/DisplayController.cpp)
+target_include_directories(tst_display PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_compile_options(tst_display PRIVATE ${HOMEOS_WARNINGS})
+target_link_libraries(tst_display PRIVATE Qt6::Test)
+add_test(NAME tst_display COMMAND tst_display)
+set_tests_properties(tst_display PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_test(NAME system_helper COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/system_helper_test.sh)
 add_test(NAME kiosk_boot COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/kiosk_boot_test.sh)
 add_test(NAME bootscreen COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bootscreen_test.sh)
