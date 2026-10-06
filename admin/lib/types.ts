@@ -172,6 +172,12 @@ export type MediaItem = {
   uploaded_by_name: string | null;
 };
 
+/** One row of the cross-family media list (`admin_list_all_media`). */
+export type MediaLibraryItem = MediaItem & {
+  family_id: string;
+  family_name: string;
+};
+
 export type SignedMedia = { id: string; url: string };
 
 /** What setFamilyLimits changes. Null clears the override; omit a key to leave it. */

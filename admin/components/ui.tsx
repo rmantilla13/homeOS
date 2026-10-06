@@ -129,7 +129,17 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
 }
 
 // GET search form; the page reads ?q= and resets to page 1.
-export function SearchForm({ placeholder, defaultValue, label }: { placeholder: string; defaultValue?: string; label: string }) {
+export function SearchForm({
+  placeholder,
+  defaultValue,
+  label,
+  hidden,
+}: {
+  placeholder: string;
+  defaultValue?: string;
+  label: string;
+  hidden?: Record<string, string>;
+}) {
   return (
     <form className={styles.search} role="search" method="get">
       <SearchIcon size={18} />
@@ -145,6 +155,9 @@ export function SearchForm({ placeholder, defaultValue, label }: { placeholder: 
         defaultValue={defaultValue}
         autoComplete="off"
       />
+      {hidden
+        ? Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)
+        : null}
       <button type="submit" className={styles.button}>
         Search
       </button>

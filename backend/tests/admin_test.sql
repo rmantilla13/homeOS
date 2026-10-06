@@ -37,12 +37,14 @@ insert into tests.admin_calls values
   ('select * from admin_list_audit()'),
   (format('select admin_set_family_limits(%L)', :'fam')),
   (format('select * from admin_list_media(%L)', :'fam')),
+  ('select * from admin_list_all_media()'),
   ('select admin_delete_media(''99999999-9999-9999-9999-999999999999'')'),
   ('select admin_revoke_device(''99999999-9999-9999-9999-999999999999'')');
 grant select on tests.admin_calls to anon, authenticated;
 
 -- Before anyone is an admin.
 select tests.ok(not has_function_privilege('anon', 'admin_overview()', 'execute'), 'anon cannot call admin RPCs');
+select tests.ok(not has_function_privilege('anon', 'admin_list_all_media(text, int, int)', 'execute'), 'anon cannot list every family''s media');
 select tests.ok(not has_function_privilege('anon', 'admin_set_admin(uuid, boolean)', 'execute'), 'anon cannot call admin_set_admin');
 select tests.ok(has_function_privilege('authenticated', 'admin_overview()', 'execute'), 'authenticated may call (checked inside)');
 select tests.ok(not has_function_privilege('authenticated', 'log_admin_action(text, text, text, jsonb)', 'execute'), 'audit writer is internal');

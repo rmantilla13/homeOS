@@ -56,7 +56,7 @@ export default async function OverviewPage() {
         <StatTile
           label="Over quota"
           value={formatNumber(o.families_over_quota)}
-          href="/media"
+          href="/media?view=families"
           context={o.families_over_quota ? "Families past their storage or item cap" : "Every family is within its cap"}
           tone={o.families_over_quota ? "warn" : undefined}
         />

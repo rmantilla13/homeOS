@@ -110,6 +110,31 @@ select tests.eq((select uploaded_by_name from admin_list_media(:'fam') where id 
 select tests.throws(format('select * from admin_list_media(%L, ''audio'')', :'fam'), 'kind must be photo or video', 'bad kind');
 select tests.throws($$select * from admin_list_media('99999999-9999-9999-9999-999999999999')$$, 'family not found', 'unknown family');
 
+-- Another family's video, written as superuser (quotas bind signed-in clients).
+select tests.logout();
+insert into media_items (id, family_id, storage_path, kind, byte_size, content_type, caption, taken_at)
+values ('22222222-2222-2222-2222-222222222222', :'fam2', :'fam2' || '/clip.mp4', 'video', 900, 'video/mp4', 'Other clip', now());
+select tests.login(:'mom');
+select tests.throws('select * from admin_list_all_media()', 'admin only', 'parent cannot list every family');
+select tests.login(:'admin');
+select tests.eq((select count(*)::int from admin_list_all_media()), 4, 'lists every family');
+select tests.eq((select family_name from admin_list_all_media() where id = '11111111-1111-1111-1111-111111111111'),
+                'The Demo Family', 'names the first family');
+select tests.eq((select family_name from admin_list_all_media() where id = '22222222-2222-2222-2222-222222222222'),
+                'Other House', 'names the other family');
+select tests.eq((select kind from admin_list_all_media() where id = '22222222-2222-2222-2222-222222222222'),
+                'video', 'includes videos');
+select tests.eq((select count(*)::int from admin_list_all_media('photo')), 3, 'photos across families');
+select tests.eq((select count(*)::int from admin_list_all_media('video')), 1, 'videos across families');
+select tests.eq((select byte_size::int from admin_list_all_media() where id = '22222222-2222-2222-2222-222222222222'),
+                900, 'size comes back as bigint');
+select tests.throws($$select * from admin_list_all_media('audio')$$, 'kind must be photo or video', 'bad kind on the all-media list');
+select tests.eq((select count(*)::int from admin_list_all_media(lim => 2)), 2, 'limit is honored');
+select tests.eq((select id::text from admin_list_all_media(lim => 1)),
+                '22222222-2222-2222-2222-222222222222', 'newest across families first');
+select tests.eq((select id::text from admin_list_all_media(lim => 1, off => 1)) = '22222222-2222-2222-2222-222222222222',
+                false, 'offset skips the newest');
+
 select tests.eq(admin_delete_media('11111111-1111-1111-1111-111111111111')->>'storage_path',
                 :'fam' || '/picnic.jpg', 'delete returns the object path');
 select tests.eq((select count(*)::int from media_items where id = '11111111-1111-1111-1111-111111111111'), 0, 'row is gone');

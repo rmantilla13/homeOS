@@ -18,6 +18,7 @@ import type {
   FamilyStatus,
   MediaItem,
   MediaKind,
+  MediaLibraryItem,
   NewInvite,
   Overview,
   Page,
@@ -290,6 +291,16 @@ export async function getSettings(): Promise<Settings> {
 
 const MEDIA_PAGE = 48;
 
+function mapMedia<T extends MediaItem>(m: T): T {
+  return {
+    ...m,
+    byte_size: m.byte_size == null ? null : big(m.byte_size),
+    duration_seconds: m.duration_seconds == null ? null : num(m.duration_seconds),
+    width: m.width == null ? null : num(m.width),
+    height: m.height == null ? null : num(m.height),
+  };
+}
+
 export async function listMedia(familyId: string, kind: MediaKind | null, page: number): Promise<Page<MediaItem>> {
   const src = await source();
   const lim = MEDIA_PAGE + 1;
@@ -297,12 +308,23 @@ export async function listMedia(familyId: string, kind: MediaKind | null, page: 
   const rows = src.demo
     ? demo.demoListMedia(familyId, kind, lim, off)
     : await rpc<MediaItem[]>(src.db, "admin_list_media", { family: familyId, only_kind: kind, lim, off });
+  const list = (rows ?? []).map(mapMedia);
+  return { rows: list.slice(0, MEDIA_PAGE), page, hasMore: list.length > MEDIA_PAGE };
+}
+
+// Photos and videos from every family. The page stays under sign_media's
+// 60-id cap so each family's posters can be signed in one call.
+export async function listAllMedia(kind: MediaKind | null, page: number): Promise<Page<MediaLibraryItem>> {
+  const src = await source();
+  const lim = MEDIA_PAGE + 1;
+  const off = Math.max(page - 1, 0) * MEDIA_PAGE;
+  const rows = src.demo
+    ? demo.demoListAllMedia(kind, lim, off)
+    : await rpc<MediaLibraryItem[]>(src.db, "admin_list_all_media", { only_kind: kind, lim, off });
   const list = (rows ?? []).map((m) => ({
-    ...m,
-    byte_size: m.byte_size == null ? null : big(m.byte_size),
-    duration_seconds: m.duration_seconds == null ? null : num(m.duration_seconds),
-    width: m.width == null ? null : num(m.width),
-    height: m.height == null ? null : num(m.height),
+    ...mapMedia(m),
+    family_id: m.family_id,
+    family_name: m.family_name ?? "",
   }));
   return { rows: list.slice(0, MEDIA_PAGE), page, hasMore: list.length > MEDIA_PAGE };
 }

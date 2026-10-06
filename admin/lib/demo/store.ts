@@ -9,6 +9,7 @@ import type {
   FamilyStatus,
   MediaItem,
   MediaKind,
+  MediaLibraryItem,
   NewInvite,
   Overview,
   PlatformInvite,
@@ -232,13 +233,32 @@ export function demoSettings(): Settings {
   return { ...state().settings };
 }
 
+function byNewest(a: { taken_at: string | null; created_at: string; id: string }, b: typeof a): number {
+  const at = a.taken_at ?? "";
+  const bt = b.taken_at ?? "";
+  // Missing dates sort last, matching admin_list_media / admin_list_all_media.
+  if (!at !== !bt) return at ? -1 : 1;
+  return bt.localeCompare(at) || b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id);
+}
+
 export function demoListMedia(familyId: string, kind: MediaKind | null, lim: number, off: number): MediaItem[] {
   const f = findFamily(familyId);
   return f.media
     .filter((m) => !kind || m.kind === kind)
-    .sort((a, b) => b.taken_at.localeCompare(a.taken_at) || b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id))
+    .sort(byNewest)
     .slice(off, off + lim)
     .map(toMediaItem);
+}
+
+export function demoListAllMedia(kind: MediaKind | null, lim: number, off: number): MediaLibraryItem[] {
+  return state()
+    .families.flatMap((f) =>
+      f.media
+        .filter((m) => !kind || m.kind === kind)
+        .map((m) => ({ ...toMediaItem(m), family_id: f.id, family_name: f.name })),
+    )
+    .sort(byNewest)
+    .slice(off, off + lim);
 }
 
 export function demoSignMedia(familyId: string, ids: string[]): SignedMedia[] {

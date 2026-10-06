@@ -119,9 +119,10 @@ at `<family_id>/<id>-thumb.jpg`. The quota is enforced in Postgres (on the
 row and, where Storage exists, on the object), not in the app. A signed-in
 client can change a caption or whether the photo shows on the frame, and
 nothing else on the row. The display still signs `storage_path` and ignores
-the extra columns. Platform admins list media through `admin_list_media` and
-remove an item through the `admin` function, which writes the audit log and
-deletes the file and the poster.
+the extra columns. Platform admins list one family through `admin_list_media`
+and every family through `admin_list_all_media`. Posters are signed by the
+`admin` function. Removing an item goes through that function too, which
+writes the audit log and deletes the file and the poster.
 
 ## Family assistant
 

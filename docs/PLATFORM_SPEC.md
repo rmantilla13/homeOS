@@ -35,6 +35,10 @@ Migrations are added after the existing ones, never edited in place:
   binding, device and membership guards, admin media / limits / revoke RPCs (§1.9)
 - `20261008000002_media_storage.sql`: the Storage quota trigger and the
   `family-media` policies (Supabase-only, like 000002 and 000005)
+- `20261008000003_family_list_item_limit.sql`: `admin_list_families` also
+  returns the effective item cap
+- `20261008000004_admin_list_all_media.sql`: `admin_list_all_media` lists
+  photos and videos across families (§1.9). No Storage policy.
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -292,6 +296,7 @@ every mutation writes an audit row.
 | `admin_list_platform_invites(include_inactive boolean default false)` | `table(id, code, email, note, max_uses, use_count, expires_at, created_at, revoked_at, created_by_email text, status text)`. `status` is one of `active\|used\|expired\|revoked`. |
 | `admin_update_settings(invite_only boolean default null, assistant_enabled boolean default null, assistant_daily_limit int default null, storage_limit_bytes bigint default null, media_max_bytes bigint default null, media_item_limit int default null)` | `jsonb` (the new settings); null arguments leave that value unchanged. When `storage.buckets` exists, also sets the `family-media` bucket's `file_size_limit` and `allowed_mime_types`. |
 | `admin_list_media(family uuid, only_kind text default null, lim int default 60, off int default 0)` | `table(id, kind, storage_path, thumbnail_path, content_type, byte_size, width, height, duration_seconds, caption, taken_at, created_at, show_on_frame, uploaded_by_name)`. `only_kind` is `photo`, `video`, or null. `lim` is clamped to 1..100. Raises `family not found` or `kind must be photo or video`. |
+| `admin_list_all_media(only_kind text default null, lim int default 60, off int default 0)` | `table(id, family_id, family_name, kind, storage_path, thumbnail_path, content_type, byte_size, width, height, duration_seconds, caption, taken_at, created_at, show_on_frame, uploaded_by_name)`. Same kind and limit rules as `admin_list_media`, across every family, newest first. Raises `admin only` or `kind must be photo or video`. |
 | `admin_delete_media(item uuid)` | `jsonb {id, family_id, storage_path, thumbnail_path, byte_size, kind}`; deletes the row and audits `delete_media`. Raises `media not found`. Does not delete the Storage objects (the `admin` function does). |
 | `admin_revoke_device(device uuid)` | `jsonb {id, family_id, name, user_id, auth_user_removed}`; deletes the `devices` row, tries to delete `auth.users` (swallows `insufficient_privilege`), audits `revoke_device`. Raises `device not found`. |
 | `admin_set_family_limits(family uuid, assistant_daily_limit int default null, storage_limit_bytes bigint default null, media_item_limit int default null, use_platform_assistant_limit boolean default false, use_platform_storage_limit boolean default false, use_platform_media_item_limit boolean default false)` | `jsonb` of the raw overrides and the `*_effective` values. A null number leaves that limit alone. A `use_platform_*` flag clears the override (`null` = platform default). A no-op writes no audit row. Raises `family not found`, or `assistant_daily_limit must be between 0 and 1000000`, `storage_limit_bytes must be between 0 and 1099511627776`, `media_item_limit must be between 0 and 1000000`. |
@@ -557,10 +562,13 @@ the session. Every page except `/login` requires a session and
   item meters, a limits form (`admin_set_family_limits`), revoke on each
   display (`admin` → `revoke_device`), and the members, devices, invites and
   usage lists.
-- `/media`: each family's item count, bytes used and effective quota.
-  `/families/[id]/media` is the grid: `admin_list_media`, then `sign_media`
-  for posters (a video with no poster shows a placeholder). Remove calls
-  `delete_media`.
+- `/media`: every family's photos and videos (`admin_list_all_media`), 48
+  per page, with the family name, a poster, the type, the size and the date.
+  Posters are signed per family with `sign_media` (the function still takes
+  one `family_id`). `?view=families` keeps the storage and item-cap table.
+  `/families/[id]/media` is one family's grid: `admin_list_media`, then
+  `sign_media` for posters (a video with no poster shows a placeholder).
+  Remove calls `delete_media`.
 - `/users`: searchable table with admin, banned and device badges. Actions:
   Make or remove admin, Ban/Unban, Delete (via the `admin` function).
 - `/invites`: create a platform invite (email optional, note, max uses,

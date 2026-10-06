@@ -12,7 +12,7 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 | `/families` | Search families by name or id |
 | `/families/[id]` | Members, displays, family invites, 30-day usage, storage and item meters, and per-family limits (assistant, storage, item cap). Suspend (with a reason), reactivate, delete (type the name to confirm). Revoke a paired display |
 | `/families/[id]/media` | That family's photos and videos, with posters. Remove an item (audited; the file and poster are deleted) |
-| `/media` | Storage used, item counts and quota for every family |
+| `/media` | Every family's photos and videos (name, poster, type, size, date), 48 per page. `?kind=photo` or `?kind=video` filters. `?view=families` is the storage and item-cap table |
 | `/users` | Search accounts by email or name. Make or remove admin, ban, unban, delete |
 | `/invites` | Create platform invites (optional email lock, note, max uses, expiry), optionally email them; copy, revoke, see status |
 | `/settings` | Invite-only sign-up, assistant on/off, requests per family per day, default storage quota, largest file, and item cap |
@@ -73,7 +73,7 @@ admin/
 
 Needs Node 20.9 or later (CI uses 22) and a Supabase project with the platform
 migrations applied (`backend/supabase/migrations`, including
-`20261007000004_admin.sql` and `20261008000001` through `20261008000003`) and
+`20261007000004_admin.sql` and `20261008000001` through `20261008000004`) and
 the `admin` function deployed.
 
 ```bash
