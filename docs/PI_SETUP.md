@@ -100,15 +100,17 @@ The script takes 20–30 minutes. It:
   panel is mostly hiss; the gear menu turns the speakers off or up, and the
   screen's own buttons still work), and turns off Wi-Fi power saving, which
   makes Wi-Fi drop out
-- starts the app on every boot as the `homeos-display` service
+- enables and starts the `homeos-display` service, which takes the console on
+  every boot so the screen shows homeOS instead of a login prompt
 - warns at the end if the Pi has been short of power
 
 ## 4. What you should see
 
 After the reboot, boot messages scroll by for about half a minute, then
-homeOS fills the screen with sample data. Tap the chores and rewards to try
-it. Videos under **Media** play with sound from the screen's speakers. After
-two minutes without a touch, the photo frame starts; a tap wakes it.
+homeOS fills the screen with sample data. The console login prompt does not
+stay up. Tap the chores and rewards to try it. Videos under **Media** play
+with sound from the screen's speakers. After two minutes without a touch, the
+photo frame starts; a tap wakes it.
 
 ## 5. Connect it to your family
 
@@ -159,6 +161,7 @@ Start with the logs: `journalctl -u homeos-display -b`.
 
 | Symptom | Fix |
 |---|---|
+| A login prompt is on the screen after reboot | The kiosk is not holding the console. Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio`. Re-run the install script, then `sudo reboot`. |

@@ -1,0 +1,8 @@
+#%PAM-1.0
+# Session for the homeOS kiosk. systemd has already chosen the user (User=);
+# nothing here asks for a password. pam_systemd registers the session on tty1
+# so logind does not start a login prompt on that console.
+auth       required   pam_permit.so
+account    required   pam_permit.so
+session    optional   pam_loginuid.so
+session    required   pam_systemd.so

@@ -1,28 +1,49 @@
 # Runs the homeOS display as a kiosk on boot, straight to the panel via EGLFS.
-# There's no desktop or login session: the video, render, input and audio
-# groups give it the screen, GPU, touch and sound. Installed by
-# display/deploy/install-pi.sh, which fills in the user and their UID.
+# There's no desktop: this service owns tty1, and the video, render, input,
+# audio and tty groups give it the screen, GPU, touch, sound and console.
+# Installed by display/deploy/install-pi.sh, which fills in the user and their UID.
 [Unit]
 Description=homeOS wall display
-# After logins are allowed and any boot splash has let go of the screen.
-After=systemd-user-sessions.service plymouth-quit-wait.service
+# After logins are allowed, logind is up, and any boot splash has let go of
+# the screen. The user manager (lingering) creates the runtime dir and PipeWire.
+After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.service
 After=network-online.target
 Wants=network-online.target
-# The user's PipeWire (video sound), started at boot by lingering.
+Wants=systemd-logind.service
+Wants=user@@UID@.service
 After=user@@UID@.service
-# The app takes over the first console, so no login prompt there.
-Conflicts=getty@tty1.service
-After=getty@tty1.service
+# Own the first console. Conflicts stops the login prompt; Before= (not After=)
+# so when both are queued we start and getty is stopped. After=getty waits for
+# the prompt, then the two units order-cycle and systemd drops this start —
+# the screen stays on the login prompt across reboot. autovt is the same
+# getty, started on demand by logind when it thinks tty1 is free.
+Conflicts=getty@tty1.service autovt@tty1.service
+Before=getty@tty1.service autovt@tty1.service
 # Never give up restarting: the panel may be switched on after the Pi (no
-# screen yet means the app exits), or the GPU may still be starting.
+# screen yet means the app exits), the GPU may still be starting, or the
+# first start may fail while multi-user is still coming up. Restart=always
+# retries those; a zero interval disables the default give-up after a few tries.
 StartLimitIntervalSec=0
 
 [Service]
 User=@USER@
+# A logind session on tty1, so autovt does not put a login prompt back.
+# systemd opens the TTY as root before dropping to User=. The stack is
+# display/deploy/homeos-display.pam, installed to /etc/pam.d/homeos-display.
+PAMName=homeos-display
 # Qt platform, scaling and backend settings.
 EnvironmentFile=/etc/homeos/display.env
 # Where the user's PipeWire (PulseAudio) socket lives.
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+# EGLFS and linuxfb only cover the console when this process holds tty1.
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+UtmpIdentifier=tty1
 ExecStart=/usr/local/bin/homeos-display
 Restart=always
 RestartSec=3

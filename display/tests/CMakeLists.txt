@@ -9,6 +9,7 @@ add_test(NAME tst_system COMMAND tst_system)
 set_tests_properties(tst_system PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_test(NAME system_helper COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/system_helper_test.sh)
+add_test(NAME kiosk_boot COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/kiosk_boot_test.sh)
 
 foreach(name tst_sseparser tst_streamfunction tst_voiceclient)
     qt_add_executable(${name} ${name}.cpp)

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as a homeOS display:
-# installs dependencies, builds and installs the app, and starts it on boot.
+# installs dependencies, builds and installs the app, and starts it now and
+# on every boot. The service takes the console, so a reboot shows homeOS
+# instead of the login prompt.
 #
 #   git clone https://github.com/rmantilla13/homeOS && cd homeOS
 #   ./display/deploy/install-pi.sh                # display only
@@ -71,10 +73,10 @@ cmake -S "$repo/display" -B "$repo/build/display" -DCMAKE_BUILD_TYPE=Release -DH
 cmake --build "$repo/build/display" -j"$(nproc)"
 sudo cmake --install "$repo/build/display" --prefix /usr/local
 
-step "Granting display, GPU, touch and sound access to $user"
-# The app runs without a login session, so these groups are what let it open
-# the screen, the GPU, the touch panel and the sound card.
-for group in video render input audio; do
+step "Granting display, GPU, touch, sound and console access to $user"
+# The app runs without a desktop login, so these groups are what let it open
+# the screen, the GPU, the touch panel, the sound card and the console.
+for group in video render input audio tty; do
     getent group "$group" >/dev/null && sudo usermod -aG "$group" "$user"
 done
 
@@ -247,21 +249,35 @@ fi
 step "Installing the kiosk service"
 sed -e "s/@USER@/$user/g" -e "s/@UID@/$uid/g" "$repo/display/deploy/homeos-display.service" \
     | sudo tee /etc/systemd/system/homeos-display.service >/dev/null
+sudo install -m 644 "$repo/display/deploy/homeos-display.pam" /etc/pam.d/homeos-display
+# Linger starts the user manager at boot. Start it now too, so /run/user/$uid
+# exists (XDG_RUNTIME_DIR, PipeWire) before the kiosk is launched. Config
+# above is already in place, so PipeWire picks it up.
+if ! sudo systemctl start "user@${uid}.service"; then
+    echo "User manager did not start yet; the kiosk retries once logind brings it up." >&2
+fi
 # The app needs the screen to itself, so boot to the console instead of a desktop.
 if [ "$(systemctl get-default)" = "graphical.target" ]; then
     echo "Switching boot target from desktop to console (the app replaces the desktop)"
     sudo systemctl set-default multi-user.target
 fi
 sudo systemctl daemon-reload
+# kiosk-boot-begin
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on, so the kiosk stays off (./display/deploy/preview.sh off switches back)"
+    sudo systemctl disable --now homeos-display 2>/dev/null || true
 else
+    # A previous install may have left this disabled or masked. enable alone
+    # does not start it, and a reboot only starts units that are enabled, so
+    # enable and restart (restart starts it when it was stopped). A screen that
+    # is still off makes the process exit; Restart= in the unit keeps trying.
+    sudo systemctl unmask homeos-display
     sudo systemctl enable homeos-display
-    # When updating, restart the app that's already on screen.
-    if systemctl is-active --quiet homeos-display; then
-        sudo systemctl restart homeos-display
+    if ! sudo systemctl restart homeos-display; then
+        echo "homeos-display did not stay up yet. It will keep retrying, including on the next boot." >&2
     fi
 fi
+# kiosk-boot-end
 
 # When updating, update the voice service too if it was installed before.
 if [ -f /etc/systemd/system/homeos-voice.service ]; then
@@ -287,7 +303,12 @@ if [[ "$throttled" =~ ^0x[0-9a-fA-F]+$ ]] && (( throttled & 0x10001 )); then
     echo "Warning: the Pi has been short of power since it started (throttled=$throttled)." >&2
     echo "Use the official 27 W USB-C supply, and power the panel from its own adapter." >&2
 fi
-echo "Reboot to start homeOS:  sudo reboot"
+if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
+    echo "Preview mode is on; the panel kiosk stays off."
+else
+    echo "homeOS is enabled and started. On every boot it takes the screen (no login prompt)."
+    echo "Reboot so the console settings apply:  sudo reboot"
+fi
 echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."
 echo "Logs:                    journalctl -u homeos-display -f"
 if [ "$with_voice" = "1" ]; then
