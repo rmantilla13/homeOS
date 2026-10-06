@@ -154,7 +154,7 @@ private slots:
         QVERIFY(!voice.wakewordEnabled());
         QVERIFY(!voice.canTranscribe());
         QVERIFY(voice.canSpeak());
-        QCOMPARE(voice.wakewordLabel(), QStringLiteral("Hey homeOS"));
+        QCOMPARE(voice.wakewordLabel(), QStringLiteral("Hey Ohana"));
 
         serverSend({{"type", "hello"}, {"version", "1"}, {"wakeword", true},
                     {"wakeword_name", "hey_homeos"}, {"tts", true}, {"stt", true}});

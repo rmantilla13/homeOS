@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Preview mode: use homeOS on the Pi before the panel is connected. The app
+# Preview mode: use Ohana on the Pi before the panel is connected. The app
 # draws to a virtual 1920x1200 screen that you open in a web browser on your
 # computer; the mouse works as touch.
 #
@@ -41,7 +41,7 @@ esac
 case "$cmd" in
 on)
     if [ ! -x /usr/local/bin/homeos-display ]; then
-        echo "homeOS isn't installed yet. Run ./display/deploy/install-pi.sh first." >&2
+        echo "Ohana isn't installed yet. Run ./display/deploy/install-pi.sh first." >&2
         exit 1
     fi
 
@@ -104,7 +104,7 @@ off)
     if ! sudo systemctl restart homeos-display; then
         echo "homeos-display did not stay up yet. It will keep retrying." >&2
     fi
-    echo "Preview is off; homeOS runs on the panel again."
+    echo "Preview is off; Ohana runs on the panel again."
     ;;
 status)
     systemctl --no-pager status homeos-preview homeos-display || true

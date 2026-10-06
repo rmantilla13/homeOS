@@ -178,7 +178,7 @@ Item {
             Label {
                 anchors.centerIn: parent
                 visible: media.items.length === 0
-                text: qsTr("Nothing here yet. Add photos and videos from the homeOS iPhone app.")
+                text: qsTr("Nothing here yet. Add photos and videos from the Ohana iPhone app.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMd
             }

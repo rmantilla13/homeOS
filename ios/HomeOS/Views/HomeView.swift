@@ -33,7 +33,7 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        ScreenHeader(title: store.family?.name ?? "homeOS",
+        ScreenHeader(title: store.family?.name ?? "Ohana",
                      subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
             Button { showingProfile = true } label: {
                 MemberAvatar(member: store.me, size: 44)
@@ -175,7 +175,7 @@ struct AssistantHeroCard: View {
                 Button { open(AssistantLaunch()) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "sparkles")
-                        Text("Ask homeOS anything")
+                        Text("Ask Ohana anything")
                         Spacer()
                     }
                     .font(.subheadline)

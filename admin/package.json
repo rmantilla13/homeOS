@@ -2,7 +2,7 @@
   "name": "homeos-admin",
   "version": "0.1.0",
   "private": true,
-  "description": "homeOS platform admin console (Next.js + Supabase)",
+  "description": "Ohana platform admin console (Next.js + Supabase)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

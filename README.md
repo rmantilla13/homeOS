@@ -1,4 +1,4 @@
-# homeOS
+# Ohana
 
 A family operating system: a wall-mounted touchscreen built on custom hardware,
 plus an iOS app that family members use to feed it. It's invite-only, and a

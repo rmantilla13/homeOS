@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as a homeOS display:
+# Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as an Ohana display:
 # installs dependencies, builds and installs the app, and starts it now and
-# on every boot. The service takes the console, so a reboot shows homeOS
+# on every boot. The service takes the console, so a reboot shows Ohana
 # instead of the login prompt.
 #
 #   git clone https://github.com/rmantilla13/homeOS && cd homeOS
@@ -85,7 +85,7 @@ step "Letting this display change Wi-Fi and reboot"
 # sudo will run without asking. It changes Wi-Fi and reboots, and nothing else.
 sudo install -D -m 755 "$repo/display/deploy/homeos-system" /usr/local/libexec/homeos-system
 sudo tee /etc/sudoers.d/homeos-system >/dev/null <<EOF
-# homeOS display: Wi-Fi and reboot only.
+# Ohana display: Wi-Fi and reboot only.
 $user ALL=(root) NOPASSWD: /usr/local/libexec/homeos-system
 EOF
 sudo chmod 440 /etc/sudoers.d/homeos-system
@@ -123,7 +123,7 @@ JSON
 
 if [ ! -f /etc/homeos/display.env ]; then
     sudo tee /etc/homeos/display.env >/dev/null <<'ENV'
-# homeOS display settings. Restart after editing: sudo systemctl restart homeos-display
+# Ohana display settings. Restart after editing: sudo systemctl restart homeos-display
 QT_QPA_PLATFORM=eglfs
 QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
@@ -311,7 +311,7 @@ fi
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on; the panel kiosk stays off."
 else
-    echo "homeOS is enabled and started. On every boot it takes the screen (no login prompt)."
+    echo "Ohana is enabled and started. On every boot it takes the screen (no login prompt)."
     echo "Reboot so the console settings apply:  sudo reboot"
 fi
 echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."

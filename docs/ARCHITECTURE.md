@@ -125,7 +125,7 @@ deletes the file and the poster.
 
 ## Family assistant
 
-The "Ask homeOS" card on the home screen opens a chat with Claude (Opus 5.5),
+The "Ask Ohana" card on the home screen opens a chat with Claude (Opus 5.5),
 running in the `assistant` edge function.
 
 - **Grounded in family data, not trained on it.** Each request builds a fresh
@@ -144,7 +144,7 @@ running in the `assistant` edge function.
 - **Streaming:** replies stream to the display and the iPhone as server-sent
   events (`thread`, `delta`, `action`, then `done` or `error`).
 - **Quick mode:** short spoken-style answers for the wake word and Siri
-  ("Ask homeOS").
+  ("Ask Ohana").
 - **Limits:** platform admins can switch the assistant off and set a daily
   request limit per family. Request, history and family-snapshot sizes are
   capped so one family can't run up costs.
@@ -209,7 +209,7 @@ XcodeGen.
 - Invite-only onboarding: enter an invite code or open a `homeos://invite/<CODE>`
   link, then create an account and start or join a family.
 - Profile (name, photo), family management (members, roles, invites) and the
-  assistant with saved threads. Siri: say "Ask homeOS", then the question.
+  assistant with saved threads. Siri: say "Ask Ohana", then the question.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Storage
   with a size, a content type and a thumbnail; they appear on the wall frame
   within seconds.

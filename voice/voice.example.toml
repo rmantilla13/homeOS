@@ -1,4 +1,4 @@
-# homeOS voice service settings: /etc/homeos/voice.toml.
+# Ohana voice service settings: /etc/homeos/voice.toml.
 #
 # Every key is optional, and the values shown are the defaults. Uncomment what
 # you want to change, then restart:  sudo systemctl restart homeos-voice
@@ -85,7 +85,7 @@
 #beam_size = 1
 # CPU threads; 0 lets faster-whisper decide.
 #threads = 0
-# Words that help with spelling, such as family names: "Leo, Maya, homeOS."
+# Words that help with spelling, such as family names: "Leo, Maya, Ohana."
 #initial_prompt = ""
 
 [tts]

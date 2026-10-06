@@ -185,7 +185,7 @@ void FamilyStore::withSession(std::function<void()> fn)
         if (ok)
             fn();
         else
-            setOnline(false, tr("Can't reach homeOS cloud"));
+            setOnline(false, tr("Can't reach Ohana cloud"));
     });
 }
 

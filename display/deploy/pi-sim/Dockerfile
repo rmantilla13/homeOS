@@ -1,4 +1,4 @@
-# Simulated homeOS device: Debian Trixie (the base of Raspberry Pi OS) on arm64,
+# Simulated Ohana device: Debian Trixie (the base of Raspberry Pi OS) on arm64,
 # set up with the real install script, showing the app on a virtual 1920x1200
 # screen you open with a VNC viewer. See docs/PI_SETUP.md → "Try it without a Pi".
 #

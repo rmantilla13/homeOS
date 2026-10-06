@@ -258,7 +258,7 @@ struct FamilyView: View {
     private var memorySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader("Family memory")
-            Text("Things homeOS remembers about your family, like allergies or who carpools with whom.")
+            Text("Things Ohana remembers about your family, like allergies or who carpools with whom.")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
             VStack(alignment: .leading, spacing: 12) {
@@ -649,7 +649,7 @@ struct MemberEditor: View {
                 }
                 Section("Account") {
                     if member.userId != nil {
-                        Label(isMe ? "Signed in on this iPhone" : "Has a homeOS login", systemImage: "person.crop.circle.badge.checkmark")
+                        Label(isMe ? "Signed in on this iPhone" : "Has an Ohana login", systemImage: "person.crop.circle.badge.checkmark")
                             .foregroundStyle(Theme.text)
                     } else {
                         Label("No login. \(firstName) shows up on the family screen only.", systemImage: "person.crop.circle")

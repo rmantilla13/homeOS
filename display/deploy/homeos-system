@@ -1,5 +1,5 @@
 #!/bin/sh
-# Privileged actions for the homeOS wall display. Installed root-owned at
+# Privileged actions for the Ohana wall display. Installed root-owned at
 # /usr/local/libexec/homeos-system and allowed with NOPASSWD in sudoers.
 # The display user can run this and nothing else as root.
 #

@@ -14,7 +14,7 @@ Rectangle {
 
         Label {
             Layout.alignment: Qt.AlignHCenter
-            text: "homeOS"
+            text: "Ohana"
             color: Theme.accent
             font.pixelSize: Theme.fontXl
             font.weight: Font.Bold
@@ -57,8 +57,8 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
             horizontalAlignment: Text.AlignHCenter
             text: Store.pairingCode
-                  ? qsTr("On your iPhone, open homeOS → Settings → Pair a display,\nand enter this code. It refreshes every 10 minutes.")
-                  : (Store.lastError ? qsTr("Can't reach homeOS cloud. Retrying…") : qsTr("Getting a pairing code…"))
+                  ? qsTr("On your iPhone, open Ohana → Settings → Pair a display,\nand enter this code. It refreshes every 10 minutes.")
+                  : (Store.lastError ? qsTr("Can't reach Ohana cloud. Retrying…") : qsTr("Getting a pairing code…"))
             color: Theme.textMuted
             font.pixelSize: Theme.fontMd
         }

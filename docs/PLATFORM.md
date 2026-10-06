@@ -1,6 +1,6 @@
 # Platform: accounts, invites, admins
 
-homeOS is invite-only. This page covers how accounts and families fit
+Ohana is invite-only. This page covers how accounts and families fit
 together, how invites work from end to end, how to make the first platform
 admin and turn on the sign-up hook, and the assistant's limits. The exact
 names live in [PLATFORM_SPEC.md](PLATFORM_SPEC.md); the SQL is in
@@ -175,8 +175,7 @@ family without a code. With it, they can't even create the account.
 - the sign-up email matches an open invite's email. This covers admin email
   invites and Sign in with Apple, where there's no metadata.
 
-Otherwise it returns `{"error": {"http_code": 403, "message": "homeOS is
-invite-only. Ask your family for an invite code."}}`.
+Otherwise it returns `{"error": {"http_code": 403, "message": "homeOS is invite-only. Ask your family for an invite code."}}`.
 
 **To turn it on:**
 

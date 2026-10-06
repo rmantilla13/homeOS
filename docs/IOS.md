@@ -70,8 +70,8 @@ your **Profile**.
 
 | Tab | What's there |
 |---|---|
-| **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask homeOS anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
-| **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, homeOS in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. |
+| **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask Ohana anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
+| **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. |
 | **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details or to delete it. The **+** button adds an event (title, place, all-day, start/end, who). |
 | **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. A parent's tap is approved right away; anyone else's waits for a parent. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
 | **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes. Its backdrop takes the current photo's average color. |
@@ -79,7 +79,7 @@ your **Profile**.
 
 ## Onboarding (invite-only)
 
-homeOS is invite-only, so the first screen starts with the invite code.
+Ohana is invite-only, so the first screen starts with the invite code.
 
 1. **Welcome.** Type the code (it tidies itself into `XXXX-XXXX`) or open an
    invite link, then **Check invite**. `preview_invite` answers without signing
@@ -172,7 +172,7 @@ families sees one at a time; the choice is remembered on the phone.
   `done` and `error`. Deltas grow the last bubble, actions add chips, `done`
   replaces the text with the final reply. If the stream drops before `done`
   (or cuts `done` off mid-way), whatever arrived stays; with nothing, you get
-  "I couldn't reach homeOS".
+  "I couldn't reach Ohana".
   Non-200 answers show the function's `{error}` message (401 asks you to sign
   in again; 403 covers a suspended family or no family).
 - After a reply that did something (actions), the app reloads the family data.
@@ -185,14 +185,14 @@ parameter, `question`. `perform()` calls the assistant with `mode: "quick"`,
 `stream: false` and no thread (`AssistantClient.quickAnswer`), and returns the
 reply as both the spoken dialog and the intent's value, so Shortcuts can use
 it. It runs without opening the app, using the session saved in the keychain;
-signed out, Siri says "Sign in to homeOS on your iPhone first." It asks you to
+signed out, Siri says "Sign in to Ohana on your iPhone first." It asks you to
 unlock the iPhone first (`authenticationPolicy = .requiresAuthentication`), so
 a locked phone doesn't read out the family's plans.
 
-`HomeOSShortcuts` (an `AppShortcutsProvider`) registers "Ask homeOS", "Ask
-homeOS a question" and "Ask my family assistant in homeOS". A String parameter
+`HomeOSShortcuts` (an `AppShortcutsProvider`) registers "Ask Ohana", "Ask
+Ohana a question" and "Ask my family assistant in Ohana". A String parameter
 can't be part of a phrase, so Siri then asks "What would you like to ask
-homeOS?". Each Siri question starts its own thread, which then shows up in the
+Ohana?". Each Siri question starts its own thread, which then shows up in the
 app's chat history. The Profile screen shows a `SiriTipView` for it.
 
 ## CI

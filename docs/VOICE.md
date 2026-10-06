@@ -91,7 +91,7 @@ sudo systemctl stop homeos-voice
 arecord -l                       # the USB mic is a "card N: ... USB Audio" line
 arecord -D plughw:N,0 -f S16_LE -r 16000 -c 1 -d 5 /tmp/t.wav   # N from arecord -l; talk for 5 s
 aplay -D default:CARD=vc4hdmi0 /tmp/t.wav                     # plays it on the panel
-/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from homeOS"
+/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from Ohana"
 sudo systemctl start homeos-voice
 ```
 
@@ -105,7 +105,7 @@ service uses, so if it's heard, replies will be too.
 | Watch logs | `journalctl -u homeos-voice -f` |
 | Restart | `sudo systemctl restart homeos-voice` |
 | Change settings | `sudo nano /etc/homeos/voice.toml`, then restart |
-| Test the voice | `/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from homeOS"` |
+| Test the voice | `/opt/homeos-voice/bin/python -m homeos_voice --say "Hello from Ohana"` |
 | List audio devices | `/opt/homeos-voice/bin/python -m homeos_voice --list-devices` |
 
 The display finds the service at `ws://127.0.0.1:8765` (override with
@@ -166,12 +166,12 @@ defaults. The ones you're most likely to touch:
 | Setting | Default | When to change it |
 |---|---|---|
 | `wakeword.threshold` | `0.5` | Raise (0.6–0.7) if it wakes on TV chatter; lower (0.3–0.4) if it misses you |
-| `wakeword.model` / `name` | `hey_jarvis` | After training "Hey homeOS" (below) |
+| `wakeword.model` / `name` | `hey_jarvis` | After training "Hey Ohana" (below) |
 | `vad.silence` | `0.7` s | Raise to 1.0 if it cuts people off mid-sentence |
 | `vad.aggressiveness` | `2` | 3 in a noisy kitchen (stricter about what counts as speech) |
 | `vad.no_speech` | `4.0` s | How long it waits for you to start after the wake word |
 | `stt.model` | `base.en` | `tiny.en` is faster but sloppier; `small.en` is more accurate but noticeably slower on a Pi |
-| `stt.initial_prompt` | empty | Family names and odd words, e.g. `"Leo, Maya, Abuela, homeOS."` |
+| `stt.initial_prompt` | empty | Family names and odd words, e.g. `"Leo, Maya, Abuela, Ohana."` |
 | `tts.voice` | `en_US-amy-medium` | Any [Piper voice](https://rhasspy.github.io/piper-samples/), then `--download-models` |
 | `tts.speed` | `1.0` | `1.1`–`1.2` for snappier answers |
 | `audio.input_device` / `output_device` | auto | When it picks the wrong mic or speaker |
@@ -194,7 +194,7 @@ If webrtcvad isn't installed, end-of-speech falls back to a loudness
 detector (`vad.engine = "energy"`, tuned by `vad.energy_threshold`). It
 works in a quiet room but treats any steady sound as speech for a moment.
 
-## A custom "Hey homeOS" wake word
+## A custom "Hey Ohana" wake word
 
 The default wake word is openWakeWord's built-in "Hey Jarvis". openWakeWord
 can train new phrases from synthetic speech, with no recordings needed. Its
@@ -204,10 +204,10 @@ repository ([dscripka/openWakeWord](https://github.com/dscripka/openWakeWord),
 
 1. Open the notebook in Colab and pick a GPU runtime.
 2. Set the target phrase. Spell it the way it's said, since the samples come
-   from a text-to-speech voice: `hey home oh ess`, not `hey homeOS`. Name the
-   model `hey_homeos`.
+   from a text-to-speech voice: `hey ohana`. Name the model `hey_homeos`
+   (that file name stays; the display shows "Hey Ohana").
 3. Run the cells. They generate thousands of spoken examples with Piper
-   voices, mix in noise and room echo, add near-miss phrases ("hey home",
+   voices, mix in noise and room echo, add near-miss phrases ("ohana",
    "hello"), train a small model, and export `hey_homeos.onnx` (and
    `.tflite`). More examples and steps give a sturdier model; the notebook's
    defaults are a fine first try.
@@ -220,7 +220,7 @@ repository ([dscripka/openWakeWord](https://github.com/dscripka/openWakeWord),
    ```toml
    [wakeword]
    model = "hey_homeos.onnx"    # looked up in ~/.local/share/homeos-voice/wakeword
-   name = "Hey homeOS"          # what the display shows
+   name = "Hey Ohana"          # what the display shows
    ```
 
 5. Restart the service and tune `threshold` as above. Test from where people
@@ -317,4 +317,4 @@ can open the devices, and start it again afterwards.
 | Wrong words | Add names to `stt.initial_prompt`; try `stt.model = "small.en"`; speak closer to the mic |
 | Robotic voice | Piper isn't loading, so it fell back to espeak-ng. The log says why; usually the voice needs `--download-models` |
 | `GPU device discovery failed ... /sys/class/drm/...vendor` in the log | Harmless: onnxruntime looks for a GPU it could use, and the Pi's doesn't describe itself that way. Ignore it |
-| Display says "Voice needs the homeOS voice service" | `systemctl status homeos-voice`; the service listens on `127.0.0.1:8765` |
+| Display says "Voice needs the Ohana voice service" | `systemctl status homeos-voice`; the service listens on `127.0.0.1:8765` |
