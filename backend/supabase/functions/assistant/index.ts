@@ -29,6 +29,8 @@ import { claude, ClaudeAuthError, withCallerToken } from "./claude.ts";
 import { authenticate, bearerToken, corsHeaders, HttpError, json, preflight, readJson } from "../_shared/http.ts";
 import {
   type Caller,
+  choreLines,
+  type ChoreRow,
   clip,
   echoContent,
   findMember,
@@ -323,13 +325,16 @@ async function loadSnapshot(db: SupabaseClient, family: FamilyInfo): Promise<Sna
   const in14 = new Date(now + 14 * 86_400_000).toISOString();
   const weekAhead = localDate(now + 7 * 86_400_000, tz);
 
+  // Repeats are worked out by the database (event_occurrences, chores_due), the
+  // same way for the wall display and the phone.
   const results = await Promise.all([
     db.from("members").select("id, display_name, role").eq("family_id", fid).order("sort_order").limit(SNAPSHOT.members),
     db.from("member_points").select("member_id, balance").eq("family_id", fid),
-    db.from("events").select("title, starts_at, ends_at, all_day, location, event_members(member_id)").eq("family_id", fid)
-      .gte("ends_at", new Date(now - 86_400_000).toISOString()).lt("starts_at", in14).order("starts_at").limit(80),
-    db.from("tasks").select("id, title, assignee_id, points, rrule, requires_approval").eq("family_id", fid).eq("archived", false)
+    db.rpc("event_occurrences", { fid, range_start: new Date(now - 86_400_000).toISOString(), range_end: in14 })
+      .select("title, starts_at, ends_at, all_day, location, member_ids").limit(80),
+    db.from("tasks").select("id, title, assignee_id, points, rrule, due_date").eq("family_id", fid).eq("archived", false)
       .order("created_at").limit(SNAPSHOT.tasks),
+    db.rpc("chores_due", { fid, day: today }).select("id, title, assignee_id, points, rrule, due_date").limit(SNAPSHOT.tasks),
     db.from("task_completions").select("task_id, member_id, status").eq("family_id", fid).eq("for_date", today),
     db.from("rewards").select("title, cost").eq("family_id", fid).eq("active", true).order("cost").limit(SNAPSHOT.rewards),
     db.from("meal_plans").select("date, meal, title").eq("family_id", fid).gte("date", today).lte("date", weekAhead).order("date"),
@@ -339,7 +344,7 @@ async function loadSnapshot(db: SupabaseClient, family: FamilyInfo): Promise<Sna
     db.from("family_memories").select("content").eq("family_id", fid).order("created_at").limit(100),
   ]);
   for (const r of results) if (r.error) console.error("snapshot query failed:", r.error.message);
-  const [members, points, events, tasks, done, rewards, meals, lists, memories] = results.map((r) => (r.data ?? []) as Row[]);
+  const [members, points, events, tasks, due, done, rewards, meals, lists, memories] = results.map((r) => (r.data ?? []) as Row[]);
 
   const memberRows = members as unknown as MemberRow[];
   const nameOf = (id: unknown) => oneLine(memberRows.find((m) => m.id === id)?.display_name ?? "someone", 40);
@@ -359,18 +364,19 @@ async function loadSnapshot(db: SupabaseClient, family: FamilyInfo): Promise<Sna
 
   lines.push("\nCalendar (next 14 days):");
   for (const e of events) {
-    const who = oneLine(((e.event_members as Row[]) ?? []).map((em) => nameOf(em.member_id)).join(", "), 120) || "whole family";
+    const who = oneLine(((e.member_ids as string[]) ?? []).map(nameOf).join(", "), 120) || "whole family";
     const when = e.all_day ? `${fmtLocalDay(String(e.starts_at), tz)} (all day)` : fmtLocal(String(e.starts_at), tz);
     lines.push(`- ${when}: ${oneLine(e.title, 100)} — ${who}${e.location ? ` @ ${oneLine(e.location, 60)}` : ""}`);
   }
   if (!events.length) lines.push("- nothing scheduled");
 
-  lines.push("\nChores (today's status; recurrence in RRULE form):");
-  for (const t of tasks) {
-    const status = doneMap.get(`${t.id}|${t.assignee_id}`) ?? "not done";
-    const rrule = t.rrule ? oneLine(t.rrule, 60) : "one-time";
-    lines.push(`- ${oneLine(t.title, 100)} — ${t.assignee_id ? nameOf(t.assignee_id) : "anyone"}, ${t.points} pts, ${rrule}: ${status}`);
-  }
+  lines.push(...choreLines(
+    tasks as unknown as ChoreRow[],
+    results[4].error ? null : due as unknown as ChoreRow[], // chores_due
+    today,
+    nameOf,
+    (t) => String(doneMap.get(`${t.id}|${t.assignee_id}`) ?? "not done"),
+  ));
 
   lines.push("\nRewards: " + rewards.map((r) => `${oneLine(r.title, 80)} (${r.cost} pts)`).join("; "));
   lines.push("\nMeals planned: " + (meals.map((m) => `${m.date} ${m.meal}: ${oneLine(m.title, 80)}`).join("; ") || "none"));
