@@ -126,6 +126,46 @@ jobs:
           wait "$pid" || true
           cat display.log
 
+  # The real Pi installer on Debian Trixie, the base of Raspberry Pi OS (x86-64
+  # here; the Pi is arm64). Catches package names that only exist on Ubuntu,
+  # Qt 6.8 build breaks and installer bugs before they reach a device.
+  pi-install:
+    needs: changes
+    if: needs.changes.outputs.display == 'true' || needs.changes.outputs.voice == 'true'
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Prepare a Pi-like system (sudo user, no systemd)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends sudo ca-certificates git
+          useradd -m -s /bin/bash pi
+          echo 'pi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/pi
+      - uses: actions/checkout@v4
+      - name: Stub systemctl
+        run: install -m 755 display/deploy/pi-sim/systemctl-stub /usr/local/bin/systemctl
+      - name: install-pi.sh --with-voice
+        run: |
+          cp -r "$GITHUB_WORKSPACE" /home/pi/homeOS
+          chown -R pi:pi /home/pi/homeOS
+          sudo -u pi -H bash -c 'cd ~/homeOS && ./display/deploy/install-pi.sh --with-voice'
+      - name: Smoke run of the installed app (--demo, 5 s)
+        run: |
+          set -a; . /etc/homeos/display.env; set +a
+          export QT_QPA_PLATFORM=offscreen
+          sudo -E -u pi /usr/local/bin/homeos-display --demo --no-keyboard > display.log 2>&1 &
+          pid=$!
+          sleep 5
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "homeos-display exited early"; cat display.log; exit 1
+          fi
+          kill "$pid"; wait "$pid" || true
+          cat display.log
+      - name: Voice service imports and models
+        run: |
+          /opt/homeos-voice/bin/python -c "import sounddevice, webrtcvad, faster_whisper, piper, openwakeword, onnxruntime; print('voice imports ok')"
+          ls -la /home/pi/.local/share/homeos-voice || true
+
   admin:
     needs: changes
     if: needs.changes.outputs.admin == 'true'
