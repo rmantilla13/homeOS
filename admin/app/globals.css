@@ -1,0 +1,176 @@
+/* homeOS tokens, shared with the wall display and the iOS app: warm canvas,
+   white cards, blue accent, blue → coral → amber glow. Components style
+   themselves with CSS modules against these variables. */
+
+:root {
+  color-scheme: light;
+
+  --canvas: #f1efeb;
+  --surface: #ffffff;
+  --surface-2: #f7f6f3; /* insets, table heads, inputs */
+  --surface-3: #eeece7; /* hover */
+  --line: #e7e4de;
+  --line-strong: #d6d2ca;
+
+  --text: #1c1b19;
+  --text-2: #5e5b55;
+  --text-3: #85817a;
+
+  --accent: #4f7cf7; /* brand blue: marks, focus, highlights */
+  --accent-strong: #3f6bea; /* solid fills under white text (4.6:1) */
+  --accent-soft: #e8eefe;
+  --link: #2f5bd9;
+
+  --glow-1: #5b7cf5;
+  --glow-2: #f07f5a;
+  --glow-3: #f6b94a;
+  --glow: linear-gradient(100deg, var(--glow-1), var(--glow-2) 55%, var(--glow-3));
+
+  --good: #1c6e4a;
+  --good-soft: #e1f3ea;
+  --warn: #8a5a00;
+  --warn-soft: #fcf1d9;
+  --danger: #b42f2f;
+  --danger-soft: #fbe6e4;
+  --danger-strong: #c93b3b;
+
+  /* Chart series, validated for colour-vision deficiency and 3:1 contrast
+     on the card surface (light and dark). */
+  --series-1: #4f7cf7;
+  --series-2: #e2683f;
+  --chart-grid: #eeebe6;
+  --chart-axis: #d6d2ca;
+
+  --radius-card: 24px;
+  --radius-inner: 16px;
+  --radius-control: 12px;
+  --shadow-card: 0 1px 2px rgb(28 27 25 / 0.04), 0 10px 30px rgb(28 27 25 / 0.04);
+  --shadow-pop: 0 20px 60px rgb(28 27 25 / 0.18);
+
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-width: 248px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --canvas: #121214;
+    --surface: #1e1e22;
+    --surface-2: #26262b;
+    --surface-3: #2f2f35;
+    --line: #313137;
+    --line-strong: #43434b;
+
+    --text: #f3f2ef;
+    --text-2: #b8b5af;
+    --text-3: #8c8984;
+
+    --accent: #6e8ff9;
+    --accent-strong: #3f6bea;
+    --accent-soft: #252f52;
+    --link: #93acfb;
+
+    --good: #6fd3a2;
+    --good-soft: #173528;
+    --warn: #f0c062;
+    --warn-soft: #3a2e14;
+    --danger: #ff8f86;
+    --danger-soft: #42201f;
+    --danger-strong: #d64545;
+
+    --series-1: #5e86f8;
+    --series-2: #e2683f;
+    --chart-grid: #2b2b31;
+    --chart-axis: #3d3d45;
+
+    --shadow-card: none;
+    --shadow-pop: 0 24px 70px rgb(0 0 0 / 0.55);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

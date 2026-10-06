@@ -1,0 +1,67 @@
+.tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.link {
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.link:hover {
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px var(--line-strong);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.label {
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--link);
+}
+
+.value {
+  font-size: 32px;
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.context {
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.warn .icon {
+  background: var(--warn-soft);
+  color: var(--warn);
+}

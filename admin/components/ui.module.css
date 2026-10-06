@@ -1,0 +1,535 @@
+/* ───────── Page header ───────── */
+
+.pageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.pageTitle {
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.pageSubtitle {
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 15px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eyebrow a {
+  color: inherit;
+}
+
+.headerActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ───────── Cards ───────── */
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  min-width: 0;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.cardSubtitle {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.cardFlush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cardFlush > .cardHeader {
+  padding: 22px 24px 0;
+}
+
+.stack {
+  display: grid;
+  gap: 20px;
+}
+
+/* ───────── Badges ───────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.badgePlain::before {
+  display: none;
+}
+
+.tone-accent {
+  background: var(--accent-soft);
+  color: var(--link);
+}
+
+.tone-good {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.tone-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.tone-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ───────── Buttons ───────── */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.button:hover {
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.primary {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: #fff;
+}
+
+.primary:hover {
+  background: color-mix(in srgb, var(--accent-strong) 88%, black);
+}
+
+.danger {
+  background: var(--danger-strong);
+  border-color: var(--danger-strong);
+  color: #fff;
+}
+
+.danger:hover {
+  background: color-mix(in srgb, var(--danger-strong) 88%, black);
+}
+
+.dangerOutline {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line-strong));
+}
+
+.dangerOutline:hover {
+  background: var(--danger-soft);
+}
+
+.small {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.ghost:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* ───────── Forms ───────── */
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.input {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+textarea.input {
+  height: auto;
+  min-height: 88px;
+  padding: 10px 14px;
+  resize: vertical;
+}
+
+.input::placeholder {
+  color: var(--text-3);
+}
+
+.input:disabled {
+  opacity: 0.6;
+}
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.message svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.messageError {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.messageWarn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.messageOk {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.messageInfo {
+  background: var(--accent-soft);
+  color: var(--link);
+}
+
+/* ───────── Search ───────── */
+
+.search {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  width: min(100%, 420px);
+}
+
+.search svg {
+  position: absolute;
+  left: 13px;
+  top: 11px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.search .input {
+  padding-left: 40px;
+  background: var(--surface);
+}
+
+/* ───────── Tables ───────── */
+
+.tableWrap {
+  position: relative; /* contains visually-hidden headers, which are absolute */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  padding: 10px 16px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 24px;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 24px;
+}
+
+.table td {
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  transition: background 0.12s ease;
+}
+
+.table tbody tr:hover {
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--text-3);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.primaryCell {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.primaryCell a {
+  color: inherit;
+}
+
+.wrapAnywhere {
+  overflow-wrap: anywhere;
+}
+
+.secondaryLine {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.rowActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-3);
+}
+
+.emptyTitle {
+  color: var(--text-2);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* ───────── Pagination ───────── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.pagination > div {
+  display: flex;
+  gap: 8px;
+}
+
+/* ───────── Misc ───────── */
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  vertical-align: -1px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.definition {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 18px 24px;
+  margin: 0;
+}
+
+.definition dt {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.definition dd {
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .cardFlush {
+    padding: 0;
+  }
+
+  .cardFlush > .cardHeader {
+    padding: 18px 18px 0;
+  }
+
+  .table th:first-child,
+  .table td:first-child {
+    padding-left: 18px;
+  }
+
+  .table th:last-child,
+  .table td:last-child {
+    padding-right: 18px;
+  }
+
+  .pageTitle {
+    font-size: 26px;
+  }
+
+  .pagination {
+    padding: 12px 18px;
+  }
+}

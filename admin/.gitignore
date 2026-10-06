@@ -1,0 +1,18 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env files (the repo root ignores .env*; keep the template)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# debug
+npm-debug.log*

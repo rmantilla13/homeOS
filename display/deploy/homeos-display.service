@@ -1,0 +1,18 @@
+# Runs the homeOS display as a kiosk on boot, straight to the panel via EGLFS.
+# Installed by display/deploy/install-pi.sh (which fills in @USER@).
+[Unit]
+Description=homeOS wall display
+After=network-online.target systemd-user-sessions.service
+Wants=network-online.target
+Conflicts=getty@tty1.service
+
+[Service]
+User=@USER@
+# Qt platform, scaling and backend settings.
+EnvironmentFile=/etc/homeos/display.env
+ExecStart=/usr/local/bin/homeos-display
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

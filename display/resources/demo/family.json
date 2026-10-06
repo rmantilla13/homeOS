@@ -1,0 +1,74 @@
+{
+  "family": { "name": "The Demo Family" },
+  "members": [
+    { "id": "m1", "display_name": "Mom",  "role": "parent", "color": "#EF8A6F" },
+    { "id": "m2", "display_name": "Dad",  "role": "parent", "color": "#5FB3B3" },
+    { "id": "m3", "display_name": "Emma", "role": "child",  "color": "#F2B84B" },
+    { "id": "m4", "display_name": "Leo",  "role": "child",  "color": "#8E9CE6" }
+  ],
+  "points": { "m3": 85, "m4": 40 },
+  "events": [
+    { "id": "e1",  "title": "School drop-off",     "dayOffset": 0, "start": "07:45", "end": "08:15", "member_ids": ["m2", "m3", "m4"] },
+    { "id": "e2",  "title": "Soccer practice",     "dayOffset": 0, "start": "16:30", "end": "18:00", "member_ids": ["m4"], "location": "Riverside Park" },
+    { "id": "e3",  "title": "Dentist",             "dayOffset": 0, "start": "11:00", "end": "11:45", "member_ids": ["m1"] },
+    { "id": "e4",  "title": "Piano lesson",        "dayOffset": 1, "start": "17:00", "end": "17:45", "member_ids": ["m3"] },
+    { "id": "e5",  "title": "Date night",          "dayOffset": 2, "start": "19:30", "end": "22:00", "member_ids": ["m1", "m2"] },
+    { "id": "e6",  "title": "Grandma visiting",    "dayOffset": 3, "all_day": true,  "member_ids": [] },
+    { "id": "e7",  "title": "Science fair",        "dayOffset": 4, "start": "09:00", "end": "12:00", "member_ids": ["m3"] },
+    { "id": "e8",  "title": "Soccer game",         "dayOffset": 5, "start": "10:00", "end": "11:30", "member_ids": ["m4", "m2"] },
+    { "id": "e9",  "title": "Family bike ride",    "dayOffset": 6, "start": "09:30", "end": "11:00", "member_ids": ["m1", "m2", "m3", "m4"] },
+    { "id": "e10", "title": "Team standup",        "dayOffset": -1, "start": "09:00", "end": "09:30", "member_ids": ["m2"] },
+    { "id": "e11", "title": "Book club",           "dayOffset": 1, "start": "20:00", "end": "21:30", "member_ids": ["m1"] }
+  ],
+  "tasks": [
+    { "id": "t1", "title": "Make your bed",      "icon": "🛏️", "assignee_id": "m3", "points": 5,  "rrule": "FREQ=DAILY", "requires_approval": false },
+    { "id": "t2", "title": "Practice piano",     "icon": "🎹", "assignee_id": "m3", "points": 10, "rrule": "FREQ=DAILY", "requires_approval": true },
+    { "id": "t3", "title": "Unload dishwasher",  "icon": "🍽️", "assignee_id": "m3", "points": 10, "rrule": "FREQ=DAILY", "requires_approval": true },
+    { "id": "t4", "title": "Make your bed",      "icon": "🛏️", "assignee_id": "m4", "points": 5,  "rrule": "FREQ=DAILY", "requires_approval": false },
+    { "id": "t5", "title": "Feed the dog",       "icon": "🐶", "assignee_id": "m4", "points": 10, "rrule": "FREQ=DAILY", "requires_approval": true },
+    { "id": "t6", "title": "Tidy your room",     "icon": "🧸", "assignee_id": "m4", "points": 15, "rrule": "FREQ=DAILY", "requires_approval": true },
+    { "id": "t7", "title": "Water the plants",   "icon": "🪴", "assignee_id": "m1", "points": 0,  "rrule": "FREQ=DAILY", "requires_approval": false },
+    { "id": "t8", "title": "Take out trash",     "icon": "🗑️", "assignee_id": "m2", "points": 0,  "rrule": "FREQ=DAILY", "requires_approval": false }
+  ],
+  "rewards": [
+    { "id": "r1", "title": "30 min screen time", "icon": "📺", "cost": 30 },
+    { "id": "r2", "title": "Pick Friday movie",  "icon": "🎬", "cost": 50 },
+    { "id": "r3", "title": "Stay up 30 min",     "icon": "🌙", "cost": 60 },
+    { "id": "r4", "title": "Ice cream trip",     "icon": "🍦", "cost": 100 },
+    { "id": "r5", "title": "New book",           "icon": "📚", "cost": 150 },
+    { "id": "r6", "title": "Day at the zoo",     "icon": "🦁", "cost": 400 }
+  ],
+  "meals": [
+    { "dayOffset": 0, "meal": "dinner", "title": "Taco night" },
+    { "dayOffset": 1, "meal": "dinner", "title": "Spaghetti & meatballs" },
+    { "dayOffset": 2, "meal": "dinner", "title": "Grilled salmon, rice" },
+    { "dayOffset": 3, "meal": "dinner", "title": "Grandma's lasagna" },
+    { "dayOffset": 4, "meal": "dinner", "title": "Homemade pizza" },
+    { "dayOffset": 5, "meal": "dinner", "title": "BBQ chicken" },
+    { "dayOffset": 6, "meal": "dinner", "title": "Soup & sandwiches" }
+  ],
+  "lists": [
+    { "id": "l1", "name": "Groceries", "items": [
+      { "id": "i1", "text": "Milk",          "done": false },
+      { "id": "i2", "text": "Tortillas",     "done": false },
+      { "id": "i3", "text": "Avocados",      "done": true },
+      { "id": "i4", "text": "Ground beef",   "done": false },
+      { "id": "i5", "text": "Bananas",       "done": false },
+      { "id": "i6", "text": "Dog food",      "done": false }
+    ]}
+  ],
+  "media": [
+    { "file": "photo01.jpg", "kind": "photo", "caption": "Beach day",           "hoursAgo": 5,   "uploaded_by": "m1", "color": "#5AB0E8", "color2": "#F7D794" },
+    { "file": "video01.mp4", "poster": "video01.jpg", "kind": "video", "caption": "Sunset at the lake",  "hoursAgo": 9,   "uploaded_by": "m2", "duration_seconds": 8, "color": "#F07F5A" },
+    { "file": "photo02.jpg", "kind": "photo", "caption": "First day of school", "hoursAgo": 30,  "uploaded_by": "m1", "color": "#F2B84B", "color2": "#EF8A6F" },
+    { "file": "photo03.jpg", "kind": "photo", "caption": "Camping trip",        "hoursAgo": 70,  "uploaded_by": "m2", "color": "#3DBE7A", "color2": "#1E5E48" },
+    { "file": "photo04.jpg", "kind": "photo", "caption": "Birthday party",      "hoursAgo": 120, "uploaded_by": "m1", "color": "#B07CF2", "color2": "#F2A7C3" },
+    { "file": "video02.mp4", "poster": "video02.jpg", "kind": "video", "caption": "Emma's soccer goal",  "hoursAgo": 160, "uploaded_by": "m2", "duration_seconds": 6, "color": "#3DBE7A" },
+    { "file": "photo05.jpg", "kind": "photo", "caption": "Snow day",            "hoursAgo": 400, "uploaded_by": "m1", "color": "#A9C9E8", "color2": "#F4F7FB" },
+    { "file": "photo06.jpg", "kind": "photo", "caption": "Sunday pancakes",     "hoursAgo": 520, "uploaded_by": "m2", "color": "#F0B35A", "color2": "#8A4B2A" },
+    { "file": "photo07.jpg", "kind": "photo", "caption": "Grandma's garden",    "hoursAgo": 700, "uploaded_by": "m1", "color": "#5B7CF5", "color2": "#F07F5A" },
+    { "file": "photo08.jpg", "kind": "photo", "caption": "Fireworks",           "hoursAgo": 900, "uploaded_by": "m2", "color": "#2E3A59", "color2": "#F6B94A" },
+    { "file": "photo09.jpg", "kind": "photo", "caption": "Aquarium",            "hoursAgo": 1100,"uploaded_by": "m1", "color": "#7FD1C7", "color2": "#FBE6B0" },
+    { "file": "photo10.jpg", "kind": "photo", "caption": "Pumpkin patch",       "hoursAgo": 1500,"uploaded_by": "m2", "color": "#E9775B", "color2": "#FFE3C2" }
+  ]
+}
