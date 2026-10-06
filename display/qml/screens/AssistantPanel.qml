@@ -21,7 +21,7 @@ Rectangle {
     Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     transform: Translate {
         y: panel.open ? 0 : 40
-        Behavior on y { NumberAnimation { duration: Theme.smooth + 60; easing.type: Easing.OutCubic } }
+        Behavior on y { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     }
 
     function send(text) {
@@ -40,7 +40,7 @@ Rectangle {
         anchors.fill: parent
         anchors.topMargin: parent.height * 0.3
         opacity: messages.count === 0 ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 400 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.smooth } }
     }
 
     ColumnLayout {
@@ -62,7 +62,7 @@ Rectangle {
             }
             Column {
                 Layout.fillWidth: true
-                Label { text: qsTr("homeOS Assistant"); color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold }
+                Label { text: qsTr("Ohana Assistant"); color: Theme.text; font.pixelSize: Theme.fontMd; font.weight: Font.DemiBold }
                 Label {
                     text: Store.mode === "live" ? qsTr("Knows your family's calendar, chores, meals and lists")
                                                 : qsTr("Demo mode · answers from sample data")
@@ -155,10 +155,10 @@ Rectangle {
                                 SequentialAnimation on opacity {
                                     running: row.typing
                                     loops: Animation.Infinite
-                                    PauseAnimation { duration: index * 160 }
-                                    NumberAnimation { from: 0.3; to: 1; duration: 320 }
-                                    NumberAnimation { from: 1; to: 0.3; duration: 320 }
-                                    PauseAnimation { duration: (2 - index) * 160 }
+                                    PauseAnimation { duration: index * Theme.quick }
+                                    NumberAnimation { from: 0.3; to: 1; duration: Theme.smooth }
+                                    NumberAnimation { from: 1; to: 0.3; duration: Theme.smooth }
+                                    PauseAnimation { duration: (2 - index) * Theme.quick }
                                 }
                             }
                         }
@@ -255,7 +255,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 24
                 anchors.rightMargin: 8
-                placeholderText: !panel.listening ? qsTr("Ask homeOS anything")
+                placeholderText: !panel.listening ? qsTr("Ask Ohana anything")
                                : Voice.state === "listening" ? qsTr("Listening… tap the mic to stop")
                                : qsTr("Thinking…")
                 font.pixelSize: Theme.fontMd - 2
@@ -280,7 +280,7 @@ Rectangle {
                         color: Theme.accent
                         opacity: panel.listening ? 0.25 : 0
                         scale: 1 + (panel.listening ? Math.min(1, Voice.level * 1.6) * 0.45 : 0)
-                        Behavior on scale { NumberAnimation { duration: 110 } }
+                        Behavior on scale { NumberAnimation { duration: Theme.quick } }
                         Behavior on opacity { NumberAnimation { duration: Theme.quick } }
                     }
                     IconButton {

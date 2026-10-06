@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs homeOS on a virtual 1920x1200 screen (the 10.1" panel) and serves it to
+# Runs Ohana on a virtual 1920x1200 screen (the 10.1" panel) and serves it to
 # a web browser through noVNC, so the Pi can be used before the panel arrives.
 # Installed as /usr/local/bin/homeos-preview and started by the homeos-preview
 # service; turn it on and off with display/deploy/preview.sh.

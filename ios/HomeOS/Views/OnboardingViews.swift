@@ -150,7 +150,7 @@ struct WelcomeView: View {
     var body: some View {
         Form {
             Section {
-                OnboardingHeader(title: "homeOS", subtitle: "Your family's calendar, chores and photos — on the wall and in your pocket.")
+                OnboardingHeader(title: "Ohana", subtitle: "Your family's calendar, chores and photos — on the wall and in your pocket.")
             }
             Section {
                 InviteCodeField(code: $code)
@@ -170,7 +170,7 @@ struct WelcomeView: View {
             } header: {
                 Text("Invite code")
             } footer: {
-                Text("homeOS is invite-only. Your code came with your invite, or from someone in your family.")
+                Text("Ohana is invite-only. Your code came with your invite, or from someone in your family.")
             }
 
             Section {
@@ -290,7 +290,7 @@ struct EnterInviteView: View {
         Form {
             Section {
                 OnboardingHeader(title: "Enter an invite code",
-                                 subtitle: "homeOS is invite-only. Ask someone in your family for a code, or use the one from your invite email.")
+                                 subtitle: "Ohana is invite-only. Ask someone in your family for a code, or use the one from your invite email.")
             }
             Section {
                 InviteCodeField(code: $code)
@@ -510,7 +510,7 @@ struct InviteLinkSheet: View {
             }
             .buttonStyle(.pill())
             .disabled(working)
-            Text("homeOS will switch to that family. Switch back any time from your profile.")
+            Text("Ohana will switch to that family. Switch back any time from your profile.")
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.muted)

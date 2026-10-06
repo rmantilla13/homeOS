@@ -11,6 +11,6 @@ Item {
         id: panel
         width: parent.width
         y: Qt.inputMethod.visible ? parent.height - height : parent.height
-        Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        Behavior on y { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     }
 }

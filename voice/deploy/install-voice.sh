@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the homeOS voice service on the Pi next to the display: wake word,
+# Installs the Ohana voice service on the Pi next to the display: wake word,
 # speech to text and spoken replies, all running on the device. See
 # docs/VOICE.md. Needs a USB microphone (the 10.1" panel has none).
 #
@@ -96,5 +96,5 @@ if ! arecord -l 2>/dev/null | grep -q '^card'; then
     echo "No microphone found. Plug in a USB mic; the service picks it up within 10 s."
 fi
 echo "Logs:           journalctl -u homeos-voice -f"
-echo "Test a voice:   $venv/bin/python -m homeos_voice --say 'Hello from homeOS'"
+echo "Test a voice:   $venv/bin/python -m homeos_voice --say 'Hello from Ohana'"
 echo "Settings:       sudo nano $config, then sudo systemctl restart homeos-voice"

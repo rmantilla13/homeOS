@@ -103,7 +103,7 @@ def test_set_busy_is_idempotent():
     ("hey_jarvis_v0.1", "", "Hey Jarvis"),
     ("/opt/models/hey_jarvis_v0.1.tflite", "", "Hey Jarvis"),
     ("hey_home_oh_ess.onnx", "", "Hey Home Oh Ess"),
-    ("hey_home_oh_ess.onnx", "Hey homeOS", "Hey homeOS"),
+    ("hey_home_oh_ess.onnx", "Hey Ohana", "Hey Ohana"),
     ("alexa", "  ", "Alexa"),
 ])
 def test_display_name(model, override, expected):

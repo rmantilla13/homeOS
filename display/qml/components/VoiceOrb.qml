@@ -16,7 +16,7 @@ Item {
 
     // 15 level updates a second, eased so the glow moves fluidly.
     property real smoothLevel: Math.min(1, level * 1.6)
-    Behavior on smoothLevel { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
+    Behavior on smoothLevel { NumberAnimation { duration: Theme.quick; easing.type: Easing.OutQuad } }
 
     property real breath: 0
     readonly property int breathMs: mode === "speaking" ? 380 : mode === "thinking" ? 650 : 1700
@@ -38,7 +38,7 @@ Item {
     // A slow drift that speeds up into a swirl while thinking.
     property real spin: 0
     property real spinSpeed: mode === "thinking" ? 200 : 36   // degrees per second
-    Behavior on spinSpeed { NumberAnimation { duration: 600; easing.type: Easing.InOutQuad } }
+    Behavior on spinSpeed { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
     FrameAnimation {
         running: orb.visible
         // 720 so the core (turning 1.5x) wraps seamlessly too.

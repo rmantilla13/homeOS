@@ -148,7 +148,7 @@ void Assistant::send(const QString &text, const QString &mode)
         if (ok)
             request(generation, question, mode, false);
         else
-            fail(tr("I couldn't reach homeOS cloud just now. Try again in a moment."));
+            fail(tr("I couldn't reach Ohana cloud just now. Try again in a moment."));
     });
 }
 
@@ -180,14 +180,14 @@ void Assistant::request(int generation, const QString &question, const QString &
                 // The access token expired between syncs: refresh once and resend.
                 m_client->refreshSession([this, generation, question, mode](bool ok) {
                     // A rejected token ends the turn through re-pairing (the
-                    // generation moves on); getting here means homeOS cloud
+                    // generation moves on); getting here means Ohana cloud
                     // couldn't be reached, not that the pairing is gone.
                     if (generation != m_generation)
                         return;
                     if (ok)
                         request(generation, question, mode, true);
                     else
-                        fail(tr("I couldn't reach homeOS cloud just now. Try again in a moment."));
+                        fail(tr("I couldn't reach Ohana cloud just now. Try again in a moment."));
                 });
                 return;
             }
@@ -201,9 +201,9 @@ void Assistant::request(int generation, const QString &question, const QString &
             if (status == 403)
                 fail(tr("The assistant isn't available for this family right now."));
             else if (status == 429)
-                fail(tr("homeOS is a little busy. Try again in a moment."));
+                fail(tr("Ohana is a little busy. Try again in a moment."));
             else
-                fail(tr("I couldn't reach homeOS cloud just now. Try again in a moment."));
+                fail(tr("I couldn't reach Ohana cloud just now. Try again in a moment."));
         });
 }
 
@@ -421,9 +421,9 @@ QString Assistant::demoAnswer(const QString &question, QVariantList *actions)
     }
 
     if (q.startsWith("remember")) {
-        return tr("Got it — I'll remember that once homeOS cloud is connected. (Demo mode doesn't save memories.)");
+        return tr("Got it — I'll remember that once Ohana cloud is connected. (Demo mode doesn't save memories.)");
     }
 
     return tr("In demo mode I can tell you about today's schedule, tomorrow, dinner, chores and points, "
-              "or add things to the grocery list. Connect homeOS cloud for the full assistant.");
+              "or add things to the grocery list. Connect Ohana cloud for the full assistant.");
 }

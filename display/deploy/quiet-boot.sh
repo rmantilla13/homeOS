@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Makes a Raspberry Pi boot straight to the homeOS panel: no rainbow splash,
+# Makes a Raspberry Pi boot straight to the Ohana panel: no rainbow splash,
 # no kernel log on the console, no Plymouth logo. The kiosk service then
 # paints as soon as the screen and the user session exist. Safe to re-run.
 # Originals are kept once, as <file>.homeos-backup.
@@ -46,7 +46,7 @@ keep_options=(
     vt.global_cursor_default=0
 )
 # Plymouth holds the display until it quits, so the Pi logo sits there
-# instead of homeOS. Drop the flag that starts it.
+# instead of Ohana. Drop the flag that starts it.
 drop_options=(splash)
 
 apply_cmdline() {

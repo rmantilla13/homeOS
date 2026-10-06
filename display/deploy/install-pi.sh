@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as a homeOS display:
+# Sets up a Raspberry Pi 5 (Raspberry Pi OS, 64-bit) as an Ohana display:
 # installs dependencies, builds and installs the app, and starts it now and
-# on every boot. The service takes the console, so a reboot shows homeOS
+# on every boot. The service takes the console, so a reboot shows Ohana
 # instead of the login prompt.
 #
 #   git clone https://github.com/rmantilla13/homeOS && cd homeOS
@@ -85,7 +85,7 @@ step "Letting this display change Wi-Fi and reboot"
 # sudo will run without asking. It changes Wi-Fi and reboots, and nothing else.
 sudo install -D -m 755 "$repo/display/deploy/homeos-system" /usr/local/libexec/homeos-system
 sudo tee /etc/sudoers.d/homeos-system >/dev/null <<EOF
-# homeOS display: Wi-Fi and reboot only.
+# Ohana display: Wi-Fi and reboot only.
 $user ALL=(root) NOPASSWD: /usr/local/libexec/homeos-system
 EOF
 sudo chmod 440 /etc/sudoers.d/homeos-system
@@ -123,7 +123,7 @@ JSON
 
 if [ ! -f /etc/homeos/display.env ]; then
     sudo tee /etc/homeos/display.env >/dev/null <<'ENV'
-# homeOS display settings. Restart after editing: sudo systemctl restart homeos-display
+# Ohana display settings. Restart after editing: sudo systemctl restart homeos-display
 QT_QPA_PLATFORM=eglfs
 QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
@@ -149,7 +149,7 @@ fi
 step "Configuring the console"
 # Hide the rainbow splash and the kernel log, and keep the console from
 # blanking or showing a cursor behind the app. The panel then stays dark
-# until homeOS paints, instead of scrolling boot text. Takes effect on reboot.
+# until Ohana paints, instead of scrolling boot text. Takes effect on reboot.
 "$repo/display/deploy/quiet-boot.sh"
 
 step "Setting up sound (the panel's speakers, over HDMI)"
@@ -230,6 +230,25 @@ wifi.powersave = 2
 NM
 fi
 
+step "Keeping SSH typing responsive"
+# OpenSSH sets IP_TOS to low-delay (IPTOS_LOWDELAY). Many access points
+# mishandle those packets, so keystrokes stutter over Wi-Fi even when the
+# Pi is idle. cs0 leaves them unmarked. UseDNS skips a reverse lookup that
+# only slows login. This file is homeOS-owned and rewritten on every run.
+# A reload applies it in the current session; a reboot is not required.
+sudo mkdir -p /etc/ssh/sshd_config.d
+sudo tee /etc/ssh/sshd_config.d/homeos.conf >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh.
+IPQoS cs0 cs0
+UseDNS no
+EOF
+sudo chmod 644 /etc/ssh/sshd_config.d/homeos.conf
+# Debian and Raspberry Pi OS name the unit ssh.service. Reload does not
+# drop the session. If ssh is not running, the drop-in applies when it starts.
+if systemctl is-active --quiet ssh; then
+    sudo systemctl reload ssh
+fi
+
 step "Installing the kiosk service"
 sed -e "s/@USER@/$user/g" -e "s/@UID@/$uid/g" "$repo/display/deploy/homeos-display.service" \
     | sudo tee /etc/systemd/system/homeos-display.service >/dev/null
@@ -295,7 +314,7 @@ fi
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on; the panel kiosk stays off."
 else
-    echo "homeOS is enabled and started. On every boot it takes the screen (no login prompt)."
+    echo "Ohana is enabled and started. On every boot it takes the screen (no login prompt)."
     echo "Reboot so the console settings apply:  sudo reboot"
 fi
 echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."

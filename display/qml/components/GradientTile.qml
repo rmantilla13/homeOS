@@ -78,7 +78,7 @@ Item {
 
     // A new base color (another kid on Rewards) eases in instead of snapping.
     property color _base: baseColor
-    Behavior on _base { ColorAnimation { duration: 600; easing.type: Easing.InOutQuad } }
+    Behavior on _base { ColorAnimation { duration: Theme.quick; easing.type: Easing.InOutQuad } }
 
     function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
     function _wrap(h) { return h - Math.floor(h) }

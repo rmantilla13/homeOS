@@ -18,7 +18,7 @@ Item {
         anchors.fill: parent
         radius: height / 2
         color: toggle.checked ? Theme.accent : Qt.rgba(Theme.textMuted.r, Theme.textMuted.g, Theme.textMuted.b, 0.32)
-        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+        Behavior on color { ColorAnimation { duration: Theme.quick } }
 
         Rectangle {
             width: parent.height - 8
@@ -29,8 +29,8 @@ Item {
             color: "white"
             border.color: Qt.rgba(0, 0, 0, 0.06)
             scale: tap.pressed ? 0.9 : 1
-            Behavior on x { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
-            Behavior on scale { NumberAnimation { duration: 90 } }
+            Behavior on x { NumberAnimation { duration: Theme.quick; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
+            Behavior on scale { NumberAnimation { duration: Theme.quick } }
         }
     }
 

@@ -55,6 +55,8 @@ Item {
             property var spec
             property var current: null
             property bool showA: true
+            // The first fill paints immediately. Later swaps keep the slow crossfade.
+            property bool crossfade: false
             x: collage.gap + spec.c * (collage.cellW + collage.gap)
             y: collage.gap + spec.r * (collage.cellH + collage.gap)
             width: spec.w * collage.cellW + (spec.w - 1) * collage.gap
@@ -64,13 +66,15 @@ Item {
                 current = photo
                 if (showA) b.photo = photo; else a.photo = photo
                 showA = !showA
-                pulse.restart()
+                if (crossfade)
+                    pulse.restart()
+                crossfade = true
             }
 
             PhotoTile { id: a; anchors.fill: parent; radius: 22; showCaption: false; opacity: cell.showA ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 1200; easing.type: Easing.InOutQuad } } }
+                        Behavior on opacity { enabled: cell.crossfade; NumberAnimation { duration: 1200; easing.type: Easing.InOutQuad } } }
             PhotoTile { id: b; anchors.fill: parent; radius: 22; showCaption: false; opacity: cell.showA ? 0 : 1
-                        Behavior on opacity { NumberAnimation { duration: 1200; easing.type: Easing.InOutQuad } } }
+                        Behavior on opacity { enabled: cell.crossfade; NumberAnimation { duration: 1200; easing.type: Easing.InOutQuad } } }
 
             // A gentle "breath" as the tile changes.
             SequentialAnimation {

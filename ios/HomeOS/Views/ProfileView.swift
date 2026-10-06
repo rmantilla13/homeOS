@@ -56,7 +56,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    Text("Your name in homeOS. Parents can also rename you on the family screen.")
+                    Text("Your name in Ohana. Parents can also rename you on the family screen.")
                 }
                 Section("Photo") {
                     PhotosPicker(selection: $photoItem, matching: .images) {
@@ -100,7 +100,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Siri")
                 } footer: {
-                    Text("Ask a quick question hands-free, like “Ask homeOS what's for dinner”. Siri asks what you'd like to know.")
+                    Text("Ask a quick question hands-free, like “Ask Ohana what's for dinner”. Siri asks what you'd like to know.")
                 }
                 Section {
                     Button("Sign out", role: .destructive) { confirmingSignOut = true }
@@ -122,7 +122,7 @@ struct ProfileView: View {
                 guard let item else { return }
                 Task { await upload(item) }
             }
-            .confirmationDialog("Sign out of homeOS?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+            .confirmationDialog("Sign out of Ohana?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) {
                     dismiss()
                     Task { await store.signOut() }

@@ -139,7 +139,7 @@ struct AssistantView: View {
             .accessibilityLabel("Close")
             Spacer()
             VStack(spacing: 1) {
-                Text("homeOS").font(.headline).foregroundStyle(Theme.text)
+                Text("Ohana").font(.headline).foregroundStyle(Theme.text)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
@@ -216,7 +216,7 @@ struct AssistantView: View {
 
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            TextField(dictation.isRecording ? "Listening…" : "Ask homeOS anything", text: $draft, axis: .vertical)
+            TextField(dictation.isRecording ? "Listening…" : "Ask Ohana anything", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
                 .focused($focused)
                 .foregroundStyle(Theme.text)
@@ -267,7 +267,7 @@ struct ThreadListView: View {
         NavigationStack {
             List {
                 if store.threads.isEmpty {
-                    Text("No conversations yet. Ask homeOS something and it'll show up here.")
+                    Text("No conversations yet. Ask Ohana something and it'll show up here.")
                         .font(.subheadline)
                         .foregroundStyle(Theme.muted)
                         .listRowBackground(Color.clear)
@@ -407,7 +407,7 @@ struct TypingIndicator: View {
             .padding(.vertical, 14)
             .background(Theme.surface, in: Capsule())
         }
-        .accessibilityLabel("homeOS is typing")
+        .accessibilityLabel("Ohana is typing")
     }
 }
 

@@ -37,11 +37,11 @@ export default async function LoginPage({ searchParams }: Props) {
               <FamilyIcon size={24} strokeWidth={2.2} />
             </span>
             <span className={styles.brandText}>
-              homeOS <span>Admin</span>
+              Ohana <span>Admin</span>
             </span>
           </div>
           <h1 className={styles.title}>Sign in</h1>
-          <p className={styles.subtitle}>For homeOS platform admins only.</p>
+          <p className={styles.subtitle}>For Ohana platform admins only.</p>
 
           <div className={ui.stack}>
             {sp.signed_out ? <Message tone="ok">You&apos;re signed out.</Message> : null}

@@ -151,10 +151,10 @@ Item {
 
         transform: Translate {
             y: quick.shown ? 0 : 60
-            Behavior on y { NumberAnimation { duration: Theme.smooth + 80; easing.type: Easing.OutCubic } }
+            Behavior on y { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
         }
         scale: quick.shown ? 1 : 0.96
-        Behavior on scale { NumberAnimation { duration: Theme.smooth + 80; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
 
         RectangularGlow {
             anchors.fill: card

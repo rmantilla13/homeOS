@@ -1,4 +1,4 @@
-# Supabase CLI settings for homeOS (supabase link, db push, functions deploy).
+# Supabase CLI settings for Ohana (supabase link, db push, functions deploy).
 # Anything not listed here uses the CLI's defaults.
 project_id = "homeos"
 

@@ -51,7 +51,7 @@ Popup {
             NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.smooth; easing.type: Easing.OutCubic }
         }
     }
-    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.quick } }
+    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.smooth } }
 
     background: Rectangle { radius: 32; color: Theme.surface }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.35) }
@@ -248,7 +248,7 @@ Popup {
                             SettingRow {
                                 icon: Voice.available ? "mic" : "mic-off"
                                 title: qsTr("Wake word")
-                                detail: !Voice.available ? qsTr("Needs the homeOS voice service")
+                                detail: !Voice.available ? qsTr("Needs the Ohana voice service")
                                       : Voice.wakewordLabel ? qsTr("Say “%1” to ask a quick question").arg(Voice.wakewordLabel)
                                       : qsTr("Ask a quick question hands-free")
                                 Toggle {
@@ -380,7 +380,7 @@ Popup {
                                      : (System.wifiSsid || qsTr("Not connected"))
                             }
                             Fact { name: qsTr("Address"); value: System.ipAddress || "—" }
-                            Fact { name: qsTr("Version"); value: "homeOS " + Qt.application.version }
+                            Fact { name: qsTr("Version"); value: "Ohana " + Qt.application.version }
                             Fact {
                                 name: qsTr("Voice service")
                                 value: Voice.available ? qsTr("Connected") : qsTr("Not running")
@@ -436,7 +436,7 @@ Popup {
                         Layout.preferredHeight: power.implicitHeight + 36
                         radius: 24
                         color: sheet.confirmingPower === "" ? Theme.surfaceAlt : Qt.rgba(0.94, 0.5, 0.35, 0.14)
-                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        Behavior on color { ColorAnimation { duration: Theme.quick } }
                         ColumnLayout {
                             id: power
                             anchors.left: parent.left
@@ -450,7 +450,7 @@ Popup {
                                 text: sheet.confirmingPower === "reboot"
                                       ? qsTr("Reboot the Pi? The screen stays dark for about a minute.")
                                       : sheet.confirmingPower === "restart"
-                                      ? qsTr("Restart homeOS? The screen goes blank for a few seconds.")
+                                      ? qsTr("Restart Ohana? The screen goes blank for a few seconds.")
                                       : qsTr("Restart the app, or reboot the Pi, without unplugging it.")
                                 color: sheet.confirmingPower === "" ? Theme.textMuted : Theme.text
                                 font.pixelSize: Theme.fontXs + 1
@@ -509,7 +509,7 @@ Popup {
                         Layout.preferredHeight: repair.implicitHeight + 36
                         radius: 24
                         color: sheet.confirmingRepair ? Qt.rgba(0.94, 0.5, 0.35, 0.14) : Theme.surfaceAlt
-                        Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                        Behavior on color { ColorAnimation { duration: Theme.quick } }
 
                         ColumnLayout {
                             id: repair
