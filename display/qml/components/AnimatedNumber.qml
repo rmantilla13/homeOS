@@ -9,6 +9,6 @@ Label {
     property string prefix: ""
     property string suffix: ""
     property real shown: value
-    Behavior on shown { NumberAnimation { duration: 700; easing.type: Easing.OutCubic } }
+    Behavior on shown { NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     text: prefix + Math.round(shown) + suffix
 }

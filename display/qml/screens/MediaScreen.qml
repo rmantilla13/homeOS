@@ -78,7 +78,7 @@ Item {
                     height: Theme.compact ? 280 : 360
                     radius: Theme.radius
                     color: media.featured ? media.featured.tintDeep : Theme.surface
-                    Behavior on color { ColorAnimation { duration: 600 } }
+                    Behavior on color { ColorAnimation { duration: Theme.quick } }
 
                     PhotoTile {
                         anchors.fill: parent

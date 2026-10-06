@@ -31,7 +31,7 @@ RowLayout {
             border.color: Theme.accent
             scale: optTap.pressed ? 0.97 : 1
             Behavior on scale { NumberAnimation { duration: Theme.quick } }
-            Behavior on color { ColorAnimation { duration: Theme.smooth } }
+            Behavior on color { ColorAnimation { duration: Theme.quick } }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -40,7 +40,7 @@ RowLayout {
                 Rectangle {
                     width: 64; height: 64; radius: 32
                     color: selected ? Theme.accent : Theme.surface
-                    Behavior on color { ColorAnimation { duration: Theme.smooth } }
+                    Behavior on color { ColorAnimation { duration: Theme.quick } }
                     Icon { anchors.centerIn: parent; name: modelData.icon; size: 30; color: selected ? Theme.accentInk : Theme.text }
                 }
                 Item { Layout.fillHeight: true }

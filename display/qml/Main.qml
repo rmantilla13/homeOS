@@ -205,7 +205,7 @@ ApplicationWindow {
         anchors.fill: parent
         visible: opacity > 0
         opacity: Device.idle && Store.mode !== "pairing" ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 600; easing.type: Easing.InOutQuad } }
+        Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
     }
 
     // Wake-word answers float above everything, the screen saver included.
@@ -239,9 +239,9 @@ ApplicationWindow {
         }
         SequentialAnimation {
             id: toastAnim
-            NumberAnimation { target: toast; property: "opacity"; to: 1; duration: 200 }
+            NumberAnimation { target: toast; property: "opacity"; to: 1; duration: Theme.quick }
             PauseAnimation { duration: 2500 }
-            NumberAnimation { target: toast; property: "opacity"; to: 0; duration: 400 }
+            NumberAnimation { target: toast; property: "opacity"; to: 0; duration: Theme.quick }
         }
         Connections {
             target: Store

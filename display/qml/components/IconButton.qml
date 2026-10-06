@@ -16,7 +16,7 @@ Rectangle {
     color: fill
     opacity: enabled ? 1 : 0.4
     scale: tap.pressed ? 0.94 : 1
-    Behavior on scale { NumberAnimation { duration: 90 } }
+    Behavior on scale { NumberAnimation { duration: Theme.quick } }
 
     Icon {
         anchors.centerIn: parent

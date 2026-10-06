@@ -19,7 +19,7 @@ Dialog {
             NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.smooth; easing.type: Easing.OutCubic }
         }
     }
-    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.quick } }
+    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.smooth } }
 
     background: Rectangle { radius: 32; color: Theme.surface }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.35) }
