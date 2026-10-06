@@ -282,7 +282,7 @@ every mutation writes an audit row.
 | Function | Returns |
 |---|---|
 | `admin_overview()` | `jsonb {families, families_active_7d, suspended_families, users, devices, devices_seen_24h, members, open_platform_invites, assistant_requests_7d, assistant_tokens_7d, assistant_enabled, media_items, storage_bytes, families_over_quota}` |
-| `admin_list_families(search text default null, lim int default 50, off int default 0)` | `table(id uuid, name text, status text, created_at timestamptz, member_count int, parent_count int, device_count int, assistant_requests_30d int, last_activity timestamptz, media_count int, storage_bytes bigint, storage_limit_bytes bigint)`. `storage_limit_bytes` is the effective quota (the family's override, or the platform default). |
+| `admin_list_families(search text default null, lim int default 50, off int default 0)` | `table(id uuid, name text, status text, created_at timestamptz, member_count int, parent_count int, device_count int, assistant_requests_30d int, last_activity timestamptz, media_count int, storage_bytes bigint, storage_limit_bytes bigint, media_item_limit int)`. `storage_limit_bytes` and `media_item_limit` are the effective quotas (the family's override, or the platform default). `20261008000003` adds `media_item_limit`. |
 | `admin_family_detail(family uuid)` | `jsonb {family, members[], devices[], invites[], usage_by_day[]}`. `family` adds `storage_bytes`, `storage_limit_effective`, `media_count`, `media_item_limit_effective`. `storage_limit_bytes` and `media_item_limit` on that object are the raw overrides (`null` means the platform default). |
 | `admin_list_users(search text default null, lim int default 50, off int default 0)` | `table(id uuid, email text, display_name text, created_at timestamptz, last_sign_in_at timestamptz, banned boolean, is_admin boolean, is_device boolean, families jsonb)`. `families` is `[{id,name,role}]`; the search matches email and display name. |
 | `admin_set_family_status(family uuid, status text, reason text default null)` | `void` |
@@ -542,21 +542,30 @@ the session. Every page except `/login` requires a session and
 
 **Pages**
 
-- `/` Overview: stat tiles from `admin_overview()`, a 30-day requests and
-  tokens chart from `admin_usage_by_day` (hand-rolled SVG, no chart library),
-  recent audit entries.
+- `/` Overview: stat tiles from `admin_overview()` (including storage,
+  media items, families over quota, displays seen in 24 hours, and whether
+  the assistant is on), a 30-day requests and tokens chart from
+  `admin_usage_by_day` (hand-rolled SVG, no chart library), recent audit
+  entries.
 - `/families`: searchable table. `/families/[id]` shows the detail, with
   Suspend/Unsuspend (asks for a reason), Delete (typed confirmation; via the
-  `admin` function's `delete_family`, so Storage files go too), and the
-  members, devices, invites and usage lists.
+  `admin` function's `delete_family`, so Storage files go too), storage and
+  item meters, a limits form (`admin_set_family_limits`), revoke on each
+  display (`admin` → `revoke_device`), and the members, devices, invites and
+  usage lists.
+- `/media`: each family's item count, bytes used and effective quota.
+  `/families/[id]/media` is the grid: `admin_list_media`, then `sign_media`
+  for posters (a video with no poster shows a placeholder). Remove calls
+  `delete_media`.
 - `/users`: searchable table with admin, banned and device badges. Actions:
   Make or remove admin, Ban/Unban, Delete (via the `admin` function).
 - `/invites`: create a platform invite (email optional, note, max uses,
   expiry), optionally emailing it (`admin` → `invite_email`). The list shows
   status and has copy-code and revoke actions.
-- `/settings`: invite-only toggle, assistant enabled, daily limit. Saving
-  sends only the values this form changed (null leaves the others), so a
-  stale form can't undo another admin's change.
+- `/settings`: invite-only toggle, assistant enabled, daily limit, default
+  storage quota (GiB), largest file (MiB) and item cap. Saving sends only the
+  values this form changed (null leaves the others), so a stale form can't
+  undo another admin's change.
 - `/audit`: paginated audit log.
 
 **Env:** `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.

@@ -233,8 +233,9 @@ XcodeGen.
 
 ## Admin console: `admin/`
 
-A Next.js app for platform admins: an overview of families, people and
-assistant use; suspending or deleting families; banning users; issuing
-platform invites; global settings; and the audit log. Every page and action
-checks platform-admin rights on the server, and the database checks them
-again. It never holds a service-role key. See [ADMIN.md](ADMIN.md).
+A Next.js app for platform admins: an overview of families, storage and
+assistant use; per-family quotas; browsing and removing a family's media;
+suspending or deleting families; revoking a paired display; banning users;
+issuing platform invites; global settings; and the audit log. Every page and
+action checks platform-admin rights on the server, and the database checks
+them again. It never holds a service-role key. See [ADMIN.md](ADMIN.md).

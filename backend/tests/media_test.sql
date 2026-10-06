@@ -93,6 +93,7 @@ select tests.login(:'admin');
 select tests.eq((select storage_bytes::int from admin_list_families() where id = :'fam'), 500, 'family storage is the summed sizes');
 select tests.eq((select media_count from admin_list_families() where id = :'fam'), 3, 'family item count');
 select tests.eq((select storage_limit_bytes from admin_list_families() where id = :'fam'), 1000::bigint, 'list shows the effective quota');
+select tests.eq((select media_item_limit from admin_list_families() where id = :'fam'), 3, 'list shows the effective item cap');
 select tests.eq((admin_family_detail(:'fam')->'family'->>'storage_bytes')::int, 500, 'detail storage');
 select tests.eq((admin_family_detail(:'fam')->'family'->>'media_count')::int, 3, 'detail count');
 select tests.eq((admin_family_detail(:'fam')->'family'->>'storage_limit_bytes')::int, 1000, 'detail raw quota');

@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { deleteFamilyAction, setFamilyStatusAction } from "@/app/(console)/actions";
+import { deleteFamilyAction, revokeDeviceAction, setFamilyLimitsAction, setFamilyStatusAction } from "@/app/(console)/actions";
 import { ConfirmAction } from "@/components/ConfirmAction";
 import { CopyButton } from "@/components/CopyButton";
+import { FamilyLimitsForm } from "@/components/FamilyLimitsForm";
 import { ChevronLeftIcon } from "@/components/icons";
 import { Badge, Card, Empty, Message, PageHeader, StatusBadge, Swatch, Time, ui } from "@/components/ui";
 import { UsageChart } from "@/components/UsageChart";
 import { getFamilyDetail, requireAdmin } from "@/lib/data";
-import { formatDate, formatNumber, plural } from "@/lib/format";
+import { formatBytes, formatDate, formatNumber, plural } from "@/lib/format";
 import type { FamilyDetail, Member } from "@/lib/types";
 import styles from "./family.module.css";
 
@@ -87,16 +88,26 @@ export default async function FamilyPage({ params }: Props) {
               <dd>{formatNumber(devices.length)}</dd>
             </div>
             <div>
-              <dt>Assistant daily limit</dt>
+              <dt>Media</dt>
               <dd>
-                {family.assistant_daily_limit != null
-                  ? `${formatNumber(family.assistant_daily_limit)} (family override)`
-                  : family.assistant_daily_limit_effective != null
-                    ? `${formatNumber(family.assistant_daily_limit_effective)} (platform default)`
-                    : "Platform default"}
+                <Link href={`/families/${family.id}/media`}>{plural(family.media_count ?? 0, "item")}</Link>
               </dd>
             </div>
           </dl>
+          {family.storage_bytes != null && family.storage_limit_effective != null ? (
+            <UsageMeter
+              used={family.storage_bytes}
+              limit={family.storage_limit_effective}
+              label={`${formatBytes(family.storage_bytes)} of ${formatBytes(family.storage_limit_effective)}`}
+            />
+          ) : null}
+          {family.media_count != null && family.media_item_limit_effective != null ? (
+            <UsageMeter
+              used={family.media_count}
+              limit={family.media_item_limit_effective}
+              label={`${plural(family.media_count, "item")} of ${formatNumber(family.media_item_limit_effective)}`}
+            />
+          ) : null}
         </Card>
         <Card title="Assistant usage" subtitle="Last 30 days (UTC)">
           <UsageChart days={usage_by_day} height={110} label={`${family.name} assistant usage`} />
@@ -104,6 +115,10 @@ export default async function FamilyPage({ params }: Props) {
       </div>
 
       <div className={ui.stack}>
+        <Card title="Limits" subtitle="Overrides for this family. Leave a box on “platform default” to follow Settings.">
+          <FamilyLimitsForm action={setFamilyLimitsAction} family={family} />
+        </Card>
+
         <Card title="Members" subtitle="Everyone shown on the family screen. Kids usually have no account." flush>
           {members.length === 0 ? <Empty title="No members" /> : <MembersTable members={members} />}
         </Card>
@@ -119,6 +134,7 @@ export default async function FamilyPage({ params }: Props) {
                     <th scope="col">Display</th>
                     <th scope="col">Last seen</th>
                     <th scope="col">Paired</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -134,6 +150,18 @@ export default async function FamilyPage({ params }: Props) {
                         <Time iso={d.last_seen_at} />
                       </td>
                       <td className={ui.nowrap}>{formatDate(d.created_at)}</td>
+                      <td>
+                        <ConfirmAction
+                          action={revokeDeviceAction}
+                          fields={{ device_id: d.id }}
+                          label="Revoke"
+                          trigger="smallDanger"
+                          tone="danger"
+                          title={`Revoke ${d.name}?`}
+                          description="The display signs out and has to be paired again. Photos and the rest of the family stay."
+                          confirmLabel="Revoke display"
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -196,6 +224,26 @@ export default async function FamilyPage({ params }: Props) {
         </Card>
       </div>
     </>
+  );
+}
+
+function UsageMeter({ used, limit, label }: { used: number; limit: number; label: string }) {
+  const pct = limit <= 0 ? (used > 0 ? 100 : 0) : Math.min(100, (used / limit) * 100);
+  const over = limit <= 0 ? used > 0 : used > limit;
+  return (
+    <div className={styles.meter}>
+      <div
+        className={styles.meterTrack}
+        role="meter"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(limit, 0)}
+        aria-valuenow={Math.min(used, Math.max(limit, 0))}
+        aria-label={label}
+      >
+        <span className={over ? styles.meterOver : undefined} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={over ? styles.meterWarn : styles.meterLabel}>{label}</span>
+    </div>
   );
 }
 

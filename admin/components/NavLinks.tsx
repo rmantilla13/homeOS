@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AuditIcon, FamilyIcon, InviteIcon, OverviewIcon, SettingsIcon, UsersIcon } from "@/components/icons";
+import { AuditIcon, FamilyIcon, InviteIcon, MediaIcon, OverviewIcon, SettingsIcon, UsersIcon } from "@/components/icons";
 import styles from "./shell.module.css";
 
 const LINKS = [
   { href: "/", label: "Overview", Icon: OverviewIcon },
   { href: "/families", label: "Families", Icon: FamilyIcon },
+  { href: "/media", label: "Media", Icon: MediaIcon },
   { href: "/users", label: "Users", Icon: UsersIcon },
   { href: "/invites", label: "Invites", Icon: InviteIcon },
   { href: "/settings", label: "Settings", Icon: SettingsIcon },

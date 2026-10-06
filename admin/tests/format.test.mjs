@@ -1,7 +1,7 @@
 // Run with `npm test` (Node 22 strips the TypeScript types itself).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cssColor, formatDate, formatDateTime, formatRelative, formatShortDate } from "../lib/format.ts";
+import { bytesToGiB, bytesToMiB, cssColor, formatBytes, formatDate, formatDateTime, formatRelative, formatShortDate } from "../lib/format.ts";
 
 test("cssColor passes hex colors through", () => {
   for (const c of ["#4F7CF7", "#abc", "#abcd", "#11223344", " #8E9CE6 "]) assert.equal(cssColor(c), c.trim());
@@ -30,6 +30,17 @@ test("formatRelative reads past and future times", () => {
   assert.equal(formatRelative("2026-10-06T09:00:00Z", now), "3 hr. ago");
   assert.equal(formatRelative("2026-10-09T12:00:00Z", now), "in 3 days");
   assert.equal(formatRelative(null, now), "never");
+});
+
+test("formatBytes uses 1024-based units, same as the quotas", () => {
+  assert.equal(formatBytes(0), "0 B");
+  assert.equal(formatBytes(1023), "1,023 B");
+  assert.equal(formatBytes(1536), "1.5 KB");
+  assert.equal(formatBytes(536870912), "512 MB");
+  assert.equal(formatBytes(5368709120), "5 GB");
+  assert.equal(formatBytes(Number.NaN), "—");
+  assert.equal(bytesToGiB(5368709120), "5");
+  assert.equal(bytesToMiB(536870912), "512");
 });
 
 test("dates Postgres can hold but JavaScript can't read don't throw", () => {
