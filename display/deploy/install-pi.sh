@@ -97,33 +97,78 @@ EOF
 sudo chmod 440 /etc/sudoers.d/homeos-system
 sudo visudo -cf /etc/sudoers.d/homeos-system
 
+# kms-pick-begin
+# Print the DRM card and Qt's eglfs output name for the panel.
+# The kernel calls the Pi's HDMI0 port (next to USB-C) HDMI-A-1. Qt's
+# eglfs_kms calls that same connector HDMI1, and HDMI-A-2 is HDMI2.
+# A connected connector wins. HDMI-A-1 wins a tie, and it is the fallback
+# when the panel is still off, so the app opens that port once it comes on.
+homeos_pick_hdmi() {
+    local sysroot="${1:-/sys/class/drm}"
+    local connector base dev name qt status
+    local preferred_card="" preferred_output="" fallback_card="" fallback_output=""
+    local card="/dev/dri/card1" output="HDMI1"
+    for connector in "$sysroot"/card*-HDMI-A-*; do
+        [ -e "$connector" ] || continue
+        base=$(basename "$connector")
+        dev="/dev/dri/${base%%-*}"
+        name="${base#*-}"
+        case "$name" in
+            HDMI-A-*) qt="HDMI${name#HDMI-A-}" ;;
+            *) qt="HDMI1" ;;
+        esac
+        status=""
+        if [ -f "$connector/status" ]; then
+            status=$(cat "$connector/status" 2>/dev/null || true)
+        fi
+        if [ "$name" = "HDMI-A-1" ]; then
+            fallback_card=$dev
+            fallback_output=$qt
+        elif [ -z "$fallback_card" ]; then
+            fallback_card=$dev
+            fallback_output=$qt
+        fi
+        if [ "$status" = "connected" ]; then
+            if [ -z "$preferred_card" ] || [ "$name" = "HDMI-A-1" ]; then
+                preferred_card=$dev
+                preferred_output=$qt
+            fi
+        fi
+    done
+    if [ -n "$preferred_card" ]; then
+        card=$preferred_card
+        output=$preferred_output
+    elif [ -n "$fallback_card" ]; then
+        card=$fallback_card
+        output=$fallback_output
+    fi
+    printf '%s\n%s\n' "$card" "$output"
+}
+# kms-pick-end
+
 step "Configuring the display"
 # On the Pi 5 the GPU (render only) and the display controller are separate DRM
 # devices, and their card numbers can swap between boots. Qt has to open the
 # one that drives HDMI, so use its stable /dev/dri/by-path name.
-card=""
-for connector in /sys/class/drm/card*-HDMI-A-*; do
-    [ -e "$connector" ] || continue
-    card="/dev/dri/$(basename "$connector" | cut -d- -f1)"
-    break
-done
-card="${card:-/dev/dri/card1}"
+mapfile -t picked < <(homeos_pick_hdmi)
+card="${picked[0]}"
+output="${picked[1]}"
 for link in /dev/dri/by-path/*-card; do
     if [ -e "$link" ] && [ "$(readlink -f "$link")" = "$(readlink -f "$card")" ]; then
         card="$link"
         break
     fi
 done
-echo "Using $card for HDMI output"
+echo "Using $card ($output) for HDMI output"
 
-# HDMI1 is Qt's name for the HDMI0 port. 1920x1200 is the panel's resolution;
-# a screen that doesn't offer it gets its own preferred mode instead.
+# 1920x1200 is the panel's resolution; a screen that doesn't offer it gets
+# its own preferred mode instead.
 sudo mkdir -p /etc/homeos
 sudo tee /etc/homeos/kms.json >/dev/null <<JSON
 {
   "device": "$card",
   "hwcursor": false,
-  "outputs": [ { "name": "HDMI1", "mode": "1920x1200" } ]
+  "outputs": [ { "name": "$output", "mode": "1920x1200" } ]
 }
 JSON
 
@@ -134,6 +179,7 @@ QT_QPA_PLATFORM=eglfs
 QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
 QT_QPA_EGLFS_HIDECURSOR=1
+QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 QT_IM_MODULE=qtvirtualkeyboard
 # Keyboard layout, date and time formats (Raspberry Pi OS defaults to en_GB).
 LANG=en_US.UTF-8
@@ -151,6 +197,22 @@ ENV
 else
     echo "Keeping existing /etc/homeos/display.env"
 fi
+# A file left by an older install can omit the KMS lines. Qt then never opens
+# HDMI and the service stays up on a text console. Fill those keys in place
+# and leave scale, language and Supabase settings alone.
+ensure_display_env() {
+    local key="$1" value="$2" file=/etc/homeos/display.env
+    if sudo grep -qE "^${key}=" "$file"; then
+        sudo sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+        printf '%s=%s\n' "$key" "$value" | sudo tee -a "$file" >/dev/null
+    fi
+}
+ensure_display_env QT_QPA_PLATFORM eglfs
+ensure_display_env QT_QPA_EGLFS_INTEGRATION eglfs_kms
+ensure_display_env QT_QPA_EGLFS_KMS_CONFIG /etc/homeos/kms.json
+ensure_display_env QT_QPA_EGLFS_HIDECURSOR 1
+ensure_display_env QT_QPA_EGLFS_ALWAYS_SET_MODE 1
 
 step "Configuring the console"
 # Hide kernel and systemd text on the panel, and keep the console from
@@ -318,6 +380,18 @@ if [ "$(systemctl get-default)" = "graphical.target" ]; then
     echo "Switching boot target from desktop to console (the app replaces the desktop)"
     sudo systemctl set-default multi-user.target
 fi
+# logind starts a login on tty1 when it thinks the console is idle. The kiosk
+# holds that console; a prompt must not come back between restarts. Do not
+# restart logind here: that drops the SSH session this script is running in.
+# The file applies on the next boot. This boot stops getty below.
+sudo mkdir -p /etc/systemd/logind.conf.d
+sudo tee /etc/systemd/logind.conf.d/homeos.conf >/dev/null <<'EOF'
+# Written by homeOS install-pi.sh.
+# The kiosk owns tty1. Do not start a login prompt when the console looks idle.
+[Login]
+NAutoVTs=0
+ReserveVT=0
+EOF
 sudo systemctl daemon-reload
 # kiosk-boot-begin
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
@@ -340,6 +414,16 @@ else
     if ! sudo systemctl enable homeos-bootscreen; then
         echo "Boot video was not enabled. The app still starts; re-run the installer to try the video again." >&2
     fi
+    # getty on tty1 is the login prompt. If it stays enabled, the next boot
+    # queues it beside this unit. Conflicts= then has to win, and a dropped
+    # job leaves the prompt on HDMI. Disable it so multi-user does not start
+    # it, and stop it now so this start can open tty1. A failure here must
+    # not skip the kiosk.
+    sudo systemctl disable getty@tty1.service || true
+    sudo systemctl stop getty@tty1.service autovt@tty1.service || true
+    # An older unit may have exhausted its start limit and will refuse --now
+    # until that failure is cleared.
+    sudo systemctl reset-failed homeos-display || true
     if ! sudo systemctl enable --now homeos-display; then
         echo "homeos-display did not stay up on the first start. It stays enabled and will keep retrying." >&2
     fi
@@ -376,12 +460,20 @@ fi
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on; the panel kiosk stays off."
 else
-    echo "homeOS is enabled and started. On every boot it takes the screen (no login prompt)."
+    state="$(systemctl is-active homeos-display 2>/dev/null || true)"
+    echo "homeOS is enabled. On every boot it takes HDMI (no login prompt)."
+    echo "systemctl is-active homeos-display: ${state:-unknown}"
+    echo "active means the app has the panel. A terminal on the panel means it does not."
+    echo "To put homeOS on HDMI:  sudo systemctl enable --now homeos-display"
     echo "Reboot so the console settings apply:  sudo reboot"
     echo "That reboot hides boot text and plays a short video until the app is up."
+    if [ "$state" != "active" ]; then
+        echo "The service is not active. Logs (this does not start the screen):" >&2
+        echo "  journalctl -u homeos-display -b --no-pager" >&2
+    fi
 fi
 echo "On the screen, the gear icon changes Wi-Fi, speaker volume, and can restart or reboot."
-echo "Logs:                    journalctl -u homeos-display -f"
+echo "Logs only (does not start the screen):  journalctl -u homeos-display -f"
 if [ "$with_voice" = "1" ]; then
     echo "Voice logs:              journalctl -u homeos-voice -f"
 fi

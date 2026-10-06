@@ -77,9 +77,10 @@ cd homeOS
 ./display/deploy/install-pi.sh
 ```
 
-The script enables `homeos-display` and starts it before it exits. The screen
-should show homeOS without a reboot, and without
-`sudo systemctl enable --now homeos-display`.
+The script enables `homeos-display` and starts it before it exits. When it
+finishes, `systemctl is-active homeos-display` prints `active` and the panel
+shows homeOS. `journalctl -u homeos-display -f` only shows logs. It does not
+start the app and it does not draw on HDMI.
 
 Reboot once after that. A reboot applies the console options from the script,
 and it is the check that a later power-on brings homeOS back by itself:
@@ -119,16 +120,49 @@ The script takes 20–30 minutes. It:
 ## 4. What you should see
 
 When the install script finishes, homeOS should already be on the screen.
-Reboot once after that. The reboot applies the quiet-boot settings, and it
-is the check that a later power-on brings homeOS back by itself.
+Check with `systemctl is-active homeos-display`. A healthy service prints
+`active`. Reboot once after that. The reboot applies the quiet-boot settings,
+and it is the check that a later power-on brings homeOS back by itself.
 
 After the reboot, the panel does not scroll kernel text or sit on a login
 prompt. A short silent video plays (warm background, the homeOS wordmark)
 until the app is ready, then homeOS fills the screen with sample data. The
 app stops that video before it opens the screen, so the two don't share it.
-You do not run `systemctl` to bring the app back. SSH works the whole time.
-A login prompt on the panel is still
+SSH works the whole time. A login prompt on the panel is still
 `sudo systemctl stop homeos-display && sudo systemctl start getty@tty1`.
+
+If the panel is showing a terminal, including the cloud-init line
+`Completed socket interaction for boot stage final`, the UI is not running.
+Following the log does not put it there. Put homeOS on HDMI with:
+
+```bash
+sudo systemctl enable --now homeos-display
+systemctl is-active homeos-display
+```
+
+`active` means the service has the screen. If that command says the unit
+could not be found, this branch is not installed yet:
+
+```bash
+cd ~/homeOS
+git fetch
+git checkout cursor/display-boot-video-e66c
+git pull
+./display/deploy/install-pi.sh
+```
+
+If `systemctl is-active homeos-display` stays something other than `active`,
+read why it exited. This only prints logs:
+
+```bash
+journalctl -u homeos-display -b --no-pager
+```
+
+If the service is `active` and the panel still shows a terminal, the process
+is up but it did not open the HDMI device. The same journal command shows
+`Could not open DRM device`, `No modes available`, or `no screen`. Then check
+`cat /etc/homeos/kms.json` against `ls -l /dev/dri/by-path/` and re-run
+`./display/deploy/install-pi.sh` so it points Qt at the HDMI port.
 
 The video shipped with homeOS is `display/deploy/boot/boot.mp4`. The installer
 copies it to `/usr/local/share/homeos/boot.mp4`. To play your own file, copy
@@ -185,7 +219,10 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 
 | Task | Command |
 |---|---|
-| Watch the logs | `journalctl -u homeos-display -f` |
+| Put homeOS on the HDMI panel | `sudo systemctl enable --now homeos-display` |
+| Check that the panel app is running | `systemctl is-active homeos-display` (prints `active`) |
+| Read logs (does not start the screen) | `journalctl -u homeos-display -f` |
+| Read logs when the service stays inactive | `journalctl -u homeos-display -b --no-pager` |
 | Restart the app | `sudo systemctl restart homeos-display` |
 | Change Wi-Fi, volume, restart or reboot | On the screen, tap the gear. Wi-Fi and reboot need the helper from the install script |
 | Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
@@ -196,11 +233,22 @@ models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 
 ## Troubleshooting
 
-Start with the logs: `journalctl -u homeos-display -b`.
+`journalctl -u homeos-display -f` only shows logs. It does not start homeOS and it does not draw on the panel. To put homeOS on HDMI:
+
+```bash
+sudo systemctl enable --now homeos-display
+```
+
+`systemctl is-active homeos-display` prints `active` when that worked. Use the journal only when it stays inactive, or when it is `active` and the panel is still a terminal:
+
+```bash
+journalctl -u homeos-display -b --no-pager
+```
 
 | Symptom | Fix |
 |---|---|
-| A login prompt is on the screen after reboot | Re-run `./display/deploy/install-pi.sh`. It enables and starts `homeos-display`, which takes tty1 now and on every later boot. You should not need `sudo systemctl enable --now homeos-display`. `systemctl is-enabled homeos-display` should say `enabled`, and `systemctl is-active homeos-display` should say `active`. |
+| A terminal or login prompt is on the screen | `journalctl` will not change the picture. Run `sudo systemctl enable --now homeos-display`. `systemctl is-active homeos-display` should print `active`, and `systemctl is-enabled homeos-display` should print `enabled`. If the unit could not be found, install this branch: `cd ~/homeOS && git fetch && git checkout cursor/display-boot-video-e66c && git pull && ./display/deploy/install-pi.sh`. If it stays inactive, `journalctl -u homeos-display -b --no-pager` shows why. |
+| The service is `active` but the panel is still a terminal | The app did not open the HDMI device. `journalctl -u homeos-display -b --no-pager` and `cat /etc/homeos/kms.json`. The device should be one of `ls -l /dev/dri/by-path/`, and the output name should be `HDMI1` for the HDMI0 port (kernel name `HDMI-A-1`). Re-run `./display/deploy/install-pi.sh`. |
 | Kernel text still scrolls during boot | Re-run `./display/deploy/install-pi.sh` and `sudo reboot`. Quiet boot is a few words in `/boot/firmware/cmdline.txt`, and `disable_splash=1` in `/boot/firmware/config.txt`. |
 | The boot video never appears, or stays up over homeOS | `journalctl -u homeos-bootscreen -b`. The app stops that service before it uses the screen. `sudo systemctl stop homeos-bootscreen` releases it if you need to. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every 3 seconds. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |

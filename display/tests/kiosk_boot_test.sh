@@ -46,6 +46,14 @@ directive '^Wants=systemd-logind\.service$'
 directive '^Environment=XDG_RUNTIME_DIR=/run/user/@UID@$'
 directive '^User=@USER@$'
 directive '^ExecStart=/usr/local/bin/homeos-display$'
+directive '^SupplementaryGroups=video render input audio tty$'
+directive '^Environment=QT_QPA_PLATFORM=eglfs$'
+directive '^Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms$'
+directive '^Environment=QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json$'
+directive '^Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1$'
+if unit_body | grep -Eq '^After=.*network-online|^Wants=network-online'; then
+    fail "waiting for network-online leaves the panel on the console"
+fi
 
 # Any account the installer is logged in as. The unit must not name a person.
 filled="$(sed -e 's/@USER@/pi/g' -e 's/@UID@/1000/g' "$unit")"
@@ -85,6 +93,11 @@ block="$(awk '/# kiosk-boot-begin/,/# kiosk-boot-end/' "$install")"
 [ -n "$block" ] || fail "kiosk boot block not found in install-pi.sh"
 printf '%s\n' "$block" | grep -q 'systemctl enable --now homeos-display' || fail "boot block does not enable and start the kiosk"
 printf '%s\n' "$block" | grep -q 'systemctl restart homeos-display' || fail "boot block does not reload a running kiosk"
+printf '%s\n' "$block" | grep -q 'systemctl disable getty@tty1' || fail "boot block leaves the login prompt enabled"
+printf '%s\n' "$block" | grep -q 'systemctl stop getty@tty1' || fail "boot block does not release tty1 before start"
+stop_at=$(printf '%s\n' "$block" | grep -n 'systemctl stop getty@tty1' | head -1 | cut -d: -f1)
+now_at=$(printf '%s\n' "$block" | grep -n 'systemctl enable --now homeos-display' | head -1 | cut -d: -f1)
+[ -n "$stop_at" ] && [ -n "$now_at" ] && [ "$stop_at" -lt "$now_at" ] || fail "getty must be stopped before the kiosk starts"
 if printf '%s\n' "$block" | grep -q 'is-active'; then
     fail "boot block still starts the kiosk only when it is already active"
 fi
@@ -118,6 +131,8 @@ run_block "$tmp/log" 0 0
 grep -qx 'unmask homeos-display' "$tmp/log" || fail "fresh install did not unmask"
 grep -qx 'enable --now homeos-display' "$tmp/log" || fail "fresh install did not enable and start"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "fresh install did not reload the kiosk"
+grep -qx 'disable getty@tty1.service' "$tmp/log" || fail "fresh install did not disable the login prompt"
+grep -qx 'stop getty@tty1.service autovt@tty1.service' "$tmp/log" || fail "fresh install did not stop the login prompt"
 if grep -qx 'disable --now homeos-display' "$tmp/log"; then
     fail "fresh install disabled the kiosk"
 fi
@@ -167,8 +182,54 @@ stub_out="$(
 )" || fail "boot block failed under the systemctl stub"
 printf '%s\n' "$stub_out" | grep -q 'systemctl enable --now homeos-display' || fail "stub path did not enable and start"
 printf '%s\n' "$stub_out" | grep -q 'systemctl restart homeos-display' || fail "stub path did not reload the kiosk"
-if printf '%s\n' "$stub_out" | grep -q 'systemctl disable'; then
+if printf '%s\n' "$stub_out" | grep -q 'systemctl disable.*homeos-display'; then
     fail "stub path disabled the kiosk"
 fi
+printf '%s\n' "$stub_out" | grep -q 'systemctl disable getty@tty1' || fail "stub path left the login prompt enabled"
+printf '%s\n' "$stub_out" | grep -q 'systemctl stop getty@tty1' || fail "stub path did not release tty1"
+
+grep -q 'NAutoVTs=0' "$install" || fail "installer does not stop logind from spawning a login on tty1"
+grep -q 'QT_QPA_EGLFS_ALWAYS_SET_MODE=1' "$install" || fail "installer does not force Qt to set the HDMI mode"
+grep -q 'ensure_display_env QT_QPA_EGLFS_KMS_CONFIG' "$install" || fail "installer does not repair a stale display.env"
+docs="$root/docs/PI_SETUP.md"
+grep -q 'only shows logs' "$docs" || fail "docs do not say journalctl only shows logs"
+grep -q 'sudo systemctl enable --now homeos-display' "$docs" || fail "docs do not say how to put homeOS on HDMI"
+grep -q 'cursor/display-boot-video-e66c' "$docs" || fail "docs do not name the branch that installs the unit"
+if grep -q 'should not need' "$docs"; then
+    fail "docs still tell them not to start the kiosk"
+fi
+
+pick="$(awk '/# kms-pick-begin/,/# kms-pick-end/' "$install")"
+[ -n "$pick" ] || fail "hdmi pick function not found"
+# shellcheck disable=SC1090
+source /dev/stdin <<<"$pick"
+
+sys="$(mktemp -d)"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx '/dev/dri/card1' || fail "missing DRM nodes did not fall back to card1"
+printf '%s\n' "$out" | grep -qx 'HDMI1' || fail "missing DRM nodes did not fall back to HDMI1"
+
+mkdir -p "$sys/card1-HDMI-A-1" "$sys/card1-HDMI-A-2"
+printf 'disconnected\n' >"$sys/card1-HDMI-A-1/status"
+printf 'connected\n' >"$sys/card1-HDMI-A-2/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx '/dev/dri/card1' || fail "connected HDMI-A-2 used the wrong card"
+printf '%s\n' "$out" | grep -qx 'HDMI2' || fail "connected HDMI-A-2 was not Qt HDMI2"
+
+printf 'connected\n' >"$sys/card1-HDMI-A-1/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx 'HDMI1' || fail "HDMI0 (HDMI-A-1) did not win when both ports are connected"
+
+printf 'disconnected\n' >"$sys/card1-HDMI-A-1/status"
+printf 'disconnected\n' >"$sys/card1-HDMI-A-2/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx 'HDMI1' || fail "panel-off fallback was not HDMI0"
+
+rm -rf "$sys/card1-HDMI-A-1" "$sys/card1-HDMI-A-2"
+mkdir -p "$sys/card0-HDMI-A-1"
+printf 'connected\n' >"$sys/card0-HDMI-A-1/status"
+out=$(homeos_pick_hdmi "$sys")
+printf '%s\n' "$out" | grep -qx '/dev/dri/card0' || fail "HDMI card index was pinned"
+rm -rf "$sys"
 
 echo "kiosk boot ok"
