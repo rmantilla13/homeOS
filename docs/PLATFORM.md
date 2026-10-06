@@ -267,6 +267,95 @@ revoke answers `device not found`.
   its messages. Usage rows stay, for
   the numbers.
 
+## Claude authentication
+
+The assistant calls Claude from the `assistant` edge function (Supabase
+Deno), not from the admin app and not from the voice service. That runtime
+does not receive a Vercel OIDC token: Vercel injects `VERCEL_OIDC_TOKEN`
+only into Vercel builds, functions and `vercel env pull`. Supabase Edge
+Functions are also not Deno Deploy, so Deno's own OIDC issuer is not
+available there.
+
+Login is [Anthropic workload identity federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation).
+The identity provider is the Vercel project `homeos-admin` (team
+`rickymantilla`, team issuer). On each Claude call the edge function asks
+`https://homeos-admin.vercel.app/api/assistant-identity` for a short-lived
+OIDC token, forwarding the family member's Supabase JWT so the route can
+check it against the project's public JWKS. The function then exchanges
+that token at Anthropic. Nothing in this flow is an `sk-ant-` API key.
+
+Until the three federation settings below are saved, the function still
+uses `ANTHROPIC_API_KEY` if that secret exists, so a deploy of this code
+does not by itself turn Claude off. When the three settings are present the
+API key is ignored. Remove it after a federated chat works.
+
+These steps need a human in the Claude Console (admin, owner, or primary
+owner). This repo cannot create the issuer, the service account or the
+rule.
+
+1. In Vercel, open **homeos-admin → Settings → Security**. Under **Secure
+   backend access with OIDC federation**, the issuer mode must be **Team**.
+   The issuer is then `https://oidc.vercel.com/rickymantilla`. Save if you
+   change it. Confirm `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set for Production (the console
+   needs both; the identity route needs the URL as the JWT issuer). Do not
+   set `NEXT_PUBLIC_ADMIN_DEMO`. Do not add a service role key. In
+   Supabase, **Authentication → JWT Keys** must use an asymmetric key
+   (ES256 or RS256) so `…/auth/v1/.well-known/jwks.json` publishes a public
+   key. A legacy HS256 secret cannot be checked from Vercel, and it is not
+   copied there. Redeploy
+   the admin app so `POST /api/assistant-identity` is live. Leave
+   Deployment Protection off, or exclude that path (see
+   [ADMIN.md](ADMIN.md)).
+2. In the Claude Console, open **Settings → Organization** and copy the
+   organization UUID.
+3. Open **Settings → Workload identity** and choose **Connect workload**.
+4. Choose **Custom OIDC** (not GitHub, AWS, Google Cloud, Entra or
+   Kubernetes).
+5. Issuer URL: `https://oidc.vercel.com/rickymantilla`. Leave JWKS on
+   **Discovery**. Choose **Verify issuer** and wait until it can fetch
+   `https://oidc.vercel.com/rickymantilla/.well-known/jwks`.
+6. Set the issuer's **maximum JWT lifetime** (`max_jwt_lifetime_seconds`)
+   to **7200** (2 hours). The default is 3600, and a production Vercel
+   function token lasts 2 hours, so the default rejects it. The Connect
+   wizard may not show this field; if so, create the issuer, then open it
+   and edit the maximum. Leave `check_jti` on. The identity route asks
+   Vercel for a new token, with a new `jti`, on every exchange.
+7. Service account name: `homeos-assistant`. Rule name: `homeos-assistant`.
+   OAuth scope: `workspace:inference` (Messages, including streaming). If a
+   later call returns 403 because a beta on the Messages API is outside
+   that scope, change the rule's scope to `workspace:developer`.
+8. Match conditions, all of them:
+   - Subject: `owner:rickymantilla:project:homeos-admin:environment:production`
+   - Audience: `https://api.anthropic.com`
+   - Claims: `environment` = `production`, `project_id` =
+     `prj_6gsWzg7O9AxhTdcKSObkB2SxBQ8V`
+9. Enable the rule in the workspace that should pay for the family
+   assistant (the default workspace is enough). Note the rule id
+   (`fdrl_…`), the service account id (`svac_…`) and, only if the rule is
+   enabled in more than one workspace, the workspace id (`wrkspc_…`).
+10. The wizard listens for a successful exchange for 15 minutes. Finish
+    steps 11–13 in that window, or re-run the test from the rule's page
+    afterwards. The resources stay either way.
+11. In the Supabase dashboard, **Edge Functions → Secrets** (or
+    `supabase secrets set`, reading the values from a prompt or a file
+    that is not committed). Set:
+    - `ANTHROPIC_FEDERATION_RULE_ID` = the `fdrl_…` id
+    - `ANTHROPIC_ORGANIZATION_ID` = the organization UUID
+    - `ANTHROPIC_SERVICE_ACCOUNT_ID` = the `svac_…` id
+    - `ANTHROPIC_WORKSPACE_ID` = the `wrkspc_…` id, only when step 9 needed it
+    Do not set `ANTHROPIC_IDENTITY_TOKEN`. The function fetches a new OIDC
+    token on each exchange. Deploy the function so it picks up the
+    secrets: `supabase functions deploy assistant`.
+12. Send a chat from the display or the iPhone. The Claude Console's
+    workload-identity test (or the rule's authentication history) should
+    show the exchange.
+13. Remove the old key. `supabase secrets unset ANTHROPIC_API_KEY`, then
+    in the Claude Console delete it under **Settings → API keys**. A key
+    left in Supabase secrets is ignored while the three federation
+    settings are set, and it would be used again if those settings were
+    removed.
+
 ## Admin audit log
 
 Every admin change goes into `admin_audit_log` with the admin's id, an

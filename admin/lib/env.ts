@@ -17,14 +17,29 @@ export function demoMode(): boolean {
   return read("NEXT_PUBLIC_ADMIN_DEMO") === "1";
 }
 
-export function supabaseConfig(): SupabaseConfig | null {
+// Not read as process.env.VERCEL_ENV: Next would inline the build machine's
+// value and the production deployment would refuse to mint.
+export function vercelEnv(): string | undefined {
+  return read("VERCEL_ENV");
+}
+
+// The project URL alone. The assistant identity route uses it as the JWT
+// issuer and does not need the anon key. Looked up by name so Next doesn't
+// inline one project's URL into the build.
+export function supabaseProjectUrl(): string | null {
   const url = read("NEXT_PUBLIC_SUPABASE_URL")?.trim();
-  const anonKey = read("NEXT_PUBLIC_SUPABASE_ANON_KEY")?.trim();
-  if (!url || !anonKey) return null;
+  if (!url) return null;
   try {
     new URL(url);
   } catch {
     return null;
   }
+  return url;
+}
+
+export function supabaseConfig(): SupabaseConfig | null {
+  const url = supabaseProjectUrl();
+  const anonKey = read("NEXT_PUBLIC_SUPABASE_ANON_KEY")?.trim();
+  if (!url || !anonKey) return null;
   return { url, anonKey };
 }

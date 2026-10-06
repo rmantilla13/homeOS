@@ -18,10 +18,14 @@
 // for parents, forget them. Points, approvals and rewards stay out of reach on
 // purpose: a child at the screen shouldn't be able to award points.
 //
-// Secrets: ANTHROPIC_API_KEY (set with `supabase secrets set`).
+// Claude login is workload identity federation, not a long-lived API key.
+// See assistant/claude.ts and docs/PLATFORM.md. ANTHROPIC_API_KEY is only a
+// fallback until those federation settings exist.
 
 import Anthropic from "npm:@anthropic-ai/sdk@^0.131.0";
+import { WorkloadIdentityError } from "npm:@anthropic-ai/sdk@^0.131.0/lib/credentials/types";
 import { createClient, type SupabaseClient, type User } from "jsr:@supabase/supabase-js@2";
+import { claude, ClaudeAuthError, withCallerToken } from "./claude.ts";
 import { authenticate, bearerToken, corsHeaders, HttpError, json, preflight, readJson } from "../_shared/http.ts";
 import {
   type Caller,
@@ -85,7 +89,6 @@ const REPLY = {
   failedPartway: "Sorry, something went wrong before I could finish.",
 };
 
-const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
 const service = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -558,7 +561,7 @@ async function converse({ ctx, mode, messages, actions, stats, onText, onAction 
   };
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const stream = anthropic.beta.messages.stream({
+    const stream = claude().beta.messages.stream({
       model: MODEL,
       max_tokens: MAX_TOKENS[mode],
       // Conversational and latency-sensitive: low effort keeps replies quick.
@@ -631,6 +634,21 @@ async function converse({ ctx, mode, messages, actions, stats, onText, onAction 
 
 function modelErrorMessage(err: InstanceType<typeof Anthropic.APIError>): string {
   return err instanceof Anthropic.RateLimitError || err.status === 529 ? REPLY.busy : REPLY.unavailable;
+}
+
+// Auth failures (federation not set up, identity endpoint down, exchange
+// rejected) are the same to a family as the model being unreachable. The
+// log stays free of tokens and keys.
+function claudeOutcome(err: unknown): "busy" | "unavailable" | null {
+  if (err instanceof ClaudeAuthError || err instanceof WorkloadIdentityError) {
+    console.error("Claude auth failed");
+    return "unavailable";
+  }
+  if (err instanceof Anthropic.APIError) {
+    console.error(`Claude API error ${err.status}:`, err.message);
+    return modelErrorMessage(err) === REPLY.busy ? "busy" : "unavailable";
+  }
+  return null;
 }
 
 // ───────────────────────────── Persistence ─────────────────────────────
@@ -786,9 +804,9 @@ async function handleV2(db: SupabaseClient, user: User, req: V2Request): Promise
       const { reply, actions, messageId } = await turn();
       return json({ reply, actions, thread_id: thread, message_id: messageId });
     } catch (err) {
-      if (!(err instanceof Anthropic.APIError)) throw err;
-      console.error(`Claude API error ${err.status}:`, err.message);
-      return json({ error: modelErrorMessage(err) }, 502);
+      const outcome = claudeOutcome(err);
+      if (!outcome) throw err;
+      return json({ error: outcome === "busy" ? REPLY.busy : REPLY.unavailable }, 502);
     }
   }
 
@@ -801,9 +819,9 @@ async function handleV2(db: SupabaseClient, user: User, req: V2Request): Promise
       );
       send("done", { reply, actions, thread_id: thread, message_id: messageId });
     } catch (err) {
-      if (!(err instanceof Anthropic.APIError)) throw err;
-      console.error(`Claude API error ${err.status}:`, err.message);
-      send("error", { message: modelErrorMessage(err) });
+      const outcome = claudeOutcome(err);
+      if (!outcome) throw err;
+      send("error", { message: outcome === "busy" ? REPLY.busy : REPLY.unavailable });
     }
   });
 }
@@ -827,9 +845,9 @@ async function handleLegacy(db: SupabaseClient, user: User, history: LegacyMessa
     });
     return json({ reply, actions });
   } catch (err) {
-    if (err instanceof Anthropic.RateLimitError) return json({ reply: REPLY.busy, actions });
-    if (!(err instanceof Anthropic.APIError)) throw err;
-    console.error(`Claude API error ${err.status}:`, err.message);
+    const outcome = claudeOutcome(err);
+    if (!outcome) throw err;
+    if (outcome === "busy") return json({ reply: REPLY.busy, actions });
     return json({ error: "assistant unavailable" }, 502);
   } finally {
     await finishUsage(gated.usageId, stats);
@@ -858,7 +876,9 @@ Deno.serve(async (req) => {
   const { user } = auth;
 
   try {
-    return parsed.kind === "legacy" ? await handleLegacy(db, user, parsed.history) : await handleV2(db, user, parsed);
+    return await withCallerToken(token, () =>
+      parsed.kind === "legacy" ? handleLegacy(db, user, parsed.history) : handleV2(db, user, parsed)
+    );
   } catch (err) {
     if (err instanceof HttpError) return json({ error: err.message }, err.status);
     console.error("assistant failed:", err);
