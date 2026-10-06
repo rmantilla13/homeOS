@@ -257,10 +257,15 @@ profile screens reuse the glow header, pills and cards.
   chore is asked to get a parent to undo it first.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
-  `DateTimeOriginal`. Videos are uploaded as-is, with `duration_seconds`, size
-  and creation date read through `AVURLAsset`.
-- Signed URLs (1 hour) are cached per storage path. Thumbnails, average colors
-  and avatars are cached in memory for the session.
+  `DateTimeOriginal`. Videos are uploaded as-is to Vercel Blob (not the
+  `family-media` bucket), with `duration_seconds`, size and creation date
+  read through `AVURLAsset`. `Config.mediaAPIURL` is the admin app's origin;
+  until it's set, a video upload fails and nothing is written to Storage.
+  The formats sent are `video/quicktime` (`.mov`), `video/mp4`, `video/m4v`,
+  `video/webm`, `video/x-matroska`, `video/3gpp`, and `video/3gpp2`.
+- Signed URLs (1 hour) are cached per storage path. Photos use Storage.
+  Videos (`file_store = blob`) use `POST /api/media/urls` on that same origin.
+  Thumbnails, average colors and avatars are cached in memory for the session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares
   ids as strings.
 - The app sends `family_id` (the family on screen) to the `assistant`

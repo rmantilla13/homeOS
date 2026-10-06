@@ -7,6 +7,10 @@ enum Config {
     static let supabaseAnonKey = "YOUR-ANON-KEY"
     static let mediaBucket = "family-media"
     static let avatarBucket = "avatars"
+    /// Origin of the admin app that signs private video uploads (Vercel Blob).
+    /// Set this to the deployment URL, with no path. Nil means a video upload
+    /// fails instead of landing in Supabase Storage.
+    static let mediaAPIURL: URL? = nil
     /// Where email confirmations and admin email invites send people back to
     /// the app. Add it under Supabase → Authentication → URL Configuration →
     /// Redirect URLs.

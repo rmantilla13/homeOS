@@ -27,8 +27,10 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
   family, or a family invite (from a parent) to join one. Each person has a
   `profiles` row. Platform admins can suspend families, which hides their
   data from members and displays. See [PLATFORM.md](PLATFORM.md).
-- **Storage**: the `family-media` bucket stores photos and videos under
-  `<family_id>/<media_id>.<ext>`.
+- **Storage**: the `family-media` bucket stores photos under
+  `<family_id>/<media_id>.<ext>`. New videos go to a private Vercel Blob
+  store at the same path (`media_items.file_store = 'blob'`), signed by the
+  admin app. Videos already in the bucket stay there.
 - **Realtime**: the display subscribes to row changes, so the screen updates
   as soon as a phone edits something.
 - **Edge Functions**:
@@ -53,7 +55,7 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | `points_ledger` | Append-only point history; `member_points` is a view of balances |
 | `lists` / `list_items` | Shopping and other checklists |
 | `meal_plans` | One row per day and meal |
-| `media_items` | Metadata for photos and videos in Storage |
+| `media_items` | Metadata for photos (Storage) and videos (Blob for new uploads, Storage for older ones) |
 | `profiles` | One per person with an account: display name, avatar |
 | `platform_invites` / `family_invites` | Invite codes to start a family, or to join one (optionally as an existing member) |
 | `assistant_threads` / `assistant_messages` | Saved assistant conversations, private to the person who started them |
@@ -194,8 +196,10 @@ XcodeGen.
   link, then create an account and start or join a family.
 - Profile (name, photo), family management (members, roles, invites) and the
   assistant with saved threads. Siri: say "Ask homeOS", then the question.
-- Photos and videos are picked with `PhotosPicker` and uploaded to Storage;
-  they appear on the wall frame within seconds.
+- Photos and videos are picked with `PhotosPicker`. Photos upload to Storage.
+  Videos upload to Vercel Blob through the admin app (`Config.mediaAPIURL`);
+  they appear on the wall frame within seconds once the display has
+  `HOMEOS_MEDIA_URL`.
 - Parents approve chore completions and manage rewards.
 - **Pair a display**: the screen shows a 6-digit code and a QR code; the app
   sends it to `pair-device`.

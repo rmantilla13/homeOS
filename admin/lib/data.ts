@@ -6,6 +6,7 @@ import { cache } from "react";
 import * as demo from "@/lib/demo/store";
 import { demoMode, supabaseConfig } from "@/lib/env";
 import { DataError } from "@/lib/errors";
+import { deleteFamilyBlobs } from "@/lib/media/cleanup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   Admin,
@@ -274,12 +275,13 @@ export async function setFamilyStatus(id: string, status: FamilyStatus, reason: 
 }
 
 // Through the admin function (spec §2.2), which calls admin_delete_family as
-// this admin and then removes the family's photos and videos from Storage;
-// SQL alone would leave the files behind.
+// this admin and then removes the family's photos from Storage. Videos live
+// in Blob, which this app removes afterwards. SQL alone would leave the files.
 export async function deleteFamily(id: string): Promise<void> {
   const src = await source();
   if (src.demo) return demo.demoDeleteFamily(id);
   await adminFunction(src.db, { action: "delete_family", family_id: id });
+  await deleteFamilyBlobs(id);
 }
 
 export async function createPlatformInvite(input: {

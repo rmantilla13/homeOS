@@ -239,11 +239,14 @@ edge function's `invite_email`, `ban_user`, `unban_user`, `delete_user` and
 `delete_family_files`), the target and details. Admins read it on the
 console's Audit page (`admin_list_audit`).
 
-SQL can't remove files from Storage. The console deletes a family through the
-`admin` function's `delete_family`, which runs `admin_delete_family` and then
-empties `family-media/<family_id>/`; deleting a user empties
-`avatars/<user_id>/`. Calling `admin_delete_family` directly (SQL editor)
-leaves the files; remove that folder in Storage yourself.
+SQL can't remove files from Storage, and it can't remove Blob objects either.
+The console deletes a family through the `admin` function's `delete_family`,
+which runs `admin_delete_family` and then empties `family-media/<family_id>/`
+(photos, and any videos still in that bucket). The console then deletes
+videos from the private Blob store under the same prefix. Deleting a user
+empties `avatars/<user_id>/`. Calling `admin_delete_family` directly (SQL
+editor) leaves the files; remove that folder in Storage, and the family's
+folder in Blob, yourself.
 
 The `admin` edge function calls `admin_create_platform_invite` and
 `admin_delete_family` with the admin's own session, so those rows name the

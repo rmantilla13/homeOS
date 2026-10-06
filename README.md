@@ -68,12 +68,14 @@ Useful flags and variables:
 | `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |
 | `HOMEOS_VOICE_URL` | Voice service address (default `ws://127.0.0.1:8765`) |
+| `HOMEOS_MEDIA_URL` | Admin app origin that signs private video URLs (Vercel Blob) |
 
 To connect it to the backend, set:
 
 ```bash
 export HOMEOS_SUPABASE_URL=https://<project>.supabase.co
 export HOMEOS_SUPABASE_ANON_KEY=<anon key>
+export HOMEOS_MEDIA_URL=https://<admin-deployment>.vercel.app
 ```
 
 The display then shows a 6-digit pairing code. Enter it in the iOS app under

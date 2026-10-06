@@ -229,6 +229,33 @@ QNetworkReply *SupabaseClient::streamFunction(const QString &name, const QJsonOb
     return reply;
 }
 
+void SupabaseClient::postAbsolute(const QUrl &url, const QJsonObject &body, Callback cb)
+{
+    const QString scheme = url.scheme().toLower();
+    if (!url.isValid() || (scheme != QLatin1String("https") && scheme != QLatin1String("http"))) {
+        cb({}, QStringLiteral("media API URL is not set"));
+        return;
+    }
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!m_accessToken.isEmpty())
+        req.setRawHeader("Authorization", ("Bearer " + m_accessToken).toUtf8());
+    req.setTransferTimeout(15000);
+    QNetworkReply *reply = m_nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this, [reply, cb]() {
+        reply->deleteLater();
+        const QByteArray raw = reply->readAll();
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (reply->error() == QNetworkReply::NoError) {
+            cb(doc, {});
+            return;
+        }
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString message = doc.object().value(QStringLiteral("error")).toString();
+        cb(doc, QStringLiteral("%1 (HTTP %2)").arg(message.isEmpty() ? reply->errorString() : message).arg(status));
+    });
+}
+
 void SupabaseClient::signUrls(const QString &bucket, const QStringList &paths, int expiresInSec,
                               std::function<void(const QStringList &)> done)
 {

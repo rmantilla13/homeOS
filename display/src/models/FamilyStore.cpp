@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QDebug>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -15,6 +16,7 @@
 #include <QRandomGenerator>
 #include <QUuid>
 #include <algorithm>
+#include <memory>
 
 namespace {
 
@@ -69,6 +71,13 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
         m_syncTimer.stop();
         startPairing();
     });
+}
+
+void FamilyStore::setMediaApiUrl(const QString &url)
+{
+    m_mediaApiUrl = url.trimmed();
+    while (m_mediaApiUrl.endsWith(QLatin1Char('/')))
+        m_mediaApiUrl.chop(1);
 }
 
 void FamilyStore::start()
@@ -266,23 +275,80 @@ void FamilyStore::loadLive()
                          [this, generation](const QJsonDocument &d, const QString &error) {
                              if (!error.isEmpty() || generation != m_generation)
                                  return;
-                             const QVariantList rows = toList(d);
-                             QStringList paths;
-                             for (const QVariant &r : rows)
-                                 paths << r.toMap().value("storage_path").toString();
-                             m_client->signUrls(kMediaBucket, paths, 6 * 3600, [this, rows, generation](const QStringList &urls) {
-                                 if (generation != m_generation)
-                                     return;
-                                 m_rawMedia.clear();
-                                 for (int i = 0; i < rows.size() && i < urls.size(); ++i) {
-                                     QVariantMap p = rows[i].toMap();
-                                     p.insert("url", urls[i]);
-                                     m_rawMedia << p;
-                                 }
-                                 rebuild();
-                             });
+                             attachMediaUrls(toList(d), generation);
                          });
     });
+}
+
+// Signs Supabase paths and Blob paths separately, then keeps the row order.
+// A missing media URL leaves Blob videos with an empty url; photos still play.
+void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
+{
+    if (generation != m_generation)
+        return;
+
+    QList<int> storageAt, blobAt;
+    QStringList storagePaths, blobPaths;
+    for (int i = 0; i < rows.size(); ++i) {
+        const QVariantMap row = rows.at(i).toMap();
+        const QString path = row.value(QStringLiteral("storage_path")).toString();
+        if (row.value(QStringLiteral("file_store")).toString() == QLatin1String("blob")) {
+            blobAt << i;
+            blobPaths << path;
+        } else {
+            storageAt << i;
+            storagePaths << path;
+        }
+    }
+
+    struct Pending {
+        QList<QString> urls;
+        int remaining = 2;
+    };
+    const auto pending = std::make_shared<Pending>();
+    pending->urls = QList<QString>(rows.size());
+
+    const auto finish = [this, rows, generation, pending]() {
+        if (--pending->remaining > 0 || generation != m_generation)
+            return;
+        m_rawMedia.clear();
+        for (int i = 0; i < rows.size(); ++i) {
+            QVariantMap item = rows.at(i).toMap();
+            item.insert(QStringLiteral("url"), pending->urls.at(i));
+            m_rawMedia << item;
+        }
+        rebuild();
+    };
+
+    m_client->signUrls(kMediaBucket, storagePaths, 6 * 3600, [pending, storageAt, finish](const QStringList &urls) {
+        for (int i = 0; i < storageAt.size() && i < urls.size(); ++i)
+            pending->urls[storageAt.at(i)] = urls.at(i);
+        finish();
+    });
+
+    if (blobPaths.isEmpty()) {
+        finish();
+        return;
+    }
+    if (m_mediaApiUrl.isEmpty()) {
+        qWarning() << "HOMEOS_MEDIA_URL is not set; videos in Blob storage have no playback URL";
+        finish();
+        return;
+    }
+
+    QJsonArray paths;
+    for (const QString &path : blobPaths)
+        paths << path;
+    m_client->postAbsolute(QUrl(m_mediaApiUrl + QStringLiteral("/api/media/urls")),
+                           QJsonObject{{QStringLiteral("paths"), paths}},
+                           [pending, blobAt, finish](const QJsonDocument &doc, const QString &error) {
+                               if (!error.isEmpty())
+                                   qWarning() << "signing blob videos failed:" << error;
+                               const QJsonArray urls = doc.object().value(QStringLiteral("urls")).toArray();
+                               for (int i = 0; i < blobAt.size() && i < urls.size(); ++i)
+                                   pending->urls[blobAt.at(i)] = urls.at(i).toString();
+                               finish();
+                           });
 }
 
 // Tells the family's phones and the admin console this display is alive:

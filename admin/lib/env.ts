@@ -17,6 +17,16 @@ export function demoMode(): boolean {
   return read("NEXT_PUBLIC_ADMIN_DEMO") === "1";
 }
 
+// Private Blob store for family videos. On Vercel, OIDC plus BLOB_STORE_ID is
+// enough. A read-write token is what local dev and presigned uploads use when
+// OIDC isn't present. Either pair counts as configured.
+export function blobReady(): boolean {
+  const token = read("BLOB_READ_WRITE_TOKEN")?.trim();
+  const storeId = read("BLOB_STORE_ID")?.trim();
+  const oidc = read("VERCEL_OIDC_TOKEN")?.trim();
+  return Boolean(token || (storeId && oidc));
+}
+
 export function supabaseConfig(): SupabaseConfig | null {
   const url = read("NEXT_PUBLIC_SUPABASE_URL")?.trim();
   const anonKey = read("NEXT_PUBLIC_SUPABASE_ANON_KEY")?.trim();

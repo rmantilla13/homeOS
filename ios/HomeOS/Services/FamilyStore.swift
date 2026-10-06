@@ -278,6 +278,7 @@ final class FamilyStore {
     /// The RPCs raise short lowercase sentences meant for people ("invite code expired").
     private static func message(for error: Error) -> String {
         if let error = error as? PostgrestError { return error.message.sentenceCased }
+        if let error = error as? MediaAPIError { return error.message }
         // Edge functions answer a 4xx/5xx with {"error": "..."}; show that, not the status code.
         struct FunctionErrorBody: Decodable { let error: String }
         if let functionsError = error as? FunctionsError, case let .httpError(_, data) = functionsError,
@@ -881,18 +882,24 @@ final class FamilyStore {
 
     // MARK: Media
 
-    /// Uploads a photo or video to `<family_id>/<media_id>.<ext>` and records it.
+    private struct MediaAPIError: Error {
+        let message: String
+    }
+
+    /// Uploads a photo or video and records it. Photos go to the family-media
+    /// bucket. Videos go to the private Blob store through the admin app.
     /// Returns false on failure. Call `refreshMedia()` after a batch.
     @discardableResult
     func upload(data: Data, isVideo: Bool, fileExtension: String, metadata: MediaMetadata) async -> Bool {
         guard let family else { return false }
+        if isVideo {
+            return await uploadVideo(data: data, fileExtension: fileExtension, metadata: metadata, familyId: family.id)
+        }
         let id = UUID()
         let ext = fileExtension.lowercased()
         let path = "\(family.id.uuidString.lowercased())/\(id.uuidString.lowercased()).\(ext)"
-        let contentType = isVideo
-            ? "video/\(ext == "mov" ? "quicktime" : ext)"
-            : "image/\(ext == "jpg" ? "jpeg" : ext)"
-        let row = NewMediaItem(id: id, familyId: family.id, storagePath: path, kind: isVideo ? "video" : "photo",
+        let contentType = "image/\(ext == "jpg" ? "jpeg" : ext)"
+        let row = NewMediaItem(id: id, familyId: family.id, storagePath: path, kind: "photo",
                                width: metadata.width, height: metadata.height,
                                durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt, uploadedBy: me?.id)
         do {
@@ -904,6 +911,80 @@ final class FamilyStore {
             report(error)
             return false
         }
+    }
+
+    private func uploadVideo(data: Data, fileExtension: String, metadata: MediaMetadata, familyId: UUID) async -> Bool {
+        let contentType = Self.videoContentType(fileExtension)
+        do {
+            let ticket = try await mediaJSON("upload", [
+                "family_id": familyId.uuidString.lowercased(),
+                "content_type": contentType,
+                "bytes": data.count,
+            ])
+            guard let idString = ticket["id"] as? String, let id = UUID(uuidString: idString),
+                  let path = ticket["pathname"] as? String,
+                  let uploadString = ticket["upload_url"] as? String, let uploadURL = URL(string: uploadString) else {
+                throw MediaAPIError(message: "The media service sent an unexpected response.")
+            }
+            var put = URLRequest(url: uploadURL)
+            put.httpMethod = "PUT"
+            put.setValue((ticket["content_type"] as? String) ?? contentType, forHTTPHeaderField: "Content-Type")
+            let (_, response) = try await URLSession.shared.upload(for: put, from: data)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                throw MediaAPIError(message: "The video didn't upload.")
+            }
+            let row = NewMediaItem(id: id, familyId: familyId, storagePath: path, kind: "video",
+                                   width: metadata.width, height: metadata.height,
+                                   durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt,
+                                   uploadedBy: me?.id, fileStore: "blob")
+            try await supabase.from("media_items").insert(row).execute()
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Canonical types for the admin app's allowlist. `.mov` is QuickTime;
+    /// the other extensions use their usual container type.
+    private static func videoContentType(_ fileExtension: String) -> String {
+        switch fileExtension.lowercased() {
+        case "mov": return "video/quicktime"
+        case "mp4": return "video/mp4"
+        case "m4v": return "video/m4v"
+        case "webm": return "video/webm"
+        case "mkv": return "video/x-matroska"
+        case "3gp": return "video/3gpp"
+        case "3g2": return "video/3gpp2"
+        default: return "video/\(fileExtension.lowercased())"
+        }
+    }
+
+    private func mediaEndpoint(_ name: String) -> URL? {
+        guard let base = Config.mediaAPIURL else { return nil }
+        var root = base.absoluteString
+        while root.hasSuffix("/") { root.removeLast() }
+        return URL(string: root + "/api/media/" + name)
+    }
+
+    private func mediaJSON(_ name: String, _ body: [String: Any]) async throws -> [String: Any] {
+        guard let url = mediaEndpoint(name) else {
+            throw MediaAPIError(message: "Videos need the media service URL (Config.mediaAPIURL).")
+        }
+        let token = try await supabase.auth.session.accessToken
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw MediaAPIError(message: (json["error"] as? String) ?? "The media service returned an error.")
+        }
+        return json
     }
 
     func setShowOnFrame(_ item: MediaItem, _ show: Bool) async {
@@ -919,8 +1000,13 @@ final class FamilyStore {
     func deleteMedia(_ item: MediaItem) async {
         media.removeAll { $0.id == item.id }
         do {
+            if item.inBlob {
+                _ = try await mediaJSON("delete", ["pathname": item.storagePath])
+            }
             try await supabase.from("media_items").delete().eq("id", value: item.id.uuidString).execute()
-            _ = try await supabase.storage.from(Config.mediaBucket).remove(paths: [item.storagePath])
+            if !item.inBlob {
+                _ = try await supabase.storage.from(Config.mediaBucket).remove(paths: [item.storagePath])
+            }
         } catch {
             report(error)
             await refreshMedia()
@@ -928,9 +1014,23 @@ final class FamilyStore {
     }
 
     /// Signed URLs last an hour; reuse them until they're close to expiring.
+    /// Blob URLs come from the media service; photos still come from Storage.
     func signedURL(for item: MediaItem) async -> URL? {
         if let cached = signedURLs[item.storagePath], cached.expires > Date.now.addingTimeInterval(300) {
             return cached.url
+        }
+        if item.inBlob {
+            do {
+                let json = try await mediaJSON("urls", ["paths": [item.storagePath]])
+                guard let urlString = (json["urls"] as? [String])?.first, let url = URL(string: urlString), !urlString.isEmpty else {
+                    return nil
+                }
+                signedURLs[item.storagePath] = (url: url, expires: Date.now.addingTimeInterval(3600))
+                return url
+            } catch {
+                report(error)
+                return nil
+            }
         }
         guard let url = try? await supabase.storage.from(Config.mediaBucket)
             .createSignedURL(path: item.storagePath, expiresIn: 3600) else { return nil }
