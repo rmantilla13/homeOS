@@ -5,6 +5,7 @@ import HomeOS
 import HomeOS.Core
 
 // Kids pick themselves, see their points, and spend them on rewards.
+// Plus adds a reward to the family catalog.
 Item {
     id: rewardsScreen
     readonly property var kids: Store.members.filter(m => m.role === "child")
@@ -14,6 +15,23 @@ Item {
     // On screen and not covered (set by Main.qml); the balance tile only
     // animates while it is.
     property bool shown: true
+    readonly property var rewardIcons: ["🎁", "🍦", "🎮", "📺", "🍕", "🎬", "🛝", "🧁", "⏰", "📱"]
+    property string draftIcon: "🎁"
+    property int draftCost: 50
+
+    function openAdd() {
+        draftIcon = rewardIcons[0]
+        draftCost = 50
+        rewardTitle.text = ""
+        addReward.open()
+        rewardTitle.forceActiveFocus()
+    }
+    function submitReward() {
+        const title = rewardTitle.text.trim()
+        if (!title.length || draftCost <= 0) return
+        Store.addReward(title, draftIcon, draftCost)
+        addReward.close()
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -44,6 +62,12 @@ Item {
                     }
                     Label { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.display_name; color: Theme.text; font.pixelSize: Theme.fontSm }
                 }
+            }
+            IconButton {
+                icon: "plus"
+                fill: Theme.accent
+                ink: Theme.accentInk
+                onClicked: rewardsScreen.openAdd()
             }
         }
 
@@ -179,6 +203,60 @@ Item {
                         confirm.close()
                     }
                 }
+            }
+        }
+    }
+
+    FormDialog {
+        id: addReward
+        titleText: qsTr("New reward")
+        canSubmit: rewardTitle.text.trim().length > 0 && rewardsScreen.draftCost > 0
+        onSubmitted: rewardsScreen.submitReward()
+
+        FormField {
+            id: rewardTitle
+            placeholderText: qsTr("Reward")
+            onAccepted: rewardsScreen.submitReward()
+        }
+        Flow {
+            Layout.fillWidth: true
+            spacing: 10
+            Repeater {
+                model: rewardsScreen.rewardIcons
+                delegate: Rectangle {
+                    required property string modelData
+                    width: 56; height: 56; radius: 28
+                    color: rewardsScreen.draftIcon === modelData ? Theme.accentSoft : Theme.surfaceAlt
+                    border.width: rewardsScreen.draftIcon === modelData ? 2 : 0
+                    border.color: Theme.accent
+                    Label {
+                        anchors.centerIn: parent
+                        text: modelData
+                        font.family: Theme.emojiFont
+                        font.pixelSize: 28
+                    }
+                    TapHandler { onTapped: rewardsScreen.draftIcon = modelData }
+                }
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Label {
+                text: qsTr("Costs %1 points").arg(rewardsScreen.draftCost)
+                color: Theme.text
+                font.pixelSize: Theme.fontSm
+                Layout.fillWidth: true
+            }
+            IconButton {
+                icon: "left"
+                enabled: rewardsScreen.draftCost > 5
+                onClicked: rewardsScreen.draftCost = Math.max(5, rewardsScreen.draftCost - 5)
+            }
+            IconButton {
+                icon: "right"
+                enabled: rewardsScreen.draftCost < 1000
+                onClicked: rewardsScreen.draftCost = Math.min(1000, rewardsScreen.draftCost + 5)
             }
         }
     }

@@ -38,6 +38,8 @@ Migrations are added after the existing ones, never edited in place:
 - `20261008000002_media_storage.sql`: the Storage quota trigger and the
   `family-media` policies (Supabase-only, like 000002 and 000005)
 - `20261008000003_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
+- `20261009000001_wall_create_rewards.sql`: split `rewards` RLS so a paired
+  display (or a parent) may insert; parents still update and delete (§1.8, §5)
 
 Everything that only exists on Supabase (`storage.*`, `supabase_realtime`,
 `supabase_auth_admin` grants) goes in a separate migration or in a
@@ -331,7 +333,12 @@ platform admins.
   `points`, `requires_approval` or `family_id` (`only a parent can change a
   chore's points or approval`). Anyone may still add chores that need approval
   (the assistant's `add_chore`), chores without points, and edit or archive
-  them.
+  them. The wall display always sets `requires_approval = true` when
+  `points > 0`.
+- **Rewards RLS** (`20261009000001_wall_create_rewards.sql`): `rewards_insert`
+  allows a parent of the family, or a paired display (`devices.user_id =
+  auth.uid()` for an active family). `rewards_update` and `rewards_delete`
+  stay parent-only (archive / edit from iOS).
 - **Colors:** `members.color` and `events.color` must match `^#[0-9A-Fa-f]{6}$`
   (constraints `members_color_hex`, `events_color_hex`). The display, the iOS
   app and the admin console all render them; `#RRGGBB` is the one form all
@@ -799,12 +806,28 @@ files still play.
   confirmation first). Reboot stays disabled when the helper isn't installed
 - "Re-pair this display": confirmation, then clears the session
 
+**Wall create flows** (Calendar, Chores, Rewards)
+
+- `FamilyStore::addEvent(title, location, startsAt, endsAt, allDay, memberIds)`
+  inserts into `events`, then `event_members` for each id. Demo mode keeps
+  the row locally. Optimistic UI, then `loadLive()` on success.
+- `FamilyStore::addTask(title, icon, assigneeId, points, requiresApproval,
+  rrule)` inserts into `tasks`. When `points > 0`, the display forces
+  `requires_approval = true` so `tasks_guard` accepts a device write.
+- `FamilyStore::addReward(title, icon, cost)` inserts into `rewards`
+  (`rewards_insert` allows the paired display). Parents still archive from
+  iOS.
+- Each screen exposes a `+` control that opens a touch form (`FormDialog`).
+
 **Build and install**
 
 - CMake adds `WebSockets`. Packages: `qt6-websockets-dev` for the build,
   `libqt6websockets6` at runtime.
 - `display/deploy/install-pi.sh` adds those packages and a `--with-voice`
   flag (or `HOMEOS_VOICE=1`) that runs `voice/deploy/install-voice.sh`.
+  It also masks `getty@tty1` / `autovt@tty1` so a failed or slow kiosk start
+  cannot leave a login prompt on the panel; recovery unmasks them (see
+  `docs/PI_SETUP.md`).
 
 **Simulator check:** run `python -m homeos_voice --simulate`, then pipe
 `wake what's for dinner` and confirm the quick card flow in demo mode.

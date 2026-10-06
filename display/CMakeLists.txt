@@ -69,6 +69,8 @@ qt_add_qml_module(homeos-display
         qml/components/VideoView.qml
         qml/components/Toggle.qml
         qml/components/VoiceOrb.qml
+        qml/components/FormDialog.qml
+        qml/components/FormField.qml
         qml/screens/HomeScreen.qml
         qml/screens/CalendarScreen.qml
         qml/screens/TasksScreen.qml

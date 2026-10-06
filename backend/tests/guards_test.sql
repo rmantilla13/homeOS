@@ -66,6 +66,17 @@ select tests.eq((select balance from member_points where member_id = :'m_emma'),
 insert into task_completions (task_id, member_id) select id, :'m_emma' from tasks where title = 'Empty the dishwasher';
 select tests.eq((select c.status::text from task_completions c join tasks t on t.id = c.task_id where t.title = 'Empty the dishwasher'),
                 'pending', 'a chore added from the screen waits for a parent');
+-- Wall create: displays may insert rewards; kids may not; parents archive.
+select tests.eq(tests.affected(format($$insert into rewards (family_id, title, icon, cost)
+                                       values (%L, 'Extra story time', '📖', 40)$$, :'fam')),
+                1, 'display can add a reward');
+select tests.eq(tests.affected($$update rewards set active = false where title = 'Extra story time'$$),
+                0, 'display cannot archive a reward');
+select tests.logout();
+
+select tests.login(:'emma');
+select tests.throws(format($$insert into rewards (family_id, title, cost) values (%L, 'Kid reward', 10)$$, :'fam'),
+                    '%row-level security%', 'kid cannot add a reward');
 select tests.logout();
 
 -- ───────────────────────── Chores: parents ─────────────────────────
@@ -75,6 +86,8 @@ select tests.eq(tests.affected(format($$update tasks set points = 25, requires_a
                 1, 'parent changes points and approval');
 select tests.eq(tests.affected(format($$insert into tasks (family_id, title, points, requires_approval) values (%L, 'Big job', 100, false)$$, :'fam')),
                 1, 'parent adds an auto-approved chore with points');
+select tests.eq(tests.affected($$update rewards set active = false where title = 'Extra story time'$$),
+                1, 'parent archives a reward the display added');
 select tests.logout();
 
 -- ───────────────────────── Colors ─────────────────────────

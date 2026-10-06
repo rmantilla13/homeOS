@@ -136,6 +136,13 @@ void SupabaseClient::insert(const QString &table, const QJsonObject &row, Callba
     handle(m_nam.post(req, QJsonDocument(row).toJson(QJsonDocument::Compact)), cb);
 }
 
+void SupabaseClient::insert(const QString &table, const QJsonArray &rows, Callback cb)
+{
+    QNetworkRequest req = request("/rest/v1/" + table);
+    req.setRawHeader("Prefer", "return=representation");
+    handle(m_nam.post(req, QJsonDocument(rows).toJson(QJsonDocument::Compact)), cb);
+}
+
 void SupabaseClient::update(const QString &table, const QUrlQuery &filter, const QJsonObject &patch, Callback cb)
 {
     QNetworkRequest req = request("/rest/v1/" + table, filter);

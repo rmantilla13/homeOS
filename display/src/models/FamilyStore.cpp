@@ -485,6 +485,190 @@ void FamilyStore::addListItem(const QString &listId, const QString &text)
                          });
 }
 
+void FamilyStore::addEvent(const QString &title, const QString &location,
+                           const QString &startsAt, const QString &endsAt, bool allDay,
+                           const QVariantList &memberIds)
+{
+    const QString trimmed = title.trimmed();
+    if (trimmed.isEmpty())
+        return;
+
+    QDateTime start = parseTimestamp(startsAt);
+    QDateTime end = parseTimestamp(endsAt);
+    if (!start.isValid())
+        return;
+    if (!end.isValid() || end < start)
+        end = allDay ? start.addSecs(24 * 3600 - 1) : start.addSecs(3600);
+
+    QStringList ids;
+    for (const QVariant &v : memberIds) {
+        const QString id = v.toString().trimmed();
+        if (!id.isEmpty() && !ids.contains(id))
+            ids << id;
+    }
+
+    const QString id = newId();
+    const QString familyId = m_settings.value(QStringLiteral("device/familyId")).toString();
+    QVariantMap row{{"id", id},
+                    {"title", trimmed},
+                    {"location", location.trimmed()},
+                    {"starts_at", start.toString(Qt::ISODate)},
+                    {"ends_at", end.toString(Qt::ISODate)},
+                    {"all_day", allDay},
+                    {"member_ids", ids}};
+    if (!familyId.isEmpty())
+        row.insert(QStringLiteral("family_id"), familyId);
+
+    m_rawEvents.prepend(row);
+    rebuild();
+    emit notify(tr("Added “%1”").arg(trimmed));
+
+    if (m_mode != QLatin1String("live") || familyId.isEmpty())
+        return;
+
+    QJsonObject payload{{"id", id},
+                        {"family_id", familyId},
+                        {"title", trimmed},
+                        {"starts_at", start.toUTC().toString(Qt::ISODate)},
+                        {"ends_at", end.toUTC().toString(Qt::ISODate)},
+                        {"all_day", allDay}};
+    const QString place = location.trimmed();
+    if (!place.isEmpty())
+        payload.insert(QStringLiteral("location"), place);
+
+    m_client->insert("events", payload, [this, id, ids](const QJsonDocument &, const QString &error) {
+        if (!error.isEmpty()) {
+            for (int i = 0; i < m_rawEvents.size(); ++i) {
+                if (m_rawEvents.at(i).toMap().value(QStringLiteral("id")).toString() == id) {
+                    m_rawEvents.removeAt(i);
+                    break;
+                }
+            }
+            rebuild();
+            emit notify(tr("Couldn't save that event. Try again."));
+            return;
+        }
+        if (ids.isEmpty()) {
+            loadLive();
+            return;
+        }
+        QJsonArray links;
+        for (const QString &memberId : ids)
+            links.append(QJsonObject{{"event_id", id}, {"member_id", memberId}});
+        m_client->insert("event_members", links, [this](const QJsonDocument &, const QString &linkError) {
+            if (!linkError.isEmpty())
+                emit notify(tr("Event saved, but who it's for didn't stick. Try again."));
+            loadLive();
+        });
+    });
+}
+
+void FamilyStore::addTask(const QString &title, const QString &icon, const QString &assigneeId,
+                          int points, bool requiresApproval, const QString &rrule)
+{
+    const QString trimmed = title.trimmed();
+    if (trimmed.isEmpty())
+        return;
+
+    // Device accounts aren't parents: tasks_guard refuses points that skip approval.
+    const int safePoints = qMax(0, points);
+    const bool safeApproval = (safePoints > 0) ? true : requiresApproval;
+    const QString rule = rrule.trimmed().isEmpty() ? QStringLiteral("FREQ=DAILY") : rrule.trimmed();
+    const QString id = newId();
+    const QString familyId = m_settings.value(QStringLiteral("device/familyId")).toString();
+    const QString assignee = assigneeId.trimmed();
+
+    QVariantMap row{{"id", id},
+                    {"title", trimmed},
+                    {"icon", icon.trimmed().isEmpty() ? QStringLiteral("✔️") : icon.trimmed()},
+                    {"assignee_id", assignee},
+                    {"points", safePoints},
+                    {"requires_approval", safeApproval},
+                    {"rrule", rule},
+                    {"archived", false}};
+    if (!familyId.isEmpty())
+        row.insert(QStringLiteral("family_id"), familyId);
+
+    m_rawTasks.prepend(row);
+    rebuild();
+    emit notify(tr("Added “%1”").arg(trimmed));
+
+    if (m_mode != QLatin1String("live") || familyId.isEmpty())
+        return;
+
+    QJsonObject payload{{"id", id},
+                        {"family_id", familyId},
+                        {"title", trimmed},
+                        {"icon", row.value(QStringLiteral("icon")).toString()},
+                        {"points", safePoints},
+                        {"requires_approval", safeApproval},
+                        {"rrule", rule}};
+    if (!assignee.isEmpty())
+        payload.insert(QStringLiteral("assignee_id"), assignee);
+
+    m_client->insert("tasks", payload, [this, id](const QJsonDocument &, const QString &error) {
+        if (!error.isEmpty()) {
+            for (int i = 0; i < m_rawTasks.size(); ++i) {
+                if (m_rawTasks.at(i).toMap().value(QStringLiteral("id")).toString() == id) {
+                    m_rawTasks.removeAt(i);
+                    break;
+                }
+            }
+            rebuild();
+            emit notify(tr("Couldn't save that chore. Try again."));
+            return;
+        }
+        loadLive();
+    });
+}
+
+void FamilyStore::addReward(const QString &title, const QString &icon, int cost)
+{
+    const QString trimmed = title.trimmed();
+    if (trimmed.isEmpty() || cost <= 0)
+        return;
+
+    const QString id = newId();
+    const QString familyId = m_settings.value(QStringLiteral("device/familyId")).toString();
+    const QString emoji = icon.trimmed().isEmpty() ? QStringLiteral("🎁") : icon.trimmed();
+
+    QVariantMap row{{"id", id},
+                    {"title", trimmed},
+                    {"icon", emoji},
+                    {"cost", cost},
+                    {"active", true}};
+    if (!familyId.isEmpty())
+        row.insert(QStringLiteral("family_id"), familyId);
+
+    m_rawRewards.prepend(row);
+    rebuild();
+    emit notify(tr("Added “%1”").arg(trimmed));
+
+    if (m_mode != QLatin1String("live") || familyId.isEmpty())
+        return;
+
+    m_client->insert("rewards",
+                     QJsonObject{{"id", id},
+                                 {"family_id", familyId},
+                                 {"title", trimmed},
+                                 {"icon", emoji},
+                                 {"cost", cost}},
+                     [this, id](const QJsonDocument &, const QString &error) {
+                         if (!error.isEmpty()) {
+                             for (int i = 0; i < m_rawRewards.size(); ++i) {
+                                 if (m_rawRewards.at(i).toMap().value(QStringLiteral("id")).toString() == id) {
+                                     m_rawRewards.removeAt(i);
+                                     break;
+                                 }
+                             }
+                             rebuild();
+                             emit notify(tr("Couldn't save that reward. Try again."));
+                             return;
+                         }
+                         loadLive();
+                     });
+}
+
 // ───────────────────────────── Pairing ─────────────────────────────
 
 void FamilyStore::startPairing()
