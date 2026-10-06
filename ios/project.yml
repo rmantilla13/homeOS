@@ -23,6 +23,8 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSPhotoLibraryUsageDescription: Pick photos and videos to show on your family display.
         NSCameraUsageDescription: Scan the pairing code on your family display.
+        NSMicrophoneUsageDescription: Talk to the homeOS assistant instead of typing.
+        NSSpeechRecognitionUsageDescription: Turn what you say to the homeOS assistant into text.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.homeos.app

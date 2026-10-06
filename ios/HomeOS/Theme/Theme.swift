@@ -109,15 +109,6 @@ enum Mood: String, CaseIterable {
     }
 
     var glowOpacity: Double { self == .night ? 0.55 : 0.9 }
-
-    var greeting: String {
-        switch self {
-        case .morning: return "Good morning"
-        case .day: return "Good afternoon"
-        case .evening: return "Good evening"
-        case .night: return "Good night"
-        }
-    }
 }
 
 private struct MoodKey: EnvironmentKey {
