@@ -4,18 +4,29 @@
  ┌──────────────────┐        ┌──────────────────────────────┐        ┌──────────────────┐
  │  iOS app (Swift) │◀──────▶│  Supabase (cloud backend)    │◀──────▶│ Wall display     │
  │  parents & kids  │  HTTPS │  Postgres + RLS              │ HTTPS  │ Qt 6 / QML / C++ │
- │  feed the screen │  + WS  │  Auth · Storage · Realtime   │  + WS  │ Raspberry Pi 5   │
- └──────────────────┘        │  Edge Functions (pairing,    │        │ local cache      │
-                             │  push, recurring jobs)       │        └──────────────────┘
-                             └──────────────────────────────┘
+ │  feed the screen │  + SSE │  Auth · Storage · Realtime   │  + SSE │ Raspberry Pi 5   │
+ └──────────────────┘        │  Edge Functions: assistant,  │        └────────┬─────────┘
+                             │  admin, pair-device          │                 │ ws://127.0.0.1
+ ┌──────────────────┐        │                              │        ┌────────┴─────────┐
+ │ Admin console    │◀──────▶│                              │        │ Voice service    │
+ │ Next.js, admins  │  HTTPS └──────────────────────────────┘        │ wake word, STT,  │
+ └──────────────────┘                                                │ TTS (on the Pi)  │
+                                                                     └──────────────────┘
 ```
+
+[PLATFORM_SPEC.md](PLATFORM_SPEC.md) is the contract between these parts: table,
+RPC, endpoint, event and message names. Change it first when a shape changes.
 
 ## Backend: Supabase
 
 - **Postgres** holds all family data, and row-level security scopes every row
   to a family (`backend/supabase/migrations`).
-- **Auth** has two kinds of users: people (iOS app, Sign in with Apple or
-  email) and devices (one auth user per wall screen, created at pairing).
+- **Auth** has two kinds of users: people (iOS app, email) and devices (one
+  auth user per wall screen, created at pairing).
+- **Invite-only accounts:** a new person needs a platform invite to start a
+  family, or a family invite (from a parent) to join one. Each person has a
+  `profiles` row. Platform admins can suspend families, which hides their
+  data from members and displays. See [PLATFORM.md](PLATFORM.md).
 - **Storage**: the `family-media` bucket stores photos and videos under
   `<family_id>/<media_id>.<ext>`.
 - **Realtime**: the display subscribes to row changes, so the screen updates
@@ -23,6 +34,8 @@
 - **Edge Functions**:
   - `pair-device` binds a new screen to a family.
   - `assistant` is the family AI, described below.
+  - `admin` does what needs Supabase Auth's admin API (emailed invites, ban,
+    delete user) after checking that the caller is a platform admin.
   - Later: push notifications (APNs), recurring-chore generation, and
     calendar sync with Google and iCloud.
 
@@ -41,9 +54,17 @@
 | `lists` / `list_items` | Shopping and other checklists |
 | `meal_plans` | One row per day and meal |
 | `media_items` | Metadata for photos and videos in Storage |
+| `profiles` | One per person with an account: display name, avatar |
+| `platform_invites` / `family_invites` | Invite codes to start a family, or to join one (optionally as an existing member) |
+| `assistant_threads` / `assistant_messages` | Saved assistant conversations, private to the person who started them |
+| `assistant_usage` | Requests and tokens per family and day, for the daily limit and the admin charts |
+| `platform_admins` / `platform_settings` / `admin_audit_log` | Who runs the platform, global switches (invite-only, assistant on/off, daily limit) and a log of every admin action |
 
 Points are never edited directly. They are written only by database
 functions (`approve_completion`, `redeem_reward`), so balances can't drift.
+Guard triggers also stop non-parents from setting what a chore is worth or
+letting it skip approval, so a child (or the kitchen display) can't award
+themselves points.
 
 ## Design system: dynamic color and motion
 
@@ -100,30 +121,56 @@ running in the `assistant` edge function.
 - **Family memory** (`family_memories` table) holds lasting facts the assistant
   saves with its `remember` tool, such as "Leo is allergic to peanuts" or
   "soccer carpool is with the Parks". Parents can delete memories.
-- **Tools:** `add_event`, `add_list_item`, `add_chore`, `set_meal`, `remember`.
-  Points, approvals and rewards are deliberately not exposed, so a child at the
-  screen can't award themselves points.
+- **Tools:** `add_event`, `add_list_item`, `add_chore`, `set_meal`, `remember`,
+  and `forget` (parents only). Points, approvals and rewards are deliberately
+  not exposed, so a child at the screen can't award themselves points.
+- **Threads:** conversations are saved per person (`assistant_threads`), so the
+  iPhone shows past chats and the display picks up where it left off.
+- **Streaming:** replies stream to the display and the iPhone as server-sent
+  events (`thread`, `delta`, `action`, then `done` or `error`).
+- **Quick mode:** short spoken-style answers for the wake word and Siri
+  ("Ask homeOS").
+- **Limits:** platform admins can switch the assistant off and set a daily
+  request limit per family. Request, history and family-snapshot sizes are
+  capped so one family can't run up costs.
 - **Privacy:** the function queries Postgres with the caller's own JWT, so
   row-level security limits the assistant to that family. The Anthropic API key
   lives only in the function's secrets and never reaches a device.
 - **Demo mode:** the display answers a few common questions (today, tomorrow,
   dinner, chores, points, adding to the grocery list) from the sample data, so
   the screen works without a backend.
-- **Voice:** the mic button is in place; speech-to-text comes later (whisper.cpp
-  running locally on the Pi, or a cloud speech service).
+- **Voice:** see the voice service below.
+
+## Voice: `voice/`
+
+A Python service on the Pi, next to the display. It needs a USB microphone
+(the panel has speakers but no mic).
+
+- **Wake word** (openWakeWord) → the display shows a quick-answer card that
+  listens, streams the answer, speaks it, and then dismisses itself.
+- **Push-to-talk:** the mic buttons on the display send what you say to the
+  chat instead.
+- Speech-to-text (faster-whisper) and text-to-speech (Piper) run locally.
+  Audio never leaves the device; only the transcript goes to the assistant.
+- The display talks to it over a WebSocket on `127.0.0.1`. Connections from
+  web pages are refused, so a browser on the device can't turn the mic on.
+- `--simulate` mode needs no audio hardware. See [VOICE.md](VOICE.md).
 
 ## Display app: `display/`
 
 Qt 6 with QML for the UI and C++ for data, networking and hardware.
 
 ```
-QML screens  ─ Home · Calendar · Tasks · Rewards · Photos · Planner · PhotoFrame
+QML screens  ─ Home · Calendar · Tasks · Rewards · Media · Planner · screen savers
+             ─ AssistantPanel · QuickAnswer · SettingsSheet
      │
 FamilyStore  ─ demo / pairing / live modes; exposes display-ready rows to QML
+Assistant    ─ streaming chat and quick answers (ChatModel)
+VoiceClient  ─ WebSocket to the voice service: wake, transcripts, speech
      │
-SupabaseClient ─ REST (PostgREST) today; Realtime WebSocket next
+SupabaseClient ─ REST (PostgREST) and streamed function calls (SSE)
      │
-DisplayController ─ idle → photo frame, backlight, presence wake
+DisplayController ─ idle → screen saver, backlight, presence wake
 ```
 
 - **Kiosk mode**: runs full screen with `-platform eglfs`, one app per device,
@@ -143,6 +190,10 @@ SwiftUI with the `supabase-swift` SDK; the Xcode project is generated by
 XcodeGen.
 
 - Tabs: Today, Calendar, Chores, Rewards and Photos.
+- Invite-only onboarding: enter an invite code or open a `homeos://invite/<CODE>`
+  link, then create an account and start or join a family.
+- Profile (name, photo), family management (members, roles, invites) and the
+  assistant with saved threads. Siri: say "Ask homeOS", then the question.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Storage;
   they appear on the wall frame within seconds.
 - Parents approve chore completions and manage rewards.
@@ -160,3 +211,11 @@ XcodeGen.
    device auth user and the `devices` row, and marks the code claimed.
 5. The display polls the code and receives its device session. It stores the
    refresh token on disk, and RLS then treats it as a member of that family.
+
+## Admin console: `admin/`
+
+A Next.js app for platform admins: an overview of families, people and
+assistant use; suspending or deleting families; banning users; issuing
+platform invites; global settings; and the audit log. Every page and action
+checks platform-admin rights on the server, and the database checks them
+again. It never holds a service-role key. See [ADMIN.md](ADMIN.md).
