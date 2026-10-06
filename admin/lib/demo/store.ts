@@ -1,15 +1,19 @@
 import "server-only";
 import { DataError } from "@/lib/errors";
-import { buildDemoState, USAGE_DAYS, type DemoFamily, type DemoState } from "@/lib/demo/fixtures";
+import { buildDemoState, demoMediaUrl, USAGE_DAYS, type DemoFamily, type DemoState } from "@/lib/demo/fixtures";
 import type {
   AuditEntry,
   FamilyDetail,
+  FamilyLimitsPatch,
   FamilyRow,
   FamilyStatus,
+  MediaItem,
+  MediaKind,
   NewInvite,
   Overview,
   PlatformInvite,
   Settings,
+  SignedMedia,
   UsageDay,
   UserRow,
 } from "@/lib/types";
@@ -54,6 +58,30 @@ function findFamily(id: string): DemoFamily {
   return family;
 }
 
+const storageBytes = (f: DemoFamily) => f.media.reduce((n, m) => n + m.byte_size, 0);
+const storageLimit = (f: DemoFamily) => f.storage_limit_bytes ?? state().settings.storage_limit_bytes;
+const itemLimit = (f: DemoFamily) => f.media_item_limit ?? state().settings.media_item_limit;
+const overQuota = (f: DemoFamily) => storageBytes(f) > storageLimit(f) || f.media.length > itemLimit(f);
+
+function toMediaItem(m: DemoFamily["media"][number]): MediaItem {
+  return {
+    id: m.id,
+    kind: m.kind,
+    storage_path: m.storage_path,
+    thumbnail_path: m.thumbnail_path,
+    content_type: m.content_type,
+    byte_size: m.byte_size,
+    width: m.width,
+    height: m.height,
+    duration_seconds: m.duration_seconds,
+    caption: m.caption,
+    taken_at: m.taken_at,
+    created_at: m.created_at,
+    show_on_frame: m.show_on_frame,
+    uploaded_by_name: m.uploaded_by_name,
+  };
+}
+
 function inviteStatus(i: PlatformInvite): PlatformInvite["status"] {
   if (i.revoked_at) return "revoked";
   if (i.use_count >= i.max_uses) return "used";
@@ -80,10 +108,18 @@ export function demoOverview(): Overview {
     suspended_families: s.families.filter((f) => f.status === "suspended").length,
     users: s.users.length,
     devices: s.families.reduce((n, f) => n + f.devices.length, 0),
+    devices_seen_24h: s.families.reduce(
+      (n, f) => n + f.devices.filter((d) => sinceDays(d.last_seen_at, 1)).length,
+      0,
+    ),
     members: s.families.reduce((n, f) => n + f.members.length, 0),
     open_platform_invites: s.invites.filter((i) => inviteStatus(i) === "active").length,
     assistant_requests_7d: requests7,
     assistant_tokens_7d: tokens7,
+    assistant_enabled: s.settings.assistant_enabled,
+    media_items: s.families.reduce((n, f) => n + f.media.length, 0),
+    storage_bytes: s.families.reduce((n, f) => n + storageBytes(f), 0),
+    families_over_quota: s.families.filter(overQuota).length,
   };
 }
 
@@ -120,6 +156,10 @@ export function demoListFamilies(search: string | null, lim: number, off: number
       device_count: f.devices.length,
       assistant_requests_30d: lastDays(f.usage, 30).reduce((n, d) => n + d.requests, 0),
       last_activity: f.last_activity ?? null,
+      media_count: f.media.length,
+      storage_bytes: storageBytes(f),
+      storage_limit_bytes: storageLimit(f),
+      media_item_limit: itemLimit(f),
     }));
 }
 
@@ -127,9 +167,16 @@ export function demoFamilyDetail(id: string): FamilyDetail | null {
   const s = state();
   const f = s.families.find((x) => x.id === id);
   if (!f) return null;
-  const { members, devices, invites, usage, ...family } = f;
+  const { members, devices, invites, usage, media, ...family } = f;
   return {
-    family: { ...family, assistant_daily_limit_effective: f.assistant_daily_limit ?? s.settings.assistant_daily_limit },
+    family: {
+      ...family,
+      assistant_daily_limit_effective: f.assistant_daily_limit ?? s.settings.assistant_daily_limit,
+      storage_bytes: storageBytes(f),
+      storage_limit_effective: storageLimit(f),
+      media_count: media.length,
+      media_item_limit_effective: itemLimit(f),
+    },
     members,
     devices,
     invites: invites.map((i) =>
@@ -183,6 +230,22 @@ export function demoListInvites(includeInactive: boolean): PlatformInvite[] {
 
 export function demoSettings(): Settings {
   return { ...state().settings };
+}
+
+export function demoListMedia(familyId: string, kind: MediaKind | null, lim: number, off: number): MediaItem[] {
+  const f = findFamily(familyId);
+  return f.media
+    .filter((m) => !kind || m.kind === kind)
+    .sort((a, b) => b.taken_at.localeCompare(a.taken_at) || b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id))
+    .slice(off, off + lim)
+    .map(toMediaItem);
+}
+
+export function demoSignMedia(familyId: string, ids: string[]): SignedMedia[] {
+  const want = new Set(ids);
+  return findFamily(familyId).media
+    .filter((m) => want.has(m.id) && (m.thumbnail_path != null || m.kind === "photo"))
+    .map((m) => ({ id: m.id, url: demoMediaUrl(m) }));
 }
 
 export function demoListAudit(lim: number, off: number): AuditEntry[] {
@@ -243,7 +306,60 @@ export function demoRevokeInvite(id: string) {
   audit("revoke_platform_invite", "platform_invite", id, { code: invite.code });
 }
 
-export function demoUpdateSettings(patch: Partial<Pick<Settings, "invite_only" | "assistant_enabled" | "assistant_daily_limit">>): Settings {
+export function demoDeleteMedia(id: string) {
+  const s = state();
+  for (const f of s.families) {
+    const item = f.media.find((m) => m.id === id);
+    if (!item) continue;
+    f.media = f.media.filter((m) => m.id !== id);
+    audit("delete_media", "media", id, {
+      family_id: f.id, storage_path: item.storage_path, thumbnail_path: item.thumbnail_path,
+      byte_size: item.byte_size, kind: item.kind,
+    });
+    audit("delete_media_files", "media", id, {
+      family_id: f.id, bucket: "family-media", files_removed: item.thumbnail_path ? 2 : 1,
+    });
+    return;
+  }
+  throw new DataError("media not found");
+}
+
+export function demoRevokeDevice(id: string) {
+  const s = state();
+  for (const f of s.families) {
+    const device = f.devices.find((d) => d.id === id);
+    if (!device) continue;
+    f.devices = f.devices.filter((d) => d.id !== id);
+    audit("revoke_device", "device", id, {
+      family_id: f.id, name: device.name, user_id: device.user_id, auth_user_removed: true,
+    });
+    audit("revoke_device_auth", "device", id, {
+      family_id: f.id, name: device.name, user_id: device.user_id, auth_user_removed: true,
+    });
+    return;
+  }
+  throw new DataError("device not found");
+}
+
+export function demoSetFamilyLimits(id: string, patch: FamilyLimitsPatch) {
+  const f = findFamily(id);
+  const changes: Record<string, number | null> = {};
+  if (patch.assistant_daily_limit !== undefined && patch.assistant_daily_limit !== f.assistant_daily_limit) {
+    f.assistant_daily_limit = patch.assistant_daily_limit;
+    changes.assistant_daily_limit = patch.assistant_daily_limit;
+  }
+  if (patch.storage_limit_bytes !== undefined && patch.storage_limit_bytes !== f.storage_limit_bytes) {
+    f.storage_limit_bytes = patch.storage_limit_bytes;
+    changes.storage_limit_bytes = patch.storage_limit_bytes;
+  }
+  if (patch.media_item_limit !== undefined && patch.media_item_limit !== f.media_item_limit) {
+    f.media_item_limit = patch.media_item_limit;
+    changes.media_item_limit = patch.media_item_limit;
+  }
+  if (Object.keys(changes).length > 0) audit("set_family_limits", "family", id, changes);
+}
+
+export function demoUpdateSettings(patch: Partial<Pick<Settings, "invite_only" | "assistant_enabled" | "assistant_daily_limit" | "storage_limit_bytes" | "media_max_bytes" | "media_item_limit">>): Settings {
   const s = state();
   s.settings = { ...s.settings, ...patch, updated_at: new Date().toISOString(), updated_by: s.admin.id };
   audit("update_settings", "settings", null, patch);

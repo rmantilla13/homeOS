@@ -386,6 +386,7 @@ new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
 2. `backend/supabase/migrations/20261008000002_media_storage.sql`
+3. `backend/supabase/migrations/20261008000003_family_list_item_limit.sql` (adds the effective item cap to the family list)
 
 Then redeploy the `admin` and `pair-device` edge functions so the console can
 sign and delete media, revoke a display's auth user, and so pairing refuses

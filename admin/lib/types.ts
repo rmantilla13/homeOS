@@ -9,10 +9,15 @@ export type Overview = {
   suspended_families: number;
   users: number;
   devices: number;
+  devices_seen_24h: number;
   members: number;
   open_platform_invites: number;
   assistant_requests_7d: number;
   assistant_tokens_7d: number;
+  assistant_enabled: boolean;
+  media_items: number;
+  storage_bytes: number;
+  families_over_quota: number;
 };
 
 export type UsageDay = {
@@ -36,6 +41,12 @@ export type FamilyRow = {
   device_count: number;
   assistant_requests_30d: number;
   last_activity: string | null;
+  media_count: number;
+  storage_bytes: number;
+  /** Effective quota: the family's override, or the platform default. */
+  storage_limit_bytes: number;
+  /** Effective item cap. */
+  media_item_limit: number;
 };
 
 export type Family = {
@@ -48,6 +59,13 @@ export type Family = {
   suspended_reason: string | null;
   assistant_daily_limit: number | null;
   assistant_daily_limit_effective?: number | null;
+  /** Null means the platform default. */
+  storage_limit_bytes: number | null;
+  media_item_limit: number | null;
+  storage_bytes?: number;
+  storage_limit_effective?: number;
+  media_count?: number;
+  media_item_limit_effective?: number;
   last_activity?: string | null;
 };
 
@@ -128,8 +146,39 @@ export type Settings = {
   invite_only: boolean;
   assistant_enabled: boolean;
   assistant_daily_limit: number;
+  storage_limit_bytes: number;
+  media_max_bytes: number;
+  media_item_limit: number;
   updated_at: string | null;
   updated_by: string | null;
+};
+
+export type MediaKind = "photo" | "video";
+
+export type MediaItem = {
+  id: string;
+  kind: MediaKind;
+  storage_path: string;
+  thumbnail_path: string | null;
+  content_type: string | null;
+  byte_size: number | null;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  caption: string | null;
+  taken_at: string | null;
+  created_at: string;
+  show_on_frame: boolean;
+  uploaded_by_name: string | null;
+};
+
+export type SignedMedia = { id: string; url: string };
+
+/** What setFamilyLimits changes. Null clears the override; omit a key to leave it. */
+export type FamilyLimitsPatch = {
+  assistant_daily_limit?: number | null;
+  storage_limit_bytes?: number | null;
+  media_item_limit?: number | null;
 };
 
 export type AuditEntry = {

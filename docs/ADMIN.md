@@ -8,12 +8,14 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 | Page | What it does |
 |---|---|
 | `/login` | Email and password sign-in. Only platform admins get past it. |
-| `/` | Overview: totals from `admin_overview()`, a 30-day assistant usage chart (`admin_usage_by_day`), recent admin activity |
+| `/` | Overview: totals from `admin_overview()` (families, storage, items, families over quota, displays seen in the last day, assistant on or off), a 30-day assistant usage chart (`admin_usage_by_day`), recent admin activity |
 | `/families` | Search families by name or id |
-| `/families/[id]` | Members, displays, family invites and 30-day usage. Suspend (with a reason), reactivate, delete (type the name to confirm) |
+| `/families/[id]` | Members, displays, family invites, 30-day usage, storage and item meters, and per-family limits (assistant, storage, item cap). Suspend (with a reason), reactivate, delete (type the name to confirm). Revoke a paired display |
+| `/families/[id]/media` | That family's photos and videos, with posters. Remove an item (audited; the file and poster are deleted) |
+| `/media` | Storage used, item counts and quota for every family |
 | `/users` | Search accounts by email or name. Make or remove admin, ban, unban, delete |
 | `/invites` | Create platform invites (optional email lock, note, max uses, expiry), optionally email them; copy, revoke, see status |
-| `/settings` | Invite-only sign-up, assistant on/off, requests per family per day |
+| `/settings` | Invite-only sign-up, assistant on/off, requests per family per day, default storage quota, largest file, and item cap |
 | `/audit` | Every admin action, newest first |
 
 ## How it works
@@ -29,12 +31,14 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 - **One data module.** Every page and action reads and writes through
   `admin/lib/data.ts`. It calls the `admin_*` RPCs as the signed-in admin, and
   the `admin` edge function for what needs the service role: Supabase Auth's
-  admin API (`invite_email`, `ban_user`, `unban_user`, `delete_user`) and
-  Storage (`delete_family`, which runs `admin_delete_family` as the admin and
-  then removes the family's photos and videos from `family-media`; SQL alone
-  leaves the files behind). Deleting a user removes their `avatars` folder
-  the same way. In demo mode the same functions answer from fixtures instead
-  (below).
+  admin API (`invite_email`, `ban_user`, `unban_user`, `delete_user`,
+  `sign_media`, `delete_media`, `revoke_device`) and Storage.
+  `delete_family` runs `admin_delete_family` as the admin and then removes
+  the family's photos and videos from `family-media`; `delete_media` does the
+  same for one item. SQL alone leaves the files behind. Deleting a user
+  removes their `avatars` folder the same way. Thumbnail URLs are signed by
+  the function for ten minutes; the console has no Storage read policy of its
+  own. In demo mode the same functions answer from fixtures instead (below).
 - **No service role key.** The console only ever has the public anon key and
   the admin's own session. The privileged work happens in the `admin` edge
   function, which checks the caller is an admin before using its own service
@@ -69,7 +73,8 @@ admin/
 
 Needs Node 20.9 or later (CI uses 22) and a Supabase project with the platform
 migrations applied (`backend/supabase/migrations`, including
-`20261007000004_admin.sql`) and the `admin` function deployed.
+`20261007000004_admin.sql` and `20261008000001` through `20261008000003`) and
+the `admin` function deployed.
 
 ```bash
 cd admin
@@ -116,9 +121,10 @@ npm run build && NEXT_PUBLIC_ADMIN_DEMO=1 npm start
 - Sign-in is skipped, and every page serves fixture data: 12 families,
   about 40 accounts and displays, invites in every state, 30 days of
   assistant usage and an audit trail. Names use reserved `example` domains.
-- Every action works (suspend, delete, invite, ban, settings and so on) against
-  an in-memory copy. Changes show up in the audit log and reset when the
-  server restarts.
+- Every action works (suspend, delete, invite, ban, settings, family limits,
+  remove a photo, revoke a display) against an in-memory copy. Media posters
+  are generated gradients, not photos. Changes show up in the audit log and
+  reset when the server restarts.
 - A "Demo data" banner is shown on every page, including `/login`.
 
 It's hard to turn on by accident:

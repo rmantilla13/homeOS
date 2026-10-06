@@ -3,6 +3,7 @@
 import { AlertIcon, CheckIcon } from "@/components/icons";
 import { useFormAction } from "@/components/useFormAction";
 import type { FormAction } from "@/lib/action-result";
+import { bytesToGiB, bytesToMiB } from "@/lib/format";
 import type { Settings } from "@/lib/types";
 import styles from "./interactive.module.css";
 import ui from "./ui.module.css";
@@ -18,6 +19,9 @@ export function SettingsForm({ action, settings }: { action: FormAction; setting
       <input type="hidden" name="was_invite_only" value={String(settings.invite_only)} />
       <input type="hidden" name="was_assistant_enabled" value={String(settings.assistant_enabled)} />
       <input type="hidden" name="was_assistant_daily_limit" value={String(settings.assistant_daily_limit)} />
+      <input type="hidden" name="was_storage_limit_bytes" value={String(settings.storage_limit_bytes)} />
+      <input type="hidden" name="was_media_max_bytes" value={String(settings.media_max_bytes)} />
+      <input type="hidden" name="was_media_item_limit" value={String(settings.media_item_limit)} />
       <div>
         <div className={styles.switchRow}>
           <label className={styles.switchText} htmlFor="invite_only">
@@ -57,8 +61,8 @@ export function SettingsForm({ action, settings }: { action: FormAction; setting
           <label className={styles.switchText} htmlFor="assistant_daily_limit">
             <span className={styles.switchLabel}>Assistant requests per family per day</span>
             <span className={styles.switchHint}>
-              Counted per UTC day. A family can have its own limit, set in the database
-              (families.assistant_daily_limit). 0 blocks the assistant for families without their own limit.
+              Counted per UTC day. A family can have its own limit, set on its page. 0 blocks the assistant for
+              families without their own limit.
             </span>
           </label>
           <input
@@ -72,6 +76,66 @@ export function SettingsForm({ action, settings }: { action: FormAction; setting
             className={ui.input}
             style={{ width: 120, flex: "none" }}
             defaultValue={settings.assistant_daily_limit}
+          />
+        </div>
+        <div className={styles.switchRow}>
+          <label className={styles.switchText} htmlFor="storage_gib">
+            <span className={styles.switchLabel}>Storage per family</span>
+            <span className={styles.switchHint}>
+              Gibibytes (1 GB here is 1024³ bytes). A family can have its own quota. 0 blocks new uploads for families
+              on the default.
+            </span>
+          </label>
+          <input
+            id="storage_gib"
+            name="storage_gib"
+            type="number"
+            min={0}
+            max={1024}
+            step={0.1}
+            required
+            className={ui.input}
+            style={{ width: 120, flex: "none" }}
+            defaultValue={bytesToGiB(settings.storage_limit_bytes)}
+          />
+        </div>
+        <div className={styles.switchRow}>
+          <label className={styles.switchText} htmlFor="media_max_mib">
+            <span className={styles.switchLabel}>Largest file</span>
+            <span className={styles.switchHint}>Mebibytes. Applies to every family. Photos and their posters count separately.</span>
+          </label>
+          <input
+            id="media_max_mib"
+            name="media_max_mib"
+            type="number"
+            min={1}
+            max={5120}
+            step={1}
+            required
+            className={ui.input}
+            style={{ width: 120, flex: "none" }}
+            defaultValue={bytesToMiB(settings.media_max_bytes)}
+          />
+        </div>
+        <div className={styles.switchRow}>
+          <label className={styles.switchText} htmlFor="media_item_limit">
+            <span className={styles.switchLabel}>Items per family</span>
+            <span className={styles.switchHint}>
+              How many photos and videos a family can keep. A poster is not a separate item. 0 blocks new uploads for
+              families on the default.
+            </span>
+          </label>
+          <input
+            id="media_item_limit"
+            name="media_item_limit"
+            type="number"
+            min={0}
+            max={1000000}
+            step={1}
+            required
+            className={ui.input}
+            style={{ width: 120, flex: "none" }}
+            defaultValue={settings.media_item_limit}
           />
         </div>
       </div>
