@@ -24,5 +24,7 @@ Rectangle {
         size: btn.iconSize
         color: btn.ink
     }
-    TapHandler { id: tap; onTapped: btn.clicked() }
+    // Claim the tap so handlers on items underneath (e.g. a photo that toggles
+    // the viewer controls) don't also react.
+    TapHandler { id: tap; gesturePolicy: TapHandler.WithinBounds; onTapped: btn.clicked() }
 }

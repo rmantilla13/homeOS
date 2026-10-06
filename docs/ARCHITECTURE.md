@@ -79,7 +79,10 @@ colors of what's on screen. The first touch only wakes the screen.
 
 The Media page shows photos and videos newest first: a featured photo, then a
 grid grouped by month, filtered by All, Photos or Videos. The full-screen
-viewer swipes between items and plays video with QtMultimedia. On the Pi that
+viewer is edge to edge: media fills the screen, and a blurred copy of the same
+image fills any leftover edges. The title, arrows, position dots and video
+controls float on top behind soft scrims and fade out after a few seconds; a tap
+brings them back. Video plays with QtMultimedia. On the Pi that
 runs through GStreamer, which uses hardware HEVC decode. In demo mode, sample
 media is copied next to the binary (`demo-media/`) or installed to
 `share/homeos/demo-media`.
