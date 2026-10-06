@@ -34,7 +34,11 @@ insert into tests.admin_calls values
   ('select admin_get_settings()'),
   (format('select admin_set_admin(%L, true)', :'stranger')),
   ('select * from admin_usage_by_day()'),
-  ('select * from admin_list_audit()');
+  ('select * from admin_list_audit()'),
+  (format('select admin_set_family_limits(%L)', :'fam')),
+  (format('select * from admin_list_media(%L)', :'fam')),
+  ('select admin_delete_media(''99999999-9999-9999-9999-999999999999'')'),
+  ('select admin_revoke_device(''99999999-9999-9999-9999-999999999999'')');
 grant select on tests.admin_calls to anon, authenticated;
 
 -- Before anyone is an admin.
@@ -70,13 +74,19 @@ select tests.eq((select count(*)::int from platform_settings), 1, 'admins read p
 -- ───────────────────────────── Settings ─────────────────────────────
 
 select tests.eq(admin_get_settings() - 'updated_at',
-                '{"invite_only": true, "assistant_enabled": true, "assistant_daily_limit": 200, "updated_by": null}'::jsonb, 'default settings');
+                jsonb_build_object('invite_only', true, 'assistant_enabled', true, 'assistant_daily_limit', 200,
+                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 536870912, 'media_item_limit', 5000,
+                                   'updated_by', null), 'default settings');
 select tests.eq(admin_update_settings(assistant_daily_limit => 50) - 'updated_at',
-                jsonb_build_object('invite_only', true, 'assistant_enabled', true, 'assistant_daily_limit', 50, 'updated_by', :'admin'),
+                jsonb_build_object('invite_only', true, 'assistant_enabled', true, 'assistant_daily_limit', 50,
+                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 536870912, 'media_item_limit', 5000,
+                                   'updated_by', :'admin'),
                 'one setting changed, the rest kept');
 select tests.eq(admin_update_settings(invite_only => false, assistant_enabled => false)->>'assistant_daily_limit', '50', 'nulls leave values alone');
 select tests.eq(admin_update_settings() - 'updated_at' - 'updated_by',
-                '{"invite_only": false, "assistant_enabled": false, "assistant_daily_limit": 50}'::jsonb, 'no arguments: no change');
+                jsonb_build_object('invite_only', false, 'assistant_enabled', false, 'assistant_daily_limit', 50,
+                                   'storage_limit_bytes', 5368709120, 'media_max_bytes', 536870912, 'media_item_limit', 5000),
+                'no arguments: no change');
 select tests.throws($$select admin_update_settings(assistant_daily_limit => -1)$$, 'assistant_daily_limit must be 0 or more', 'negative limit');
 select admin_update_settings(true, true, 200);
 select tests.eq((select details from admin_audit_log where action = 'update_settings' order by id limit 1),
@@ -127,8 +137,9 @@ insert into families (name, created_at) values ('Old quiet family', now() - inte
 select tests.login(:'admin');
 
 select tests.eq(admin_overview(), jsonb_build_object(
-  'families', 2, 'families_active_7d', 1, 'suspended_families', 0, 'users', 4, 'devices', 1, 'members', 4,
-  'open_platform_invites', 3, 'assistant_requests_7d', 3, 'assistant_tokens_7d', 1870), 'overview numbers');
+  'families', 2, 'families_active_7d', 1, 'suspended_families', 0, 'users', 4, 'devices', 1, 'devices_seen_24h', 1,
+  'members', 4, 'open_platform_invites', 3, 'assistant_requests_7d', 3, 'assistant_tokens_7d', 1870,
+  'assistant_enabled', true, 'media_items', 0, 'storage_bytes', 0, 'families_over_quota', 0), 'overview numbers');
 
 select tests.eq((select row(name, status, member_count, parent_count, device_count, assistant_requests_30d)::text
                  from admin_list_families() where id = :'fam'),

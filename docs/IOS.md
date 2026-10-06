@@ -257,8 +257,13 @@ profile screens reuse the glow header, pills and cards.
   chore is asked to get a parent to undo it first.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
-  `DateTimeOriginal`. Videos are uploaded as-is, with `duration_seconds`, size
-  and creation date read through `AVURLAsset`.
+  `DateTimeOriginal`. A 480 px JPEG poster is uploaded beside the photo at
+  `<family_id>/<id>-thumb.jpg`. The row records `byte_size` (photo plus
+  poster), `content_type` (`image/jpeg`) and `thumbnail_path`. Videos are
+  uploaded as-is (`video/quicktime` for `.mov`, otherwise `video/<ext>`),
+  with `duration_seconds`, size and creation date read through `AVURLAsset`,
+  and a poster when a frame can be read. If inserting the row fails, the
+  objects just uploaded are removed. Deleting a photo removes the poster too.
 - Signed URLs (1 hour) are cached per storage path. Thumbnails, average colors
   and avatars are cached in memory for the session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares

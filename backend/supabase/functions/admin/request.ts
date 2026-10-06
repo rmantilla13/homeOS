@@ -6,7 +6,10 @@ import { isUuid } from "../_shared/http.ts";
 export type AdminRequest =
   | { action: "invite_email"; email: string; note: string | null; redirectTo: string | null }
   | { action: "ban_user" | "unban_user" | "delete_user"; userId: string }
-  | { action: "delete_family"; familyId: string };
+  | { action: "delete_family"; familyId: string }
+  | { action: "sign_media"; familyId: string; mediaIds: string[] }
+  | { action: "delete_media"; mediaId: string }
+  | { action: "revoke_device"; deviceId: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -39,7 +42,28 @@ export function parseAdminRequest(body: unknown): AdminRequest | { error: string
     case "delete_family":
       if (!isUuid(b.family_id)) return { error: "family_id must be a uuid" };
       return { action: "delete_family", familyId: b.family_id.toLowerCase() };
+    case "sign_media": {
+      if (!isUuid(b.family_id)) return { error: "family_id must be a uuid" };
+      if (!Array.isArray(b.media_ids) || b.media_ids.length < 1 || b.media_ids.length > 60) {
+        return { error: "media_ids must be 1 to 60 uuids" };
+      }
+      const mediaIds: string[] = [];
+      for (const id of b.media_ids) {
+        if (!isUuid(id)) return { error: "media_ids must be 1 to 60 uuids" };
+        const lower = id.toLowerCase();
+        if (!mediaIds.includes(lower)) mediaIds.push(lower);
+      }
+      return { action: "sign_media", familyId: b.family_id.toLowerCase(), mediaIds };
+    }
+    case "delete_media":
+      if (!isUuid(b.media_id)) return { error: "media_id must be a uuid" };
+      return { action: "delete_media", mediaId: b.media_id.toLowerCase() };
+    case "revoke_device":
+      if (!isUuid(b.device_id)) return { error: "device_id must be a uuid" };
+      return { action: "revoke_device", deviceId: b.device_id.toLowerCase() };
     default:
-      return { error: "action must be invite_email, ban_user, unban_user, delete_user or delete_family" };
+      return {
+        error: "action must be invite_email, ban_user, unban_user, delete_user, delete_family, sign_media, delete_media or revoke_device",
+      };
   }
 }

@@ -1,7 +1,7 @@
 // Unit tests for the admin function's Storage cleanup: `deno test admin/`.
 
 import { assertEquals } from "jsr:@std/assert@1";
-import { type Bucket, removeFolder } from "./files.ts";
+import { type Bucket, removeFolder, removePaths } from "./files.ts";
 
 // An in-memory bucket that behaves like Storage's list/remove: list shows one
 // folder level, a page at a time; remove deletes exact paths and returns them.
@@ -54,6 +54,18 @@ Deno.test("removeFolder: sub-folders are left alone and don't loop", async () =>
   const { bucket, objects } = fakeBucket([`${FAMILY}/a.jpg`, `${FAMILY}/thumbs/a.jpg`]);
   assertEquals(await removeFolder(bucket, FAMILY), { removed: 1, error: null });
   assertEquals([...objects], [`${FAMILY}/thumbs/a.jpg`]);
+});
+
+Deno.test("removePaths: deletes the named files and ignores ones already gone", async () => {
+  const { bucket, objects } = fakeBucket([`${FAMILY}/a.jpg`, `${FAMILY}/a-thumb.jpg`, `${OTHER}/keep.jpg`]);
+  assertEquals(
+    await removePaths(bucket, [`${FAMILY}/a.jpg`, `${FAMILY}/missing.jpg`, `${FAMILY}/a.jpg`, `${FAMILY}/a-thumb.jpg`]),
+    { removed: 2, error: null },
+  );
+  assertEquals([...objects], [`${OTHER}/keep.jpg`]);
+  assertEquals(await removePaths(bucket, []), { removed: 0, error: null });
+  assertEquals(await removePaths(fakeBucket([], { remove: "denied" }).bucket, [`${FAMILY}/a.jpg`]),
+    { removed: 0, error: "denied" });
 });
 
 Deno.test("removeFolder: errors stop it and are reported", async () => {

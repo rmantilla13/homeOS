@@ -36,3 +36,13 @@ export async function removeFolder(bucket: Bucket, folder: string): Promise<{ re
   }
   return { removed, error: "too many files" };
 }
+
+// Removes these exact objects. A path that is already gone is not an error:
+// the row can outlive the file, or the other way around.
+export async function removePaths(bucket: Bucket, paths: string[]): Promise<{ removed: number; error: string | null }> {
+  const unique = [...new Set(paths)];
+  if (!unique.length) return { removed: 0, error: null };
+  const { data, error } = await bucket.remove(unique);
+  if (error) return { removed: 0, error: error.message };
+  return { removed: data?.length ?? 0, error: null };
+}

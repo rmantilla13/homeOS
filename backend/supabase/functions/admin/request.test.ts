@@ -47,8 +47,40 @@ Deno.test("delete_family needs a uuid", () => {
   assertEquals(parseAdminRequest({ action: "delete_family", user_id: USER }), { error: "family_id must be a uuid" });
 });
 
+Deno.test("sign_media needs a family and 1 to 60 uuids", () => {
+  const other = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  assertEquals(parseAdminRequest({ action: "sign_media", family_id: USER, media_ids: [USER, USER, other] }), {
+    action: "sign_media", familyId: USER.toLowerCase(), mediaIds: [USER.toLowerCase(), other],
+  });
+  assertEquals(parseAdminRequest({ action: "sign_media", family_id: "nope", media_ids: [USER] }), {
+    error: "family_id must be a uuid",
+  });
+  assertEquals(parseAdminRequest({ action: "sign_media", family_id: USER, media_ids: [] }), {
+    error: "media_ids must be 1 to 60 uuids",
+  });
+  assertEquals(parseAdminRequest({ action: "sign_media", family_id: USER, media_ids: ["nope"] }), {
+    error: "media_ids must be 1 to 60 uuids",
+  });
+  assertEquals(parseAdminRequest({ action: "sign_media", family_id: USER, media_ids: Array(61).fill(USER) }), {
+    error: "media_ids must be 1 to 60 uuids",
+  });
+});
+
+Deno.test("delete_media and revoke_device need a uuid", () => {
+  assertEquals(parseAdminRequest({ action: "delete_media", media_id: USER }), {
+    action: "delete_media", mediaId: USER.toLowerCase(),
+  });
+  assertEquals(parseAdminRequest({ action: "delete_media", media_id: "../x" }), { error: "media_id must be a uuid" });
+  assertEquals(parseAdminRequest({ action: "revoke_device", device_id: USER }), {
+    action: "revoke_device", deviceId: USER.toLowerCase(),
+  });
+  assertEquals(parseAdminRequest({ action: "revoke_device" }), { error: "device_id must be a uuid" });
+});
+
 Deno.test("unknown actions and non-object bodies", () => {
-  const err = { error: "action must be invite_email, ban_user, unban_user, delete_user or delete_family" };
+  const err = {
+    error: "action must be invite_email, ban_user, unban_user, delete_user, delete_family, sign_media, delete_media or revoke_device",
+  };
   assertEquals(parseAdminRequest({ action: "make_admin", user_id: USER }), err);
   assertEquals(parseAdminRequest({}), err);
   for (const body of [null, [], "invite_email", 1]) {
