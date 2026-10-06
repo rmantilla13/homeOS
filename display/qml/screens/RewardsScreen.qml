@@ -11,6 +11,9 @@ Item {
     property string selectedId: ""
     readonly property var selected: kids.find(k => k.id === selectedId) || kids[0] || null
     property var pendingReward: null
+    // On screen and not covered (set by Main.qml); the balance tile only
+    // animates while it is.
+    property bool shown: true
 
     ColumnLayout {
         anchors.fill: parent
@@ -44,13 +47,17 @@ Item {
             }
         }
 
-        // Balance banner.
-        Rectangle {
+        // Balance banner, on the selected kid's gradient.
+        GradientTile {
+            id: balance
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.compact ? 100 : 150
+            Layout.preferredHeight: Theme.compact ? 120 : 150
             radius: Theme.radius
-            color: rewardsScreen.selected ? rewardsScreen.selected.color : Theme.accent
+            baseColor: rewardsScreen.selected ? rewardsScreen.selected.color : Theme.accent
             visible: rewardsScreen.selected !== null
+            active: rewardsScreen.shown
+            seed: 3.1
+            ringBias: 0.70
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: Theme.compact ? 16 : 32
@@ -58,14 +65,15 @@ Item {
                 anchors.rightMargin: 32
                 Label {
                     text: rewardsScreen.selected ? rewardsScreen.selected.display_name + qsTr(" has") : ""
-                    color: "white"
+                    color: balance.ink
                     font.pixelSize: Theme.fontLg
+                    font.weight: Font.Medium
                     Layout.fillWidth: true
                 }
                 AnimatedNumber {
                     value: rewardsScreen.selected ? rewardsScreen.selected.points : 0
                     prefix: "★ "
-                    color: "white"
+                    color: balance.ink
                     font.pixelSize: Theme.compact ? 60 : 80
                     font.weight: Font.Bold
                 }

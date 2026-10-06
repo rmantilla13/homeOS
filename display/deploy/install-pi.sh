@@ -15,6 +15,11 @@
 # keeps an existing /etc/homeos/display.env.
 set -euo pipefail
 
+if [ "$(uname -s)" != Linux ]; then
+    echo "This runs on the Raspberry Pi. Log in to it first (ssh <user>@homeos.local)." >&2
+    exit 1
+fi
+
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 user="$(id -un)"
 uid="$(id -u)"
@@ -51,7 +56,7 @@ sudo apt-get update
 sudo apt-get install -y \
     build-essential cmake git \
     qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev qt6-qpa-plugins \
-    libqt6websockets6 \
+    qt6-shadertools-dev libqt6websockets6 \
     qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
     qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtqml-workerscript \
     qml6-module-qtquick-shapes qml6-module-qt5compat-graphicaleffects \

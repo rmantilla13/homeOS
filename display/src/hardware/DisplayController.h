@@ -21,6 +21,8 @@ class DisplayController : public QObject
     Q_PROPERTY(bool hasBacklight READ hasBacklight CONSTANT)
     // Idle screen style: photos | collage | video. Remembered across restarts.
     Q_PROPERTY(QString screensaver READ screensaver WRITE setScreensaver NOTIFY screensaverChanged)
+    // Slow drift on the gradient tiles (Settings → Animated tiles). Remembered across restarts.
+    Q_PROPERTY(bool animatedTiles READ animatedTiles WRITE setAnimatedTiles NOTIFY animatedTilesChanged)
 
 public:
     explicit DisplayController(QObject *parent = nullptr);
@@ -35,6 +37,8 @@ public:
     bool hasBacklight() const { return !m_backlightPath.isEmpty(); }
     QString screensaver() const { return m_screensaver; }
     void setScreensaver(const QString &style);
+    bool animatedTiles() const { return m_animatedTiles; }
+    void setAnimatedTiles(bool on);
 
     Q_INVOKABLE void wake();
     Q_INVOKABLE void sleepNow();
@@ -49,6 +53,7 @@ signals:
     void idleTimeoutChanged();
     void brightnessChanged();
     void screensaverChanged();
+    void animatedTilesChanged();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -69,4 +74,5 @@ private:
     QString m_backlightPath; // /sys/class/backlight/<dev>
     int m_maxBacklight = 0;
     QString m_screensaver;
+    bool m_animatedTiles = true;
 };

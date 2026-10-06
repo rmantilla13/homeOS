@@ -11,6 +11,11 @@
 # Run install-pi.sh first. Preview and the kiosk never run at the same time.
 set -euo pipefail
 
+if [ "$(uname -s)" != Linux ]; then
+    echo "This runs on the Raspberry Pi. Log in to it first (ssh <user>@homeos.local)." >&2
+    exit 1
+fi
+
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 user="$(id -un)"
 host="$(hostname).local"

@@ -50,7 +50,7 @@ Rectangle {
         anchors { left: parent.left; bottom: parent.bottom; margins: 64 }
         spacing: 8
         Label {
-            text: Qt.formatTime(saver.now, "h:mm")
+            text: Qt.formatTime(saver.now, "h:mm AP").split(" ")[0] // 12-hour, like Home
             color: "white"
             font.pixelSize: 140
             font.weight: Font.Light

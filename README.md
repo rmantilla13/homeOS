@@ -48,6 +48,7 @@ homeOS/
 
 ```bash
 sudo apt install qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev \
+  qt6-shadertools-dev \
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
   qml6-module-qtquick-window qml6-module-qtquick-shapes qml6-module-qtmultimedia \
   qml6-module-qtquick-virtualkeyboard qml6-module-qt-labs-folderlistmodel

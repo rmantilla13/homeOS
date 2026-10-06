@@ -9,6 +9,11 @@
 # (Family -> Pair a display).
 set -euo pipefail
 
+if [ "$(uname -s)" != Linux ]; then
+    echo "This runs on the Raspberry Pi. Log in to it first (ssh <user>@homeos.local)." >&2
+    exit 1
+fi
+
 env_file=/etc/homeos/display.env
 
 if [ "$(id -u)" -eq 0 ]; then

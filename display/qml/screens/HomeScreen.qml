@@ -11,6 +11,10 @@ Item {
     signal openAssistant(string question)
     signal pushToTalk()
 
+    // On screen and not covered (set by Main.qml); the gradient tiles only
+    // animate while it is.
+    property bool shown: true
+
     property date now: new Date()
     readonly property string todayIso: Qt.formatDate(now, "yyyy-MM-dd")
     readonly property var dinner: Store.meals.find(m => m.date === todayIso && m.meal === "dinner")
@@ -65,7 +69,7 @@ Item {
                 font.letterSpacing: 1
             }
             Label {
-                text: Qt.formatTime(home.now, "h:mm")
+                text: Qt.formatTime(home.now, "h:mm AP").split(" ")[0] // 12-hour; the AM/PM sits beside it
                 color: Theme.text
                 font.pixelSize: 56
                 font.weight: Font.Light
@@ -79,39 +83,59 @@ Item {
             }
         }
 
-        // Chore progress per person.
+        // Chore progress per person, on the member's own gradient.
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
             Repeater {
-                model: Store.members
-                delegate: Rectangle {
-                    required property var modelData
+                // By count, not the list: a data refresh then updates the tiles
+                // in place instead of rebuilding them (and restarting their drift).
+                model: Store.members.length
+                delegate: GradientTile {
+                    id: memberTile
+                    required property int index
+                    readonly property var member: Store.members[index] || ({})
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 72
+                    Layout.preferredHeight: 76
                     radius: Theme.radiusSm
-                    color: Theme.surface
+                    baseColor: member.color || Theme.accent
+                    active: home.shown
+                    seed: 1 + index * 2.37
+                    ringBias: 0.78
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 14
                         anchors.rightMargin: 16
                         spacing: 12
-                        MemberAvatar { member: modelData; size: 42 }
+                        // Avatar in a thin glass ring.
+                        Rectangle {
+                            Layout.preferredWidth: 46
+                            Layout.preferredHeight: 46
+                            radius: 23
+                            color: memberTile.glassStroke
+                            MemberAvatar {
+                                anchors.centerIn: parent
+                                member: memberTile.member
+                                size: 42
+                                color: Qt.darker(memberTile.member.color || Theme.accent, Theme.dark ? 1.25 : 1.0)
+                                Behavior on color { ColorAnimation { duration: Theme.moodFade } }
+                            }
+                        }
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 8
                             RowLayout {
-                                Label { text: modelData.display_name; color: Theme.text; font.pixelSize: Theme.fontSm; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                                Label { text: modelData.tasksDone + "/" + modelData.tasksTotal; color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+                                Label { text: memberTile.member.display_name || ""; color: memberTile.ink; font.pixelSize: Theme.fontSm; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                                Label { text: (memberTile.member.tasksDone || 0) + "/" + (memberTile.member.tasksTotal || 0); color: memberTile.inkMuted; font.pixelSize: Theme.fontXs; font.weight: Font.Medium }
                             }
                             Rectangle {
                                 Layout.fillWidth: true
                                 height: 8; radius: 4
-                                color: Theme.sunken
+                                color: memberTile.glassFill
                                 Rectangle {
                                     height: parent.height; radius: 4
-                                    width: parent.width * (modelData.tasksTotal ? modelData.tasksDone / modelData.tasksTotal : 0)
-                                    color: modelData.color
+                                    width: parent.width * (memberTile.member.tasksTotal ? memberTile.member.tasksDone / memberTile.member.tasksTotal : 0)
+                                    color: memberTile.strong
                                     Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
                                 }
                             }
@@ -127,17 +151,19 @@ Item {
             Layout.fillHeight: true
             spacing: Theme.spacing
 
-            // The family assistant.
-            Rectangle {
+            // The family assistant, on the mood's glow colors.
+            GradientTile {
                 id: assistantCard
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredWidth: 5
                 radius: 36
-                color: Theme.surface
-                clip: true
-
-                Glow { anchors.fill: parent; intensity: Theme.dark ? 0.6 : 1.0 }
+                colors: [Theme.glowBlue, Theme.glowCoral, Theme.glowAmber, Theme.glowCream]
+                active: home.shown
+                seed: 0.4
+                period: 56000
+                ringBias: 0.64
+                ringScale: 1.05
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -148,9 +174,9 @@ Item {
                     Label {
                         Layout.alignment: Qt.AlignHCenter
                         text: (home.greeting() + "!").toUpperCase()
-                        color: Theme.textMuted
+                        color: assistantCard.inkMuted
                         font.pixelSize: Theme.fontXs
-                        font.weight: Font.Medium
+                        font.weight: Font.DemiBold
                         font.letterSpacing: 1.2
                     }
                     Label {
@@ -158,7 +184,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         text: qsTr("How can I help you today?")
                         wrapMode: Text.WordWrap
-                        color: Theme.text
+                        color: assistantCard.ink
                         font.pixelSize: Theme.compact ? 36 : Theme.fontXl
                         font.weight: Font.Medium
                     }
@@ -173,13 +199,13 @@ Item {
                                 width: chipLabel.implicitWidth + 36
                                 height: 52
                                 radius: height / 2
-                                color: Theme.surface
-                                border.color: Theme.divider
+                                color: assistantCard.glassFill
+                                border.color: assistantCard.glassStroke
                                 Label {
                                     id: chipLabel
                                     anchors.centerIn: parent
                                     text: modelData
-                                    color: Theme.text
+                                    color: assistantCard.ink
                                     font.pixelSize: Theme.fontSm - 1
                                 }
                                 TapHandler { onTapped: home.openAssistant(modelData) }
@@ -193,14 +219,15 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 76
                         radius: height / 2
-                        color: Theme.surface
-                        border.color: Theme.divider
+                        color: Theme.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.72)
+                        Behavior on color { ColorAnimation { duration: Theme.moodFade } }
+                        border.color: assistantCard.glassStroke
                         Label {
                             anchors.left: parent.left
                             anchors.leftMargin: 28
                             anchors.verticalCenter: parent.verticalCenter
                             text: qsTr("Ask homeOS anything")
-                            color: Theme.textMuted
+                            color: assistantCard.inkMuted
                             font.pixelSize: Theme.fontMd - 2
                         }
                         IconButton {
@@ -298,12 +325,16 @@ Item {
                     }
                 }
 
-                // Dinner tonight.
-                Rectangle {
+                // Dinner tonight, on a warm food-colored gradient in every mood.
+                GradientTile {
+                    id: dinnerTile
                     Layout.fillWidth: true
                     Layout.preferredHeight: 88
                     radius: Theme.radius
-                    color: Theme.surface
+                    baseColor: "#F2A65A"
+                    active: home.shown
+                    seed: 7.3
+                    ringBias: 0.80
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 20
@@ -311,16 +342,17 @@ Item {
                         spacing: 16
                         Rectangle {
                             width: 52; height: 52; radius: 26
-                            color: Qt.rgba(0.96, 0.73, 0.29, 0.25)
-                            Icon { anchors.centerIn: parent; name: "meals"; color: "#B77A12"; size: 26 }
+                            color: dinnerTile.glassFill
+                            border.color: dinnerTile.glassStroke
+                            Icon { anchors.centerIn: parent; name: "meals"; color: dinnerTile.strong; size: 26 }
                         }
                         Column {
                             Layout.fillWidth: true
-                            Label { text: qsTr("Dinner tonight"); color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+                            Label { text: qsTr("Dinner tonight"); color: dinnerTile.inkMuted; font.pixelSize: Theme.fontXs; font.weight: Font.Medium }
                             Label {
                                 width: parent.width
                                 text: home.dinner ? home.dinner.title : qsTr("Not planned yet")
-                                color: Theme.text
+                                color: dinnerTile.ink
                                 font.pixelSize: Theme.fontMd - 2
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideRight
