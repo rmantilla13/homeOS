@@ -5,11 +5,16 @@ import HomeOS
 import HomeOS.Core
 
 // Family calendar with Day / Week / Month views, plus Add event.
+// The create sheet is a Dialog (not FormDialog/Overlay Popup): an Overlay
+// Popup child of this keep-alive Page was eating header taps.
 Item {
     id: cal
     property int view: 1                  // 0 day, 1 week, 2 month
     property date focusDate: today()
     property var selectedMembers: ({})
+    property bool eventAllDay: false
+    property date eventStart: new Date()
+    property date eventEnd: new Date()
 
     function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()) }
     function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
@@ -30,8 +35,9 @@ Item {
 
     function pad(n) { return (n < 10 ? "0" : "") + n }
     function isoLocal(d) {
-        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
-            + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":00"
+        const x = new Date(d)
+        return x.getFullYear() + "-" + pad(x.getMonth() + 1) + "-" + pad(x.getDate())
+            + "T" + pad(x.getHours()) + ":" + pad(x.getMinutes()) + ":00"
     }
     function roundUpHour(base) {
         const d = new Date(base.getTime())
@@ -41,12 +47,16 @@ Item {
         return d
     }
     function openAdd() {
-        const day = cal.view === 2 ? cal.focusDate : (cal.visibleDays[0] || cal.today())
+        const raw = cal.view === 2 ? cal.focusDate : (cal.visibleDays[0] || cal.today())
+        const day = new Date(raw)
+        if (isNaN(day.getTime()))
+            day.setTime(Date.now())
         const base = new Date(day.getFullYear(), day.getMonth(), day.getDate())
         const now = new Date()
         const sameDay = base.getFullYear() === now.getFullYear()
             && base.getMonth() === now.getMonth() && base.getDate() === now.getDate()
-        const start = sameDay ? roundUpHour(now) : new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9, 0, 0)
+        const start = sameDay ? roundUpHour(now)
+                              : new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9, 0, 0)
         eventTitle.text = ""
         eventPlace.text = ""
         eventAllDay = false
@@ -63,6 +73,7 @@ Item {
         selectedMembers = next
     }
     function submitEvent() {
+        Qt.inputMethod.commit()
         const title = eventTitle.text.trim()
         if (!title.length) return
         let start = new Date(eventStart.getTime())
@@ -73,14 +84,9 @@ Item {
         } else if (end < start) {
             end = new Date(start.getTime() + 60 * 60 * 1000)
         }
-        const ids = Object.keys(selectedMembers)
-        Store.addEvent(title, eventPlace.text.trim(), isoLocal(start), isoLocal(end), eventAllDay, ids)
+        Store.addEvent(title, eventPlace.text.trim(), isoLocal(start), isoLocal(end), eventAllDay, Object.keys(selectedMembers))
         addEvent.close()
     }
-
-    property bool eventAllDay: false
-    property date eventStart: new Date()
-    property date eventEnd: new Date()
 
     ColumnLayout {
         anchors.fill: parent
@@ -98,6 +104,12 @@ Item {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
             }
+            IconButton {
+                icon: "plus"
+                fill: Theme.accent
+                ink: Theme.accentInk
+                onClicked: cal.openAdd()
+            }
             SegmentedControl {
                 options: [qsTr("Day"), qsTr("Week"), qsTr("Month")]
                 currentIndex: cal.view
@@ -111,15 +123,8 @@ Item {
                 onClicked: cal.focusDate = cal.today()
             }
             IconButton { icon: "right"; onClicked: cal.step(1) }
-            IconButton {
-                icon: "plus"
-                fill: Theme.accent
-                ink: Theme.accentInk
-                onClicked: cal.openAdd()
-            }
         }
 
-        // Member legend.
         Row {
             spacing: 10
             Repeater {
@@ -155,106 +160,142 @@ Item {
         }
     }
 
-    FormDialog {
+    Dialog {
         id: addEvent
-        titleText: qsTr("New event")
-        canSubmit: eventTitle.text.trim().length > 0
-        onSubmitted: cal.submitEvent()
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(cal.width - 48, 860)
+        padding: Theme.compact ? 28 : 40
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle { radius: Theme.radius; color: Theme.surface }
+        onClosed: Qt.inputMethod.hide()
 
-        FormField {
-            id: eventTitle
-            placeholderText: qsTr("Title")
-            onAccepted: cal.submitEvent()
-        }
-        FormField {
-            id: eventPlace
-            placeholderText: qsTr("Place (optional)")
-        }
-        RowLayout {
-            Layout.fillWidth: true
+        contentItem: ColumnLayout {
             spacing: 16
-            Label { text: qsTr("All day"); color: Theme.text; font.pixelSize: Theme.fontSm; Layout.fillWidth: true }
-            Toggle {
-                checked: cal.eventAllDay
-                onToggled: on => cal.eventAllDay = on
-            }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-            visible: !cal.eventAllDay
             Label {
-                text: qsTr("Starts %1").arg(Qt.formatDateTime(cal.eventStart, "ddd h:mm AP"))
+                text: qsTr("New event")
                 color: Theme.text
-                font.pixelSize: Theme.fontSm
-                Layout.fillWidth: true
+                font.pixelSize: Theme.fontLg
+                font.weight: Font.DemiBold
             }
-            IconButton {
-                icon: "left"
-                onClicked: {
-                    cal.eventStart = new Date(cal.eventStart.getTime() - 30 * 60 * 1000)
-                    cal.eventEnd = new Date(cal.eventEnd.getTime() - 30 * 60 * 1000)
+            FormField {
+                id: eventTitle
+                placeholderText: qsTr("Title")
+                onAccepted: {
+                    Qt.inputMethod.commit()
+                    if (eventTitle.text.trim().length > 0)
+                        cal.submitEvent()
                 }
             }
-            IconButton {
-                icon: "right"
-                onClicked: {
-                    cal.eventStart = new Date(cal.eventStart.getTime() + 30 * 60 * 1000)
-                    cal.eventEnd = new Date(cal.eventEnd.getTime() + 30 * 60 * 1000)
+            FormField {
+                id: eventPlace
+                placeholderText: qsTr("Place (optional)")
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 16
+                Label { text: qsTr("All day"); color: Theme.text; font.pixelSize: Theme.fontSm; Layout.fillWidth: true }
+                Toggle {
+                    checked: cal.eventAllDay
+                    onToggled: on => cal.eventAllDay = on
                 }
             }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-            Label {
-                text: cal.eventAllDay
-                      ? qsTr("Day %1").arg(Qt.formatDate(cal.eventStart, "ddd MMM d"))
-                      : qsTr("Ends %1").arg(Qt.formatDateTime(cal.eventEnd, "h:mm AP"))
-                color: Theme.text
-                font.pixelSize: Theme.fontSm
+            RowLayout {
                 Layout.fillWidth: true
-            }
-            IconButton {
-                icon: "left"
-                onClicked: {
-                    if (cal.eventAllDay)
-                        cal.eventStart = cal.addDays(cal.eventStart, -1)
-                    else if (cal.eventEnd.getTime() - cal.eventStart.getTime() > 30 * 60 * 1000)
+                spacing: 12
+                visible: !cal.eventAllDay
+                Label {
+                    text: qsTr("Starts %1").arg(Qt.formatDateTime(cal.eventStart, "ddd h:mm AP"))
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSm
+                    Layout.fillWidth: true
+                }
+                IconButton {
+                    icon: "left"
+                    onClicked: {
+                        cal.eventStart = new Date(cal.eventStart.getTime() - 30 * 60 * 1000)
                         cal.eventEnd = new Date(cal.eventEnd.getTime() - 30 * 60 * 1000)
-                }
-            }
-            IconButton {
-                icon: "right"
-                onClicked: {
-                    if (cal.eventAllDay)
-                        cal.eventStart = cal.addDays(cal.eventStart, 1)
-                    else
-                        cal.eventEnd = new Date(cal.eventEnd.getTime() + 30 * 60 * 1000)
-                }
-            }
-        }
-        Label { text: qsTr("Who"); color: Theme.textMuted; font.pixelSize: Theme.fontXs }
-        Flow {
-            Layout.fillWidth: true
-            spacing: 12
-            Repeater {
-                model: Store.members
-                delegate: Column {
-                    required property var modelData
-                    spacing: 6
-                    MemberAvatar {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        member: modelData
-                        size: 64
-                        selected: !!cal.selectedMembers[modelData.id]
-                        TapHandler { onTapped: cal.toggleMember(modelData.id) }
                     }
-                    Label {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: modelData.display_name
-                        color: Theme.text
-                        font.pixelSize: Theme.fontXs
+                }
+                IconButton {
+                    icon: "right"
+                    onClicked: {
+                        cal.eventStart = new Date(cal.eventStart.getTime() + 30 * 60 * 1000)
+                        cal.eventEnd = new Date(cal.eventEnd.getTime() + 30 * 60 * 1000)
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                Label {
+                    text: cal.eventAllDay
+                          ? qsTr("Day %1").arg(Qt.formatDate(cal.eventStart, "ddd MMM d"))
+                          : qsTr("Ends %1").arg(Qt.formatDateTime(cal.eventEnd, "h:mm AP"))
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSm
+                    Layout.fillWidth: true
+                }
+                IconButton {
+                    icon: "left"
+                    onClicked: {
+                        if (cal.eventAllDay)
+                            cal.eventStart = cal.addDays(cal.eventStart, -1)
+                        else if (cal.eventEnd.getTime() - cal.eventStart.getTime() > 30 * 60 * 1000)
+                            cal.eventEnd = new Date(cal.eventEnd.getTime() - 30 * 60 * 1000)
+                    }
+                }
+                IconButton {
+                    icon: "right"
+                    onClicked: {
+                        if (cal.eventAllDay)
+                            cal.eventStart = cal.addDays(cal.eventStart, 1)
+                        else
+                            cal.eventEnd = new Date(cal.eventEnd.getTime() + 30 * 60 * 1000)
+                    }
+                }
+            }
+            Label { text: qsTr("Who"); color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+            Flow {
+                Layout.fillWidth: true
+                spacing: 12
+                Repeater {
+                    model: Store.members
+                    delegate: Column {
+                        required property var modelData
+                        spacing: 6
+                        MemberAvatar {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            member: modelData
+                            size: 64
+                            selected: !!cal.selectedMembers[modelData.id]
+                            TapHandler { onTapped: cal.toggleMember(modelData.id) }
+                        }
+                        Label {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: modelData.display_name
+                            color: Theme.text
+                            font.pixelSize: Theme.fontXs
+                        }
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 16
+                Item { Layout.fillWidth: true }
+                PillButton {
+                    text: qsTr("Cancel")
+                    fill: Theme.surfaceAlt
+                    ink: Theme.text
+                    onClicked: addEvent.close()
+                }
+                PillButton {
+                    text: qsTr("Add")
+                    enabled: eventTitle.text.trim().length > 0
+                    onClicked: {
+                        Qt.inputMethod.commit()
+                        cal.submitEvent()
                     }
                 }
             }

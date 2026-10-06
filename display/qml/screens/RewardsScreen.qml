@@ -27,6 +27,7 @@ Item {
         rewardTitle.forceActiveFocus()
     }
     function submitReward() {
+        Qt.inputMethod.commit()
         const title = rewardTitle.text.trim()
         if (!title.length || draftCost <= 0) return
         Store.addReward(title, draftIcon, draftCost)
@@ -216,7 +217,7 @@ Item {
         FormField {
             id: rewardTitle
             placeholderText: qsTr("Reward")
-            onAccepted: rewardsScreen.submitReward()
+            onAccepted: addReward.requestSubmit()
         }
         Flow {
             Layout.fillWidth: true

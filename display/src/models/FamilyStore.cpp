@@ -494,9 +494,26 @@ void FamilyStore::addEvent(const QString &title, const QString &location,
         return;
 
     QDateTime start = parseTimestamp(startsAt);
+    if (!start.isValid()) {
+        // QML often sends "YYYY-MM-DDTHH:mm:ss" without a zone; try a few forms.
+        start = QDateTime::fromString(startsAt, QStringLiteral("yyyy-MM-ddTHH:mm:ss"));
+        if (!start.isValid())
+            start = QDateTime::fromString(startsAt, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        if (start.isValid())
+            start.setTimeSpec(Qt::LocalTime);
+    }
     QDateTime end = parseTimestamp(endsAt);
-    if (!start.isValid())
+    if (!end.isValid()) {
+        end = QDateTime::fromString(endsAt, QStringLiteral("yyyy-MM-ddTHH:mm:ss"));
+        if (!end.isValid())
+            end = QDateTime::fromString(endsAt, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        if (end.isValid())
+            end.setTimeSpec(Qt::LocalTime);
+    }
+    if (!start.isValid()) {
+        emit notify(tr("Couldn't read that date. Try again."));
         return;
+    }
     if (!end.isValid() || end < start)
         end = allDay ? start.addSecs(24 * 3600 - 1) : start.addSecs(3600);
 
