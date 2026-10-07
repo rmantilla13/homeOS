@@ -25,6 +25,7 @@ constexpr int kSyncIntervalMs = 60 * 1000; // fallback until Realtime subscripti
 constexpr int kPairPollMs = 3000;
 constexpr int kPairRetryMs = 10 * 1000;
 constexpr qint64 kCheckInIntervalMs = 5 * 60 * 1000;
+constexpr qint64 kCalendarSyncIntervalMs = 15 * 60 * 1000;
 // Re-check the date at least this often, so a jump of the clock (NTP setting
 // it at boot) is noticed between syncs and in demo mode too.
 constexpr qint64 kDayCheckMaxMs = 15 * 60 * 1000;
@@ -320,6 +321,7 @@ void FamilyStore::loadLive()
             {"range_start", QDateTime(weekStart.addDays(-7), QTime(0, 0)).toUTC().toString(Qt::ISODate)},
             {"range_end", QDateTime(weekStart.addDays(35), QTime(0, 0)).toUTC().toString(Qt::ISODate)}};
         auto loadRepeats = [this, call, window, base](const QString &familyId) {
+            syncCalendars(familyId);
             QJsonObject events = window;
             events.insert("fid", familyId);
             call("event_occurrences", events, [this](const QJsonDocument &d) { m_rawEvents = toList(d); });
@@ -513,6 +515,35 @@ void FamilyStore::checkIn()
     m_client->update("devices", QUrlQuery("id=eq." + deviceId), seen, [](const QJsonDocument &, const QString &error) {
         if (!error.isEmpty())
             qWarning() << "device check-in failed:" << error;
+    });
+}
+
+// Events from connected calendars (Google, calendar links) are copied in by
+// the calendar-sync function (PLATFORM_SPEC §2.5). The display is always on,
+// so every 15 minutes it asks for the family's stale ones; the server skips
+// any refreshed in the last 10 minutes, so several displays don't add work.
+// When something changed, the family reloads.
+void FamilyStore::syncCalendars(const QString &familyId)
+{
+    if (familyId.isEmpty() || (m_lastCalendarSync.isValid() && m_lastCalendarSync.elapsed() < kCalendarSyncIntervalMs))
+        return;
+    m_lastCalendarSync.start();
+    const int generation = m_generation;
+    m_client->callFunction("calendar-sync", {{"action", "sync"}, {"family_id", familyId}},
+                           [this, generation](const QJsonDocument &doc, const QString &error) {
+        if (generation != m_generation)
+            return;
+        if (!error.isEmpty()) {
+            qWarning() << "calendar sync failed:" << error;
+            return;
+        }
+        for (const QJsonValue &v : doc.object().value("results").toArray()) {
+            const QJsonObject r = v.toObject();
+            if (r.value("added").toInt() + r.value("updated").toInt() + r.value("removed").toInt() > 0) {
+                refresh();
+                return;
+            }
+        }
     });
 }
 
@@ -910,6 +941,7 @@ void FamilyStore::pollPairing()
             m_settings.setValue("device/familyId", o.value("familyId").toString());
             m_settings.setValue("device/id", o.value("deviceId").toString());
             m_lastCheckIn.invalidate(); // a new device row: check in right away
+            m_lastCalendarSync.invalidate();
             m_pairingCode.clear();
             emit pairingChanged();
 
