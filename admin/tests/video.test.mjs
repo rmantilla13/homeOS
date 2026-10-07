@@ -8,11 +8,14 @@ import {
   VIDEO_MAX_BYTES,
   mediaExtension,
   mediaPathname,
+  itemPrefix,
   parseDeleteRequest,
   parseMediaPath,
+  parseProcessRequest,
   parseUploadRequest,
   pathnameOf,
   thumbPathname,
+  wallPathname,
 } from "../lib/media/video.ts";
 
 const FAMILY = "00000000-0000-0000-0000-00000000f001";
@@ -77,12 +80,13 @@ test("pathnames stay inside one family folder", () => {
   const pathname = mediaPathname(FAMILY, MEDIA, "mov");
   assert.equal(pathname, `${FAMILY}/${MEDIA}.mov`);
   const parsed = parseMediaPath(pathname.toUpperCase());
-  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "mov", thumb: false });
+  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "mov", thumb: false, wall: false });
   assert.deepEqual(parseMediaPath(mediaPathname(FAMILY, MEDIA, "jpg")), {
     familyId: FAMILY,
     mediaId: MEDIA,
     ext: "jpg",
     thumb: false,
+    wall: false,
   });
 
   const attacks = [
@@ -107,7 +111,7 @@ test("pathnames stay inside one family folder", () => {
 test("a poster is <family>/<media>-thumb.jpg and nothing looser", () => {
   assert.equal(thumbPathname(FAMILY.toUpperCase(), MEDIA.toUpperCase()), `${FAMILY}/${MEDIA}-thumb.jpg`);
   const parsed = parseMediaPath(`${FAMILY.toUpperCase()}/${MEDIA}-THUMB.JPG`);
-  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "jpg", thumb: true });
+  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "jpg", thumb: true, wall: false });
   assert.equal(pathnameOf(parsed), `${FAMILY}/${MEDIA}-thumb.jpg`);
   assert.equal(pathnameOf(parseMediaPath(`${FAMILY}/${MEDIA}.MOV`)), `${FAMILY}/${MEDIA}.mov`);
   const near = [
@@ -252,4 +256,38 @@ test("a bad upload is rejected before any storage call", async () => {
   assert.equal(response.status, 400);
   const body = await response.json();
   assert.match(body.error, /format/);
+});
+
+test("a wall copy is <family>/<media>-wall.mp4 and nothing looser", () => {
+  const wall = wallPathname(FAMILY.toUpperCase(), MEDIA);
+  assert.equal(wall, `${FAMILY}/${MEDIA}-wall.mp4`);
+  assert.deepEqual(parseMediaPath(wall), { familyId: FAMILY, mediaId: MEDIA, ext: "mp4", thumb: false, wall: true });
+  assert.equal(pathnameOf(parseMediaPath(wall.toUpperCase())), wall);
+  for (const bad of [`${FAMILY}/${MEDIA}-wall.mov`, `${FAMILY}/${MEDIA}-wall.mp4.mp4`, `${FAMILY}/x-wall.mp4`, `${FAMILY}/${MEDIA}-WALL`]) {
+    assert.equal(parseMediaPath(bad), null, bad);
+  }
+  assert.equal(itemPrefix(FAMILY.toUpperCase(), MEDIA.toUpperCase()), `${FAMILY}/${MEDIA}`);
+});
+
+test("deleting a wall copy takes its poster and names the item's prefix", () => {
+  assert.deepEqual(parseDeleteRequest({ pathname: `${FAMILY}/${MEDIA}-wall.mp4` }), {
+    ok: true,
+    pathname: `${FAMILY}/${MEDIA}-wall.mp4`,
+    thumbnailPathname: `${FAMILY}/${MEDIA}-thumb.jpg`,
+    prefix: `${FAMILY}/${MEDIA}`,
+    familyId: FAMILY,
+  });
+});
+
+test("a process request names a video file, not a poster, a photo or a copy", () => {
+  assert.deepEqual(parseProcessRequest({ pathname: `${FAMILY}/${MEDIA}.MOV` }), {
+    ok: true,
+    pathname: `${FAMILY}/${MEDIA}.mov`,
+    familyId: FAMILY,
+    mediaId: MEDIA,
+  });
+  for (const pathname of [`${FAMILY}/${MEDIA}-thumb.jpg`, `${FAMILY}/${MEDIA}.jpg`, `${FAMILY}/${MEDIA}-wall.mp4`, "nope", 7]) {
+    assert.equal(parseProcessRequest({ pathname }).ok, false, String(pathname));
+  }
+  assert.equal(parseProcessRequest(null).ok, false);
 });

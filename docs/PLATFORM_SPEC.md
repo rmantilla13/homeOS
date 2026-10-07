@@ -54,6 +54,9 @@ Migrations are added after the existing ones, never edited in place:
   the `avatars` bucket (Supabase-only, like 000005)
 - `20261012000001_calendar_sync.sql`: connected calendars and the shared
   family calendar link (§1.13); `event_occurrences` gains `source_id` (§1.12)
+- `20261013000001_video_processing.sql`: `media_items.processing`, the
+  service-only `media_jobs` table and the `media_job_*` functions behind
+  server-made wall copies of videos (§1.14). Safe to run again
 
 `20261009000002` to `20261009000004` were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -451,7 +454,8 @@ in Storage stay `supabase` and keep playing from that bucket.
 
 The admin app (the Vercel project that owns the store) signs upload and
 playback URLs. Clients send their Supabase JWT. See §3, Media API. Photos
-are capped at 50 MB; videos at 2 GiB.
+are capped at 50 MB; videos at 2 GiB. A video the server made a wall copy
+of (§1.14) points at `<family_id>/<id>-wall.mp4`.
 
 A `blob` row's poster is `<family_id>/<id>-thumb.jpg` (JPEG, at most
 256 KiB), set in the insert because `media_items_guard` freezes
@@ -710,6 +714,71 @@ uid (`events_source_has_id`).
 | `calendar_claim_due(lim int default 20, min_age_seconds int default 900, only_family uuid default null, only_source uuid default null)` | service role | Stamps `last_attempt_at = now()` on, and returns, up to `lim` (at most 200) enabled calendars of active families not tried in the last `min_age_seconds`, least recently tried first, skipping rows another run has locked. |
 | `calendar_feed_token(family uuid, rotate boolean default false)` | `authenticated`, a parent of an active family (`only a parent can share the family calendar`) | The family's feed token, made on first use: 24 random bytes as URL-safe base64 (32 characters). `rotate` replaces it. |
 
+### 1.14 Wall copies of videos
+
+A video that doesn't play well on the wall as uploaded (4K, HDR, 10-bit,
+above 30 fps or 16 Mb/s, not HEVC or H.264, or not MP4/MOV) gets a copy made
+on the server: HEVC Main 8-bit (`hvc1`), long side at most 1920 px, at most
+30 fps, SDR BT.709 (HLG and PQ tone mapped), AAC, index first, no metadata.
+That is what the iPhone makes before uploading (§6). The row then points at
+the copy, and the original is deleted later. The code is
+`admin/lib/media/processing.ts` and `admin/lib/media/worker.mjs` (§3, Wall
+copies).
+
+`media_items.processing` (videos only, `media_items_processing_check`):
+
+| Value | Meaning |
+|---|---|
+| null | not known: rows from before this, or from an app that doesn't send it |
+| `pending` | uploaded as it was; the server should make a copy |
+| `processing` | a job is running |
+| `done` | plays well on the wall: the phone made it, it already fit, or the server made the copy |
+| `failed` | three tries failed, or one that can't succeed (not a video); the original stays |
+
+A signed-in client may insert null, `pending` or `done` (otherwise `a new
+video starts as pending or done`) and can't change it later (`only a caption
+or the frame can be changed`, from `media_items_processing_guard`).
+`media_items_guard` is left as the Blob migrations define it. Members read
+the column like any other.
+
+`media_jobs` holds one row per video that had a job: `attempts`,
+`started_at`, `finished_at`, `replaced_path` (the original waiting to be
+deleted) and `error`. RLS is on with no policies, and only `service_role` is
+granted. It goes with its media row.
+
+Functions, `service_role` only (called by the `media-jobs` edge function, §2.6):
+
+- `media_job_claim(p_media_id uuid default null, p_limit int default 1,
+  p_max_running int default 2, p_max_attempts int default 3, p_stale_after
+  interval default '1 hour')` marks Blob videos as processing, adds an
+  attempt, and returns them as `media_id, family_id, storage_path,
+  thumbnail_path, byte_size, content_type, attempt`. It takes videos that
+  are null, pending, or processing for longer than `p_stale_after`. Never
+  more than `p_max_running` run at once. Pending comes before null, newest
+  first. A stale job out of attempts becomes failed (`timed out`). One claim
+  runs at a time (advisory lock).
+- `media_job_finish(p_media_id, p_attempt, p_path default null, p_bytes,
+  p_width, p_height, p_thumbnail_path)` works only for the running attempt
+  (otherwise `that job is not running`).
+  - Without `p_path`, the row stays on its file and is done.
+  - With it, `p_path` must be `<family_id>/<id>-wall.mp4`, and `p_bytes` at
+    most the original's `byte_size` plus 1 MiB (otherwise `the copy can't be
+    bigger than the original`). The row gets that path, size, `video/mp4`,
+    width and height and is done, and the old path becomes `replaced_path`.
+  - `p_thumbnail_path` must be `<family_id>/<id>-thumb.jpg`, and is used
+    only when the row has no poster.
+  - Returns `{ storage_path, replaced_path }`.
+- `media_job_fail(p_media_id, p_attempt, p_error, p_retry default true,
+  p_max_attempts default 3)` puts the video back to pending, or to failed
+  when `p_retry` is false or the attempts are used up. It returns the new
+  state, or null for an attempt that isn't the running one.
+- `media_job_replaced_due(p_older_than default '6 hours', p_limit default
+  100)` lists originals swapped out long enough ago that no display can
+  still be playing them (displays reuse a signed URL for 4 hours), and
+  `media_job_replaced_cleared(p_media_id, p_path)` marks one deleted.
+
+The family is billed for the copy, at the size Blob reports for it.
+
 ---
 
 ## 2. Edge functions
@@ -951,6 +1020,27 @@ Each occurrence is its own VEVENT in UTC; all-day events are dates. UID
 `DESCRIPTION` adds `For: <names>`. `X-WR-CALNAME` is the family's name. 404
 for an unknown token or a suspended family.
 
+### 2.6 `media-jobs`
+
+Only the admin app calls it (§3, Wall copies), with the header
+`x-media-jobs-secret`. It holds the service role so the admin app doesn't,
+and it can only run the `media_job_*` functions (§1.14). It answers:
+
+- 503 `media jobs aren't configured` until the function secret
+  `MEDIA_JOBS_SECRET` is set (at least 32 characters);
+- 401 `not allowed` without a matching header (compared in constant time).
+
+| `action` | Fields | Answer |
+|---|---|---|
+| `claim` | `media_id?`, `limit?` (1–10, default 1), `max_running?` (1–8, default 2) | `{ jobs: [...] }` |
+| `finish` | `media_id`, `attempt`, `path?`, `bytes?` (required with `path`), `width?`, `height?`, `thumbnail_path?` | `{ storage_path, replaced_path }` |
+| `fail` | `media_id`, `attempt`, `error`, `retry?` (default true) | `{ state }` |
+| `replaced_due` | `limit?` (1–1000, default 100) | `{ items: [{ media_id, replaced_path }] }` |
+| `replaced_cleared` | `media_id`, `path` | `{ cleared }` |
+
+A refusal from a job function (`P0001`) is a 409 with its message. A bad
+request is a 400 and never reaches the database. `verify_jwt = false`.
+
 ---
 
 ## 3. Admin console (`admin/`)
@@ -993,7 +1083,7 @@ session and `is_platform_admin()`. Signed-out visitors are redirected to
 
 **Media API** (family JWT, not the admin session)
 
-`POST /api/media/upload`, `/api/media/urls`, and `/api/media/delete`.
+`POST /api/media/upload`, `/api/media/urls`, `/api/media/delete` and `/api/media/process`.
 `admin/proxy.ts` lets `/api/media` through before the platform-admin gate.
 The route checks `Authorization: Bearer <supabase access token>` with
 `auth.getUser`, then `is_family_member(fid)`.
@@ -1001,14 +1091,63 @@ The route checks `Authorization: Bearer <supabase access token>` with
 | Route | Body | Effect |
 |---|---|---|
 | `/api/media/upload` | `{ family_id, content_type, bytes, thumbnail_bytes? }` | Member only. `bytes` is an integer from 1 to 50 MB for a photo and 1 to 2 GiB for a video. Photo types: `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/gif`. Video types: `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. With `thumbnail_bytes` an integer from 1 to 262144 (256 KiB), the reply also has `thumbnail: { pathname, upload_url, content_type }`: a presigned `PUT` for `<family_id>/<id>-thumb.jpg`, `image/jpeg`, at most that size, no overwrite. Any other `thumbnail_bytes` is ignored with a logged warning, and a poster that can't be signed is logged and left out; neither fails the upload. The client `PUT`s the poster and the bytes (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'`, `kind` `photo` or `video`, the returned `id` and `pathname`, and `thumbnail_path` when the poster went up. |
-| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>` or a poster `<family_uuid>/<media_uuid>-thumb.jpg`, or whose folder isn't a family the caller belongs to, comes back as `""`. Names match without regard to case and are signed in lowercase. Playback URLs last 6 hours. The wildcard read token stays on the server. |
-| `/api/media/delete` | `{ pathname }` | A file's path only: a poster's path on its own gets 400 (`That isn't a media path.`). Member of that folder only. Deletes the poster `<family_id>/<id>-thumb.jpg` first (a missing one is fine; any other error is logged and doesn't stop the file), then the file (a missing one is fine; any other error is 502). `{ ok: true }`. |
+| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>`, a poster `<family_uuid>/<media_uuid>-thumb.jpg` or a wall copy `<family_uuid>/<media_uuid>-wall.mp4`, or whose folder isn't a family the caller belongs to, comes back as `""`. Names match without regard to case and are signed in lowercase. Playback URLs last 6 hours. The wildcard read token stays on the server. |
+| `/api/media/delete` | `{ pathname }` | A file's path only: a poster's path on its own gets 400 (`That isn't a media path.`). Member of that folder only. Deletes the poster `<family_id>/<id>-thumb.jpg` first (a missing one is fine; any other error is logged and doesn't stop the file), then the file (a missing one is fine; any other error is 502), then anything else under `<family_id>/<id>` (an original waiting after a swap, a copy from a running job; a failure there is only logged). A wall copy's path counts as a file. `{ ok: true }`. |
+| `/api/media/process` | `{ pathname }` | A video file's path (not a poster, a photo or a wall copy). Member only. The row is read as the caller: 404 when it isn't visible or has moved to another path, 400 when it isn't a Blob video. `done`, `processing` and `failed` come back as `{ state }`. Otherwise the video is claimed (§2.6) and a sandbox started: `{ state: "processing" }`, or `"queued"` when no slot is free (the sweep starts it). 502 when the claim fails, 503 until `MEDIA_JOBS_SECRET` is set. Phones don't wait on it. |
 
 Errors are `{ "error": string }`: 400 bad JSON or body, 401 missing or
 rejected token, 403 not in the family, 413 body over 64 KiB, 502 Blob
 failed, 503 Supabase or Blob isn't configured.
 Deployment Protection in front of the whole app blocks phones and displays;
 leave `/api/media`, `/api/account/delete`, `/privacy` and `/support` reachable.
+
+**Wall copies** (§1.14). Off until `MEDIA_JOBS_SECRET` is set to the same
+value as the function secret.
+
+- Each job runs `lib/media/worker.mjs` in its own Vercel Sandbox, created
+  with the project's OIDC token:
+  - not persistent, 8 vCPUs (`MEDIA_SANDBOX_VCPUS`);
+  - a timeout of 10 minutes plus about 1 s per MB, at most 55 minutes;
+  - at most 2 jobs at once.
+- The sandbox gets presigned URLs only, each lasting 2 hours:
+  - GET for the original;
+  - PUT for `<family_id>/<id>-wall.mp4`: `video/mp4`, at most the original
+    plus 1 MiB, overwrite allowed for retries;
+  - PUT for `<family_id>/<id>-thumb.jpg`, only when the row has no poster.
+- The worker uses ffmpeg from the image, or downloads a static build. That
+  is `MEDIA_FFMPEG_URL` (default BtbN's master GPL linux64 build), checked
+  against `MEDIA_FFMPEG_SHA256` when set.
+  - It probes the file and follows the iPhone's plan: as it is, the index
+    moved first, or a new file.
+  - A new file that is at least 90% of a source that already plays on the
+    wall is dropped in favor of the source.
+  - The poster is the most typical frame of the first 4 seconds, at most
+    960 px and 256 KiB.
+- The worker reports to `POST /api/media/process/done` with `media_id,
+  family_id, attempt, sandbox, token, status` (`copy`, `fits` or `failed`),
+  `width, height, poster, error, retry`. `token` is HMAC-SHA256 of the first
+  four with `MEDIA_JOBS_SECRET`; anything else gets 401.
+  - The route asks Blob for the copy's size and whether the poster arrived,
+    then finishes or fails the job.
+  - A refusal for a deleted row removes the copy and poster. A refusal for
+    a stale attempt leaves them. Any other refusal removes the copy and
+    fails the job for good.
+  - Then it stops the sandbox and starts the next waiting video.
+  - When `media-jobs` can't be reached the answer is 502, and the worker
+    tries again.
+- Vercel Cron calls `GET /api/media/process/sweep` every 10 minutes
+  (`admin/vercel.json`) with `Authorization: Bearer <CRON_SECRET>`; 503
+  without `CRON_SECRET`.
+  - It claims up to 2 videos and starts them.
+  - Then it deletes originals swapped out at least 6 hours ago, never a
+    poster or a wall copy.
+- Sandboxes report to `MEDIA_CALLBACK_ORIGIN`, otherwise to the production
+  domain (`VERCEL_PROJECT_PRODUCTION_URL`): deployment URLs sit behind
+  Vercel Authentication.
+- `node --env-file=.env.local scripts/media-sandbox-check.mjs` runs
+  `worker.mjs --self-test` in a real sandbox. It finds or downloads ffmpeg,
+  then copies a made-up 4K60 10-bit HLG clip to 1080p30 8-bit SDR HEVC with
+  AAC and the index first.
 
 **Account API** (the person's JWT)
 
@@ -1335,7 +1474,11 @@ Photos are JPEG (≤ 2560 px). A video that already fits the wall goes as it
 is (HEVC or H.264, 8-bit SDR, long side ≤ 1920 px, ≤ 31 fps, ≤ 16 Mb/s;
 index moved to the front if needed). Anything else is exported as HEVC
 1080p, SDR, ≤ 30 fps, with H.264 1080p as the fallback and the original as
-the last resort (`docs/IOS.md`, Photo and video uploads). Each item carries
+the last resort (`docs/IOS.md`, Photo and video uploads). A video the phone
+made, or one that already fit, is inserted with `processing = 'done'`. The
+original goes in as `pending`, and the app then calls `POST
+/api/media/process` without waiting on it (§1.14). If the database doesn't
+have that column yet, the insert is retried without it. Each item carries
 a JPEG poster of at most 256 KiB. The row sets `byte_size` (the file only),
 `content_type`, `thumbnail_path` when the poster went up, and
 `file_store = blob`. If the row insert fails, the Blob object just uploaded
@@ -1449,7 +1592,8 @@ Details are in [IOS.md](IOS.md).
     then `deno test` in `backend/supabase/functions`
   - `display`: apt Qt 6 packages, build with cmake, `ctest`, then a smoke run with
     `QT_QPA_PLATFORM=offscreen ./homeos-display --demo` for 5 s; it must still be running
-  - `admin`: Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`, `npm test`
+  - `admin`: Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`, then ffmpeg
+    from apt (the worker test runs one whole job) and `npm test`
   - `voice`: Python 3.11, `pip install -e voice[dev]`, `pytest voice`
   - `pi-install`: `install-pi.sh --with-voice` in a `debian:trixie` container
     (Qt 6.8, Python 3.13), then a smoke run and preview mode. Runs when

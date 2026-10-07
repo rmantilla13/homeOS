@@ -4,18 +4,21 @@
 // in Supabase.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { BlobNotFoundError, del, issueSignedToken, presignUrl } from "@vercel/blob";
-import { blobReady, supabaseConfig } from "../env.ts";
+import { BlobNotFoundError, del, issueSignedToken, list, presignUrl } from "@vercel/blob";
+import { blobReady, mediaCallbackOrigin, supabaseConfig } from "../env.ts";
 import {
   THUMB_CONTENT_TYPE,
   mediaPathname,
   parseDeleteRequest,
   parseMediaPath,
   parsePathList,
+  parseProcessRequest,
   parseUploadRequest,
   pathnameOf,
   thumbPathname,
 } from "./video.ts";
+import { presignedPut } from "./sign.ts";
+import { type ProcessingDeps, requestJob } from "./processing.ts";
 
 const UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
 const PLAYBACK_TTL_MS = 6 * 60 * 60 * 1000;
@@ -145,29 +148,6 @@ async function mediaUpload(request: Request): Promise<Response> {
   });
 }
 
-// A PUT for exactly this pathname, type and size. No overwrite: ids are
-// fresh, so a second PUT to the same name is a replay.
-async function presignedPut(pathname: string, contentType: string, bytes: number, validUntil: number): Promise<string> {
-  const issued = await issueSignedToken({
-    pathname,
-    operations: ["put"],
-    validUntil,
-    allowedContentTypes: [contentType],
-    maximumSizeInBytes: bytes,
-  });
-  const { presignedUrl } = await presignUrl(issued, {
-    access: "private",
-    operation: "put",
-    pathname,
-    validUntil,
-    allowedContentTypes: [contentType],
-    maximumSizeInBytes: bytes,
-    allowOverwrite: false,
-    addRandomSuffix: false,
-  });
-  return presignedUrl;
-}
-
 export async function handleMediaUrls(request: Request): Promise<Response> {
   return logRefusal("urls", await mediaUrls(request));
 }
@@ -252,5 +232,42 @@ async function mediaDelete(request: Request): Promise<Response> {
       return json({ error: "Couldn't delete that file." }, 502);
     }
   }
+  await deleteLeftovers(target.prefix);
   return json({ ok: true });
+}
+
+// Anything else under the item's prefix: the original a wall copy replaced
+// (kept for six hours), or a copy from a job that was still running. Only
+// logged when it fails; family cleanup removes the whole folder.
+async function deleteLeftovers(prefix: string): Promise<void> {
+  try {
+    const { blobs } = await list({ prefix, limit: 20 });
+    const left = blobs.map((blob) => blob.pathname).filter((pathname) => pathname.startsWith(prefix));
+    if (left.length > 0) await del(left);
+  } catch (err) {
+    console.error("media leftover delete failed:", err);
+  }
+}
+
+// A phone uploaded a video it couldn't optimize and asks for a wall copy.
+// The answer is only informative ({ state }): the sweep makes the copy
+// anyway, so the phone doesn't wait on this or show its errors.
+export async function handleMediaProcess(request: Request, deps?: ProcessingDeps | null): Promise<Response> {
+  return logRefusal("process", await mediaProcess(request, deps));
+}
+
+async function mediaProcess(request: Request, deps?: ProcessingDeps | null): Promise<Response> {
+  const parsed = await readJson(request);
+  if ("error" in parsed) return parsed.error;
+  const target = parseProcessRequest(parsed.body);
+  if (!target.ok) return json({ error: target.error }, 400);
+
+  const who = await caller(request);
+  if (who instanceof Response) return who;
+  const allowed = await inFamily(who.client, target.familyId);
+  if (allowed !== true) return allowed;
+
+  const origin = mediaCallbackOrigin() ?? new URL(request.url).origin;
+  const outcome = await requestJob(who.client, target, origin, deps);
+  return json(outcome.body, outcome.status);
 }

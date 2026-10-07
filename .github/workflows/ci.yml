@@ -223,6 +223,9 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # The worker test runs one whole job with ffmpeg (libx265 and zscale).
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: npm test
 
   voice:

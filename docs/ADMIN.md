@@ -101,6 +101,11 @@ npm test            # node --test: sign-in redirects, colors, date formatting (N
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Project URL, e.g. `https://abcd.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | The anon (public) key. Safe to expose; RLS and the RPCs' admin checks protect the data |
 | `NEXT_PUBLIC_ADMIN_DEMO` | no | `1` turns on demo mode. Leave it unset anywhere real admins sign in |
+| `MEDIA_JOBS_SECRET` | for big videos | Turns on server-made wall copies ([below](#big-videos-wall-copies-on-the-server)). The same value as the `media-jobs` function's secret, at least 32 characters |
+| `CRON_SECRET` | for big videos | Vercel Cron sends it to the sweep. Any long random string |
+| `MEDIA_CALLBACK_ORIGIN` | no | Where sandboxes report back. Defaults to the production domain |
+| `MEDIA_SANDBOX_VCPUS` | no | vCPUs per sandbox: 1, 2, 4, 6 or 8 (default 8) |
+| `MEDIA_FFMPEG_URL`, `MEDIA_FFMPEG_SHA256` | no | A static Linux ffmpeg build (`.tar.xz` with `ffmpeg` and `ffprobe`) for sandboxes, and its checksum. Default: BtbN's master GPL build |
 
 Never add `SUPABASE_SERVICE_ROLE_KEY` here. Nothing in the console reads it.
 
@@ -207,12 +212,65 @@ with no Supabase values, never the production project.
 4. Phones and displays ask `/api/media/urls` for playback URLs for files and
    posters (up to 200 paths per request; they last six hours). A path
    outside the caller's families comes back as an empty string.
+5. A video the phone couldn't optimize goes up as it is, marked `pending`,
+   and the phone calls `/api/media/process`. With big videos set up (next
+   section), the server makes a 1080p copy at `<family_id>/<id>-wall.mp4`
+   and moves the row onto it; phones and displays pick up the new path on
+   their next refresh.
 
 Every refused media request (4xx or 5xx) writes one `media <route>: <status>
 <message>` line to the runtime logs, and every signed upload writes
 `media upload: signed <type>, <bytes> bytes, poster <bytes> bytes` (or
 `, no poster`). If the logs show neither while someone is uploading, the
 phone isn't reaching this deployment.
+
+### Big videos: wall copies on the server
+
+The phone makes most videos right for the wall before uploading. Anything
+it couldn't, gets a copy made on the server, and so do videos from older
+app builds and the 4K originals uploaded before this existed. The copy is
+1080p, at most 30 fps, 8-bit SDR HEVC with the index first, usually 5–10×
+smaller than the original. The original is deleted six hours after the
+swap. Each job runs ffmpeg in its own Vercel Sandbox, with presigned URLs
+for that one video and no other credentials. Details are in
+[PLATFORM_SPEC.md](PLATFORM_SPEC.md) §1.14, §2.6 and §3.
+
+To turn it on:
+
+1. Apply `20261013000001_video_processing.sql` (`supabase db push`).
+2. Make a secret, give it to the edge function, and deploy that function:
+
+   ```bash
+   openssl rand -hex 32                      # copy the output
+   supabase secrets set MEDIA_JOBS_SECRET=<that value>
+   supabase functions deploy media-jobs
+   ```
+
+3. In the Vercel project (Production), set `MEDIA_JOBS_SECRET` to the same
+   value and `CRON_SECRET` to another `openssl rand -hex 32`, then redeploy.
+   The deploy registers the cron in `admin/vercel.json` (every 10 minutes,
+   production only). Sandbox needs no extra key: it uses the project's OIDC
+   token, like Blob.
+4. Check that a sandbox can run ffmpeg, from `admin/` with the project
+   linked:
+
+   ```bash
+   npx vercel env pull .env.local
+   node --env-file=.env.local scripts/media-sandbox-check.mjs
+   ```
+
+   The last line is JSON, and `"ok": true` means jobs will work. It takes a
+   minute or two.
+
+Within ten minutes the sweep starts on videos nobody has looked at yet, two
+at a time; each finished job starts the next one. The runtime logs show
+`media process: started …`, `media process: <id> done, copy <bytes>
+bytes`, and `media sweep: …` lines. A 500 MB 4K HDR clip is about 13
+CPU-minutes of ffmpeg (measured on a test clip), so roughly 2–3 minutes on
+8 vCPUs and $0.10–0.15 of Sandbox time and transfer on Pro.
+
+Until `MEDIA_JOBS_SECRET` is set, nothing changes: `/api/media/process`
+answers 503, the phone ignores that, and the sweep returns `skipped`.
 
 The production deployment also answers `POST /api/assistant-identity`. That
 is not a console page. The `assistant` edge function calls it with the
@@ -290,6 +348,10 @@ hook, the assistant).
 | The phone says "Media storage refused the file" | Blob turned down the PUT. The HTTP status and Blob's message follow; a type or size mismatch means the app sent a different file than it asked to sign. |
 | New photos and videos upload but have no poster | The `media upload` log line ends in `, no poster`. `media poster URL failed:` gives Blob's reason; `thumbnail_bytes must be between 1 byte and 256 KB` means the app sent a bad size. Without either line, the phone's poster PUT failed; the app prints `OhanaOS poster upload:` to Xcode's console. |
 | No `media upload` lines in the runtime logs while someone uploads | The phone isn't reaching this deployment: check `MEDIA_API_URL` in the build. |
+| Videos stay `pending` (or null) and the logs show no `media process` lines | Big videos aren't set up: `MEDIA_JOBS_SECRET` or `CRON_SECRET` is missing on Vercel, or the deploy hasn't run since. `/api/media/process/sweep` answers 503 without `CRON_SECRET`. |
+| `media process: claim answered 401` or `503` | The `media-jobs` function's `MEDIA_JOBS_SECRET` is missing or differs from Vercel's, or the function isn't deployed (`404`). |
+| `media process: couldn't start ohana-video-…` | Vercel Sandbox refused. The error follows; check Sandbox usage and limits for the team. The video goes back to pending and the next sweep tries again (three tries in all). |
+| A video ends `failed` | `media_jobs.error` has the reason: `the file has no video stream`, an ffmpeg error, or `timed out` (the sandbox never reported back). Run `scripts/media-sandbox-check.mjs` to test a sandbox by itself. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |
 
 Dates and times in the console are shown in UTC; hover a relative time ("3 h

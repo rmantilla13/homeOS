@@ -2,6 +2,8 @@
 // Profile avatars stay in the Supabase `avatars` bucket.
 // Pathnames are `<family_id>/<media_id>.<ext>`, the same shape as Storage objects.
 // Each item's poster is `<family_id>/<media_id>-thumb.jpg` (a JPEG, at most 256 KiB).
+// A video the server made a wall copy of moves to `<family_id>/<media_id>-wall.mp4`
+// (lib/media/processing.ts).
 
 export const VIDEO_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 export const PHOTO_MAX_BYTES = 50 * 1024 * 1024;
@@ -55,24 +57,27 @@ export function isPhotoExtension(ext: string): boolean {
   return PHOTO_EXTENSIONS.has(ext);
 }
 
-// `thumb` is true for an item's poster, `<uuid>/<uuid>-thumb.jpg`.
-export type MediaPath = { familyId: string; mediaId: string; ext: string; thumb: boolean };
+// `thumb` is true for an item's poster, `<uuid>/<uuid>-thumb.jpg`, and
+// `wall` for a server-made copy, `<uuid>/<uuid>-wall.mp4`.
+export type MediaPath = { familyId: string; mediaId: string; ext: string; thumb: boolean; wall: boolean };
 
 // Rejects traversal, extra folders, and anything that isn't
-// `<uuid>/<uuid>.<photo or video ext>` or `<uuid>/<uuid>-thumb.jpg`.
-// Ids come back lowercase.
+// `<uuid>/<uuid>.<photo or video ext>`, `<uuid>/<uuid>-thumb.jpg` or
+// `<uuid>/<uuid>-wall.mp4`. Ids come back lowercase.
 export function parseMediaPath(pathname: string): MediaPath | null {
   if (pathname.includes("..") || pathname.includes("\\") || pathname.includes("%") || pathname.startsWith("/")) {
     return null;
   }
   const match =
-    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(-thumb\.jpg|\.(?:jpg|jpeg|png|webp|heic|gif|mp4|mov|m4v|webm|mkv|3gp|3g2))$/i.exec(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(-thumb\.jpg|-wall\.mp4|\.(?:jpg|jpeg|png|webp|heic|gif|mp4|mov|m4v|webm|mkv|3gp|3g2))$/i.exec(
       pathname,
     );
   if (!match) return null;
   const tail = match[3].toLowerCase();
   const thumb = tail === "-thumb.jpg";
-  return { familyId: match[1].toLowerCase(), mediaId: match[2].toLowerCase(), ext: thumb ? "jpg" : tail.slice(1), thumb };
+  const wall = tail === "-wall.mp4";
+  const ext = thumb ? "jpg" : wall ? "mp4" : tail.slice(1);
+  return { familyId: match[1].toLowerCase(), mediaId: match[2].toLowerCase(), ext, thumb, wall };
 }
 
 export function mediaPathname(familyId: string, mediaId: string, ext: string): string {
@@ -83,9 +88,21 @@ export function thumbPathname(familyId: string, mediaId: string): string {
   return `${familyId.toLowerCase()}/${mediaId.toLowerCase()}-thumb.jpg`;
 }
 
-// The canonical (lowercase) pathname of a parsed file or poster.
+export function wallPathname(familyId: string, mediaId: string): string {
+  return `${familyId.toLowerCase()}/${mediaId.toLowerCase()}-wall.mp4`;
+}
+
+// The canonical (lowercase) pathname of a parsed file, poster or wall copy.
 export function pathnameOf(path: MediaPath): string {
-  return path.thumb ? thumbPathname(path.familyId, path.mediaId) : mediaPathname(path.familyId, path.mediaId, path.ext);
+  if (path.thumb) return thumbPathname(path.familyId, path.mediaId);
+  if (path.wall) return wallPathname(path.familyId, path.mediaId);
+  return mediaPathname(path.familyId, path.mediaId, path.ext);
+}
+
+// Every object an item can have starts with this: its file, poster, wall
+// copy, and an original still waiting to be deleted after a swap.
+export function itemPrefix(familyId: string, mediaId: string): string {
+  return `${familyId.toLowerCase()}/${mediaId.toLowerCase()}`;
 }
 
 export type UploadRequest = {
@@ -135,7 +152,9 @@ export function parsePathList(body: unknown): { ok: true; paths: unknown[] } | {
 // on its own is refused, so a row can't be left pointing at a deleted poster.
 export function parseDeleteRequest(
   body: unknown,
-): { ok: true; pathname: string; thumbnailPathname: string; familyId: string } | { ok: false; error: string } {
+):
+  | { ok: true; pathname: string; thumbnailPathname: string; prefix: string; familyId: string }
+  | { ok: false; error: string } {
   if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON object." };
   const pathname = (body as Record<string, unknown>).pathname;
   if (typeof pathname !== "string") return { ok: false, error: "That isn't a media path." };
@@ -145,6 +164,21 @@ export function parseDeleteRequest(
     ok: true,
     pathname: pathnameOf(parsed),
     thumbnailPathname: thumbPathname(parsed.familyId, parsed.mediaId),
+    prefix: itemPrefix(parsed.familyId, parsed.mediaId),
     familyId: parsed.familyId,
   };
+}
+
+// A phone asks for a wall copy of a video it just recorded, by the file's
+// path. Posters are refused; so is a path that is already a wall copy.
+export function parseProcessRequest(
+  body: unknown,
+): { ok: true; pathname: string; familyId: string; mediaId: string } | { ok: false; error: string } {
+  if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON object." };
+  const pathname = (body as Record<string, unknown>).pathname;
+  const parsed = typeof pathname === "string" ? parseMediaPath(pathname) : null;
+  if (!parsed || parsed.thumb || parsed.wall || isPhotoExtension(parsed.ext)) {
+    return { ok: false, error: "That isn't a video path." };
+  }
+  return { ok: true, pathname: pathnameOf(parsed), familyId: parsed.familyId, mediaId: parsed.mediaId };
 }

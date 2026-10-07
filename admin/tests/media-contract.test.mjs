@@ -18,6 +18,8 @@ const STORE = "teststore";
 const seen = { signedTokens: [], rpcs: [], deletes: [] };
 // Tests set these (pathname -> boolean) to make the Blob stub refuse a call.
 const stubFails = { sign: null, deleteMissing: null, deleteForbidden: null };
+// Pathnames the Blob stub lists (delete looks for an item's leftovers).
+const stubBlobs = new Set();
 let server;
 let origin;
 
@@ -54,6 +56,18 @@ before(async () => {
         clientSigningToken: "stub-signing-key",
         validUntil: body.validUntil,
       });
+    }
+    if (req.method === "GET" && /^\/blob\/?\?/.test(req.url)) {
+      const prefix = new URL(req.url, origin).searchParams.get("prefix") ?? "";
+      const blobs = [...stubBlobs].filter((pathname) => pathname.startsWith(prefix)).map((pathname) => ({
+        url: `https://${STORE}.private.blob.vercel-storage.com/${pathname}`,
+        downloadUrl: `https://${STORE}.private.blob.vercel-storage.com/${pathname}?download=1`,
+        pathname,
+        size: 1,
+        uploadedAt: new Date().toISOString(),
+        etag: "stub",
+      }));
+      return send(res, 200, { blobs, hasMore: false });
     }
     if (req.method === "POST" && req.url === "/blob/delete") {
       seen.deletes.push(body);
@@ -311,6 +325,24 @@ test("a poster that won't delete never blocks the file; a file that won't is a 5
   failing(t, "deleteForbidden", null);
   failing(t, "deleteMissing", () => true);
   assert.deepEqual(await remove(), { status: 200, body: { ok: true }, calls: both });
+});
+
+test("delete also takes what a wall copy left behind", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const error = t.mock.method(console, "error", () => {});
+  // The row is on its server-made copy; the original waits for the sweep.
+  stubBlobs.add(`${FAMILY}/${MEDIA}.mov`);
+  stubBlobs.add(`${OTHER_FAMILY}/${MEDIA}.mov`);
+  t.after(() => stubBlobs.clear());
+  const before = seen.deletes.length;
+  const response = await handleMediaDelete(post("/api/media/delete", { pathname: `${FAMILY}/${MEDIA}-wall.mp4` }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    seen.deletes.slice(before).map((call) => call.urls),
+    [[`${FAMILY}/${MEDIA}-thumb.jpg`], [`${FAMILY}/${MEDIA}-wall.mp4`], [`${FAMILY}/${MEDIA}.mov`]],
+    "poster, copy, then the original under the same item, and nothing in another family",
+  );
+  assert.equal(error.mock.callCount(), 0);
 });
 
 test("delete takes a file in the caller's family, never a poster on its own", async (t) => {
