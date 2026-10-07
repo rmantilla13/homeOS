@@ -22,7 +22,7 @@ export default function SupportPage() {
       <p>
         Ohana Display is invite-only. Get an invite code from someone in your family, or use the one in your invite
         email. Open the app, enter the code, then create your account. A code that starts a new family makes you its
-        first parent.
+        first parent. To start a new family, ask for a code at <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
       </p>
 
       <h2>Common tasks</h2>

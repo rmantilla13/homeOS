@@ -146,6 +146,7 @@ row-level security protects the data. TestFlight steps are in
 - [Platform spec](docs/PLATFORM_SPEC.md), the contract between all the parts
 - [Accounts, invites and admins](docs/PLATFORM.md)
 - [Admin console](docs/ADMIN.md) · [iOS app](docs/IOS.md) · [Voice service](docs/VOICE.md)
+- [App Store and TestFlight copy](docs/APP_STORE.md), field by field
 - [Hardware](docs/HARDWARE.md)
 - [Raspberry Pi setup](docs/PI_SETUP.md)
 - [Roadmap](docs/ROADMAP.md)

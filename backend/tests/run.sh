@@ -17,8 +17,9 @@ supa="$here/../supabase"
 
 # Migrations that need Supabase itself (storage, realtime). The plain run
 # skips them; the tests in supabase_tests get them on top of stub_storage.sql.
-supabase_only=(20261006000002_storage_realtime.sql 20261007000005_storage_avatars.sql 20261008000002_media_storage.sql)
-supabase_tests=(storage_test boot_video_test)
+supabase_only=(20261006000002_storage_realtime.sql 20261007000005_storage_avatars.sql 20261008000002_media_storage.sql
+               20261011000002_storage_member_photos.sql)
+supabase_tests=(storage_test boot_video_test member_photos_test)
 
 PG_BIN="${PG_BIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}"
 if [ ! -x "$PG_BIN/initdb" ]; then

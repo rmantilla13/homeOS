@@ -25,7 +25,9 @@ There are two kinds of auth users:
 - A **member** is someone on the family screen. Kids usually have a member row
   with no account. A member row gets an account only by accepting an invite,
   never by a direct write, and a row with an account can't be moved to
-  another family.
+  another family. Parents can give a member without an account a photo
+  (`avatars/<family_id>/<file>`, in `members.avatar_path`), which everyone in
+  the family can see; a member with an account shows their profile photo.
 - **Roles** are `parent`, `child` and `other`. Parents manage the family:
   members, invites, rewards and approvals. Everyone can edit their own name,
   color and avatar. A family always keeps at least one parent with an account:
@@ -125,6 +127,7 @@ returns the same text in `reason`:
 | `the last parent can't leave` | `leave_family` by the only parent with an account |
 | `a family needs at least one parent with an account` | Removing, demoting or unlinking that parent directly |
 | `only a parent can change that` | A kid editing anything but their own name, color or avatar |
+| `that photo isn't in this family's folder` | Setting `members.avatar_path` to anything but `<family_id>/<file>` for the member's own family |
 | `only a parent can add points that skip approval` | A kid or display adding a chore with points and no approval |
 | `only a parent can change a chore's points or approval` | A kid or display changing those on an existing chore |
 | `you're the only parent with a login in {family}. Make someone else there a parent first` | `delete_my_account` by the last parent of a family where others have logins |
@@ -253,7 +256,8 @@ The phone calls the admin app's `POST /api/account/delete`, which calls the
 `delete_my_account()` does the database part:
 
 - **The only login in a family:** the family goes with everything in it,
-  its displays and their accounts included.
+  its displays and their accounts included, and its member photos
+  (`avatars/<family_id>/`).
 - **A family others still use:** the member row stays, unlinked, with its
   points and history, as with `leave_family`. A parent can remove it.
 - **The last parent of a family where others have logins:** refused. Make
@@ -395,12 +399,13 @@ console's Audit page (`admin_list_audit`).
 SQL can't remove files from Storage, and it can't remove Blob objects either.
 The console deletes a family through the `admin` function's `delete_family`,
 which runs `admin_delete_family` and then empties `family-media/<family_id>/`
-(files uploaded before Blob). The console then deletes photos and videos
-from the private Blob store under the same prefix. Deleting one item runs
-`admin_delete_media` and then removes that row's Storage objects. Deleting a
-user empties `avatars/<user_id>/`. Calling `admin_delete_family` or
-`admin_delete_media` directly (SQL editor) leaves the files; remove them in
-Storage, and the family's folder in Blob, yourself.
+(files uploaded before Blob) and `avatars/<family_id>/` (member photos). The
+console then deletes photos and videos from the private Blob store under the
+same prefix. Deleting one item runs `admin_delete_media` and then removes
+that row's Storage objects. Deleting a user empties `avatars/<user_id>/`.
+Calling `admin_delete_family` or `admin_delete_media` directly (SQL editor)
+leaves the files; remove them in Storage, and the family's folder in Blob,
+yourself.
 
 The `admin` edge function calls `admin_create_platform_invite` and
 `admin_delete_family` with the admin's own session, so those rows name the
@@ -410,8 +415,9 @@ server-side jobs. Called that way there's no `auth.uid()`, so the row's
 
 ## Applying these migrations
 
-Production already has the `20261006` and `20261007` migrations. Apply the
-new ones in order, and don't edit them in place:
+Production has the `20261006` and `20261007` migrations and items 1 to 9
+below (checked with `supabase migration list` on 2026-10-07); item 10 isn't
+applied yet. Apply the new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
 2. `backend/supabase/migrations/20261008000002_media_storage.sql`
@@ -424,6 +430,11 @@ new ones in order, and don't edit them in place:
    `supabase functions deploy delete-account` and redeploy the admin app
    (`/api/account/delete`, `/privacy`, `/support`). Safe to run again.
 9. `backend/supabase/migrations/20261010000002_recurrence.sql`. Safe to run again.
+10. `backend/supabase/migrations/20261011000001_member_photos.sql` and
+    `20261011000002_storage_member_photos.sql`, then redeploy the `admin` and
+    `delete-account` functions, so deleting a family also empties its member
+    photos. An app build with member photos gets an error when saving one
+    until these are live; everything else keeps working.
 
 `supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
@@ -459,7 +470,8 @@ bills that object. New uploads go to Blob and send `byte_size`.
 `backend/tests/run.sh` starts a throwaway Postgres, applies every migration
 on top of a stand-in for Supabase Auth (`tests/stub_auth.sql`), and runs each
 `tests/*_test.sql` in a fresh copy of the database. The storage migrations
-run only for `storage_test`, which adds `tests/stub_storage.sql`. Run one
+run only for the tests in `supabase_tests` (`storage_test`, `boot_video_test`
+and `member_photos_test`), on top of `tests/stub_storage.sql`. Run one
 file with `run.sh invites`, and add `VERBOSE=1` to see its output.
 `concurrency_test` races two sessions for the same invite through `dblink`
 (Postgres contrib, part of the `postgresql-16` package); it's skipped when

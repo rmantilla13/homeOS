@@ -25,7 +25,8 @@ insert into families (id, name) values (:'fam2', 'Elsewhere');
 -- ───────────────────────── Kids ─────────────────────────
 
 select tests.login(:'emma');
-select tests.eq(tests.affected(format($$update members set display_name = 'Em', color = '#123456', avatar_url = 'https://x/y.png' where id = %L$$, :'m_emma')),
+select tests.eq(tests.affected(format($$update members set display_name = 'Em', color = '#123456', avatar_path = %L where id = %L$$,
+                                      :'fam' || '/emma.jpg', :'m_emma')),
                 1, 'kid edits own name, color, avatar');
 select tests.throws(format($$update members set role = 'parent' where id = %L$$, :'m_emma'), 'only a parent can change that', 'kid cannot promote self');
 select tests.throws(format($$update members set family_id = %L where id = %L$$, :'fam2', :'m_emma'), 'only a parent can change that', 'kid cannot move family');

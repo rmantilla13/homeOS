@@ -22,7 +22,7 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const MEDIA_BUCKET = "family-media"; // '<family_id>/<file>'
-const AVATAR_BUCKET = "avatars"; // '<user_id>/<file>'
+const AVATAR_BUCKET = "avatars"; // '<user_id>/<file>' and member photos at '<family_id>/<file>'
 
 const service = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },

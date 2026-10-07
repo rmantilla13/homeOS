@@ -37,7 +37,14 @@ struct AssistantView: View {
     @State private var dictation = Dictation()
     @State private var didLaunch = false
     @State private var showingHistory = false
+    /// A question waiting for the person to allow the AI assistant.
+    @State private var consentQuestion: PendingQuestion?
     @FocusState private var focused: Bool
+
+    private struct PendingQuestion: Identifiable {
+        let id = UUID()
+        let text: String
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,16 +96,24 @@ struct AssistantView: View {
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showingHistory) { ThreadListView() }
+        .sheet(item: $consentQuestion) { question in
+            AIConsentSheet(onAllow: { answerConsent(true, to: question) },
+                           onNotNow: { answerConsent(false, to: question) })
+        }
         .task {
             guard !didLaunch else { return }
             didLaunch = true
             if let prompt = launch.prompt {
                 // A suggestion chip starts its own conversation.
                 store.newChat()
-                await store.ask(prompt)
+                submit(prompt)
             } else if launch.listen {
                 await dictation.start()
             } else {
+                #if DEBUG
+                // Keep the keyboard down so the demo transcript shows in full.
+                if DemoMode.isOn { return }
+                #endif
                 focused = true
             }
         }
@@ -191,7 +206,7 @@ struct AssistantView: View {
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(AssistantSuggestion.more) { suggestion in
-                    Button { Task { await store.ask(suggestion.prompt) } } label: {
+                    Button { submit(suggestion.prompt) } label: {
                         Chip(title: suggestion.title, icon: suggestion.icon)
                             .frame(maxWidth: .infinity)
                     }
@@ -254,7 +269,101 @@ struct AssistantView: View {
         dictation.cancel()
         dictation.transcript = ""
         draft = ""
+        submit(text)
+    }
+
+    /// Every question goes through here: typed, dictated or a suggestion.
+    /// Until the person allows the AI assistant on this iPhone, it asks first.
+    private func submit(_ text: String) {
+        guard store.hasAIConsent else {
+            focused = false
+            consentQuestion = PendingQuestion(text: text)
+            return
+        }
         Task { await store.ask(text) }
+    }
+
+    /// Allow sends the question. Not now sends nothing and leaves it in the box.
+    private func answerConsent(_ allowed: Bool, to question: PendingQuestion) {
+        consentQuestion = nil
+        if allowed {
+            store.allowAI()
+            Task { await store.ask(question.text) }
+        } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft = question.text
+        }
+    }
+}
+
+/// Asked once per account on this iPhone, before a person's first question
+/// goes to the assistant. Allow stores the answer; Not now sends nothing.
+struct AIConsentSheet: View {
+    let onAllow: () -> Void
+    let onNotNow: () -> Void
+    @Environment(\.mood) private var mood
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(mood.accent, in: Circle())
+                        .accessibilityHidden(true)
+                    Text("Before you ask Ohana")
+                        .font(.system(size: 26, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Theme.text)
+                    Text("Ohana's assistant is AI. When you ask it something, your question and the family details it needs to answer (names, calendar, chores and points, rewards, meals, lists and family memory) are sent to Anthropic, which makes the Claude model, to write the reply. Nothing is sent until you allow it.")
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Theme.muted)
+                    Link("Privacy policy", destination: Config.privacyPolicyURL)
+                        .font(.subheadline.weight(.semibold))
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 48)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+
+            VStack(spacing: 10) {
+                Button(action: onAllow) {
+                    HStack {
+                        Spacer()
+                        Text("Allow")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.pill())
+                Button(action: onNotNow) {
+                    HStack {
+                        Spacer()
+                        Text("Not now")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.pill(.soft))
+            }
+            .padding(.horizontal, Theme.page)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+        }
+        .background {
+            ZStack(alignment: .top) {
+                Theme.background
+                GlowView()
+                    .frame(height: 260)
+                    .offset(y: -150)
+                    .opacity(0.7)
+            }
+            .ignoresSafeArea()
+        }
+        // Allow or Not now: swiping it away would leave the question unanswered.
+        .interactiveDismissDisabled()
     }
 }
 

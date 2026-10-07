@@ -52,7 +52,7 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | Table | Notes |
 |---|---|
 | `families` | One household |
-| `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user |
+| `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member without a login a photo |
 | `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
 | `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members` |
 | `tasks` | Chores and to-dos: assignee, points, recurrence, due date, and whether a parent must approve |
@@ -136,7 +136,7 @@ running in the `assistant` edge function.
   the **family memory**. Nothing is fine-tuned, so answers always reflect
   today's data.
 - **Family memory** (`family_memories` table) holds lasting facts the assistant
-  saves with its `remember` tool, such as "Leo is allergic to peanuts" or
+  saves with its `remember` tool, such as "Leo's favorite snack is apple slices" or
   "soccer carpool is with the Parks". Parents can delete memories.
 - **Tools:** `add_event`, `add_list_item`, `add_chore`, `set_meal`, `remember`,
   and `forget` (parents only). Points, approvals and rewards are deliberately
@@ -214,7 +214,8 @@ the project and company are OhanaOS. `xcodegen generate` replaces it.
 - Tabs: Today, Calendar, Chores, Rewards and Photos.
 - Invite-only onboarding: enter an invite code or open an `ohanaos://invite/<CODE>`
   link, then create an account and start or join a family.
-- Profile (name, photo), family management (members, roles, invites) and the
+- Profile (name, photo), family management (members with names, photos,
+  colors and roles; invites), also under Profile → Manage family, and the
   assistant with saved threads. Siri: say "Ask Ohana", then the question.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Vercel
   Blob through the admin app (`Config.mediaAPIURL`), with a size and a

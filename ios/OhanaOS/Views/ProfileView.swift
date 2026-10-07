@@ -2,8 +2,9 @@ import AppIntents
 import PhotosUI
 import SwiftUI
 
-/// Your account: name, photo, email, which family to show, Siri, privacy
-/// and support links, sign out, and deleting the account.
+/// Your account: name, photo, email, the family's members, which family to
+/// show, the assistant and Siri, privacy and support links, sign out, and
+/// deleting the account.
 struct ProfileView: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -83,6 +84,25 @@ struct ProfileView: View {
                         LabeledContent("Role", value: me.role.title)
                     }
                 }
+                if store.family != nil {
+                    Section {
+                        NavigationLink {
+                            ManageFamilyView()
+                        } label: {
+                            LabeledContent {
+                                Text("\(store.members.count)")
+                            } label: {
+                                Label("Manage family", systemImage: "person.2")
+                            }
+                        }
+                    } header: {
+                        Text("Family")
+                    } footer: {
+                        Text(store.isParent
+                             ? "Add people, and set their names, photos, colors and roles."
+                             : "See who's in the family, and change your own name, photo and color.")
+                    }
+                }
                 if store.families.count > 1 {
                     Section {
                         Picker("Show", selection: familySelection) {
@@ -97,13 +117,20 @@ struct ProfileView: View {
                     }
                 }
                 Section {
+                    Toggle("Send questions to the AI assistant", isOn: aiConsent)
+                } header: {
+                    Text("Assistant")
+                } footer: {
+                    Text("Questions and the family details needed to answer them go to Anthropic (Claude). Turn this off to stop sending them from this iPhone.")
+                }
+                Section {
                     SiriTipView(intent: AskOhanaOSIntent())
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 } header: {
                     Text("Siri")
                 } footer: {
-                    Text("Ask a quick question hands-free, like “Ask Ohana what's for dinner”. Siri asks what you'd like to know.")
+                    Text("Ask a quick question hands-free: say “Ask Ohana Display”, then your question.")
                 }
                 Section("About") {
                     Link(destination: Config.privacyPolicyURL) {
@@ -221,6 +248,15 @@ struct ProfileView: View {
         let deleted = await store.deleteAccount()
         deleting = false
         if deleted { dismiss() }
+    }
+
+    /// On: questions may go to the AI assistant from this iPhone. Off revokes that.
+    private var aiConsent: Binding<Bool> {
+        Binding(
+            get: { store.hasAIConsent },
+            set: { allowed in
+                if allowed { store.allowAI() } else { store.revokeAI() }
+            })
     }
 
     private var familySelection: Binding<UUID> {
