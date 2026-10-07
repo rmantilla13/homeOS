@@ -169,3 +169,14 @@ Deno.test("googleRows: timed, all-day, private, cancelled and working-location e
     { uid: "odd", title: "Untitled event", description: null, location: null, starts_at: "2026-10-29T09:00:00.000Z", ends_at: "2026-10-29T09:00:00.000Z", all_day: false },
   ]);
 });
+
+Deno.test("listEvents: a busy calendar keeps paging past 5000, so the sync can keep the nearest", async () => {
+  let pages = 0;
+  const fake = (async () => {
+    pages++;
+    const items = Array.from({ length: 2500 }, (_, i) => ({ id: `p${pages}-${i}` }));
+    return jsonResponse(pages < 3 ? { items, nextPageToken: `t${pages}` } : { items });
+  }) as typeof fetch;
+  assertEquals((await listEvents(fake, "at", "c", { from: NOW, to: NOW + 1 })).length, 7500);
+  assertEquals(pages, 3);
+});

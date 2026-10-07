@@ -219,6 +219,13 @@ select tests.eq((select count(*)::int from event_members em join events e on e.i
 
 -- Busy only hides the details at once.
 select tests.eq(tests.affected(format('update calendar_sources set busy_only = true where id = %L', :'work')), 1, 'show work as busy');
+-- Mom's Google calendar shows its details again only when Mom says so.
+select tests.login(:'dad');
+select tests.throws(format('update calendar_sources set busy_only = false where id = %L', :'work'),
+                    'only the person who connected this Google account can show its details', 'not another parent');
+select tests.eq(tests.affected(format('update calendar_sources set name = %L where id = %L', 'Mom (work)', :'work')), 1,
+                'another parent may still rename it');
+select tests.login(:'mom');
 select tests.ok((select bool_and(title = 'Busy' and description is null and location is null) from events where source_id = :'work'),
                 'titles become Busy');
 select tests.login_service();
@@ -228,6 +235,8 @@ select tests.eq((select array[title, description, location] from events where so
 
 -- Off removes the events; the next sync brings nothing in.
 select tests.login(:'mom');
+select tests.eq(tests.affected(format('update calendar_sources set busy_only = false where id = %L', :'work')), 1,
+                'the parent who connected it can show the details again');
 select tests.eq(tests.affected(format('update calendar_sources set enabled = false where id = %L', :'work')), 1, 'turn work off');
 select tests.eq((select count(*)::int from events where source_id = :'work'), 0, 'its events go');
 select tests.eq((select event_count from calendar_sources where id = :'work'), 0, 'and the count');

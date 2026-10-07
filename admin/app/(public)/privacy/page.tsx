@@ -69,7 +69,9 @@ export default function PrivacyPage() {
           Google API Services User Data Policy
         </a>
         , including the Limited Use requirements. We don&apos;t use Google data for ads, sell it, or use it to train AI
-        models, and people only see it as part of your family&apos;s calendar.
+        models. Events from connected calendars are part of your family&apos;s calendar, so your family sees them, and
+        when someone asks the assistant a question they can be among the family details sent to Anthropic to answer
+        it, as described below. A calendar shown as Busy shares only its times.
       </p>
 
       <h2>Who can see it</h2>

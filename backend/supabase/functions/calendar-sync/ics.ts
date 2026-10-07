@@ -28,7 +28,8 @@ export interface ParseOptions {
 // Work limits. Edge functions get about 2 s of CPU per request, so a
 // calendar too big to read in BUDGET_MS fails with a message instead.
 const MAX_STEPS_PER_SERIES = 20_000;
-const MAX_ROWS_COLLECTED = 10_000;
+// The sync keeps the 5000 nearest to today; past this many, the calendar is refused.
+const MAX_ROWS_COLLECTED = 50_000;
 const BUDGET_MS = 1200;
 // A repeat moved into the window from a little past it still shows.
 const MOVED_MARGIN_MS = 32 * DAY_MS;
@@ -114,7 +115,10 @@ function expand(roots: Component[], opts: ParseOptions): SyncRow[] {
   const rows: SyncRow[] = [];
   const used = new Set<string>();
   const add = (row: SyncRow | null) => {
-    if (!row || rows.length >= MAX_ROWS_COLLECTED) return;
+    if (!row) return;
+    if (rows.length >= MAX_ROWS_COLLECTED) {
+      throw new CalendarError("That calendar is too big to sync. Try a link to a smaller calendar.");
+    }
     let uid = row.uid;
     if (used.has(uid)) uid = `${row.uid}/${compact(Date.parse(row.starts_at), row.all_day)}`;
     if (used.has(uid)) return;
@@ -135,7 +139,7 @@ function expand(roots: Component[], opts: ParseOptions): SyncRow[] {
     if (cancelled(master.component)) continue;
     fastForward(master, opts.from);
     const it = master.iterator();
-    for (let step = 0; step < MAX_STEPS_PER_SERIES && rows.length < MAX_ROWS_COLLECTED; step++) {
+    for (let step = 0; step < MAX_STEPS_PER_SERIES; step++) {
       if (step % 256 === 0) checkBudget();
       const next: Time | null = it.next();
       if (!next) break;

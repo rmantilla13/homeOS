@@ -27,6 +27,7 @@ function fakeDeps(overrides: Partial<SyncDeps> & { responses?: Record<string, ()
   const responses = overrides.responses ?? {};
   const deps: SyncDeps = {
     now: () => NOW,
+    resolve: async () => [],
     fetch: (async (input: URL | RequestInfo) => {
       const url = input.toString();
       log.push(`fetch ${url.split("?")[0]}`);

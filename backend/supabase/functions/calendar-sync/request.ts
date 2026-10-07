@@ -16,6 +16,7 @@ export type CalendarRequest =
   | ({ action: "add_google"; accountId: string; calendarId: string } & CalendarLook)
   | { action: "sync"; familyId: string | null; sourceId: string | null; force: boolean }
   | { action: "google_start"; familyId: string }
+  | { action: "google_finish"; code: string; state: string }
   | { action: "google_calendars" | "disconnect_google"; accountId: string }
   | { action: "sync_due" }
   | { action: "sync_source"; sourceId: string }; // internal: one calendar per request
@@ -75,6 +76,10 @@ export function parseCalendarRequest(body: unknown): CalendarRequest | { error: 
     case "google_start":
       if (!isUuid(b.family_id)) return { error: "family_id must be a uuid" };
       return { action: "google_start", familyId: b.family_id.toLowerCase() };
+    case "google_finish":
+      if (typeof b.code !== "string" || !b.code || b.code.length > 2048) return { error: "code is required" };
+      if (typeof b.state !== "string" || !b.state || b.state.length > 1000) return { error: "state is required" };
+      return { action: "google_finish", code: b.code, state: b.state };
     case "google_calendars":
     case "disconnect_google":
       if (!isUuid(b.account_id)) return { error: "account_id must be a uuid" };

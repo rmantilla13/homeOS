@@ -4,7 +4,7 @@
 // (sync.test.ts). A failure is written to the calendar's last_error, which
 // the app shows; it never throws.
 
-import { fetchCalendarText, type Fetch, normalizeCalendarUrl } from "./fetch.ts";
+import { fetchCalendarText, type Fetch, normalizeCalendarUrl, type Resolve } from "./fetch.ts";
 import { type GoogleConfig, GoogleReconnect, googleRows, listEvents, refreshAccess } from "./google.ts";
 import { parseIcs } from "./ics.ts";
 import { CalendarError, nearestRows, type SyncRow, syncWindow } from "./rows.ts";
@@ -37,6 +37,8 @@ export interface StoredToken {
 export interface SyncDeps {
   now(): number;
   fetch: Fetch;
+  /** DNS for links (fetch.ts systemResolve when absent). */
+  resolve?: Resolve;
   google: GoogleConfig | null;
   familyZone(familyId: string): Promise<string>;
   link(sourceId: string): Promise<string | null>;
@@ -69,7 +71,7 @@ export async function sourceRows(deps: SyncDeps, source: Source, zone: string): 
     if (!link) throw new CalendarError("This calendar's link is missing. Remove it and add it again.");
     const url = normalizeCalendarUrl(link);
     if ("error" in url) throw new CalendarError(url.error);
-    rows = parseIcs(await fetchCalendarText(deps.fetch, url.url), { timeZone: zone, ...window }).rows;
+    rows = parseIcs(await fetchCalendarText(deps.fetch, url.url, deps.resolve), { timeZone: zone, ...window }).rows;
   } else {
     if (!source.account_id || !source.google_calendar_id) throw new CalendarError(GENERIC_FAILURE);
     const token = await accessTokenFor(deps, source.account_id);

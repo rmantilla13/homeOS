@@ -2,13 +2,26 @@
 // server, so a link must not reach the server's own network: only http(s)
 // on public hosts, redirects checked the same way, a time limit and a size
 // cap. webcal:// (what "Subscribe" buttons hand out) is https. Hosts are
-// checked as written (names and IP literals); a public name that resolves
-// to a private address isn't caught here, so the runtime's own network
-// rules are the backstop.
+// checked as written, and a name's DNS answers are checked before each
+// request (so 10.0.0.5.nip.io is refused too). A name that changes its
+// answer between that lookup and the request can still slip through; the
+// runtime's own network rules are the backstop.
 
 import { CalendarError } from "./rows.ts";
 
 export type Fetch = typeof fetch;
+/** A host's addresses (A and AAAA). Empty when they can't be looked up. */
+export type Resolve = (host: string) => Promise<string[]>;
+
+type ResolveDns = (host: string, type: "A" | "AAAA") => Promise<string[]>;
+
+/** Deno.resolveDns where the runtime has it; otherwise nothing to check. */
+export const systemResolve: Resolve = async (host) => {
+  const resolveDns = (Deno as unknown as { resolveDns?: ResolveDns }).resolveDns;
+  if (typeof resolveDns !== "function") return [];
+  const answers = await Promise.allSettled([resolveDns(host, "A"), resolveDns(host, "AAAA")]);
+  return answers.flatMap((a) => (a.status === "fulfilled" ? a.value : []));
+};
 
 export const MAX_CALENDAR_BYTES = 5 * 1024 * 1024;
 const TIMEOUT_MS = 20_000;
@@ -49,8 +62,11 @@ export function isPublicHost(hostname: string): boolean {
   }
   if (/^\d+$/.test(host) || /^0x/i.test(host)) return false; // 2130706433, 0x7f000001
   if (host.includes(":")) {
-    // IPv6: loopback, unspecified, unique local, link-local, and IPv4-mapped ones.
-    return !(host === "::1" || host === "::" || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith("::ffff:"));
+    // IPv6: loopback, unspecified, unique local, link-local, multicast,
+    // documentation, and ones that carry an IPv4 address (mapped, NAT64, 6to4).
+    return !(host === "::1" || host === "::" || /^f[cdf]/.test(host) || /^fe[89ab]/.test(host) ||
+      host.startsWith("::ffff:") || host.startsWith("64:ff9b:") || host.startsWith("2002:") ||
+      host.startsWith("2001:db8:"));
   }
   return true;
 }
@@ -59,9 +75,10 @@ export function isPublicHost(hostname: string): boolean {
  * The text of the calendar at `url`. Throws CalendarError with a message a
  * parent can act on.
  */
-export async function fetchCalendarText(doFetch: Fetch, start: URL): Promise<string> {
+export async function fetchCalendarText(doFetch: Fetch, start: URL, resolve: Resolve = systemResolve): Promise<string> {
   let url = start;
   for (let hop = 0; ; hop++) {
+    await checkAddresses(url.hostname, resolve);
     let res: Response;
     try {
       res = await doFetch(url, {
@@ -97,6 +114,13 @@ export async function fetchCalendarText(doFetch: Fetch, start: URL): Promise<str
     }
     return await readCapped(res);
   }
+}
+
+async function checkAddresses(hostname: string, resolve: Resolve): Promise<void> {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  if (/^[\d.]+$/.test(host) || host.includes(":")) return; // an address, already checked as written
+  const addresses = await resolve(host).catch(() => [] as string[]);
+  if (addresses.some((a) => !isPublicHost(a))) throw new CalendarError("That link points to a private network.");
 }
 
 async function readCapped(res: Response): Promise<string> {

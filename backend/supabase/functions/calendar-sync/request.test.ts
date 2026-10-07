@@ -51,6 +51,10 @@ Deno.test("sync: a family or one calendar", () => {
 
 Deno.test("the rest", () => {
   assertEquals(parseCalendarRequest({ action: "google_start", family_id: FAM }), { action: "google_start", familyId: FAM.toLowerCase() });
+  assertEquals(parseCalendarRequest({ action: "google_finish", code: "4/abc", state: "p.s" }),
+    { action: "google_finish", code: "4/abc", state: "p.s" });
+  assertEquals(parseCalendarRequest({ action: "google_finish", state: "p.s" }), { error: "code is required" });
+  assertEquals(parseCalendarRequest({ action: "google_finish", code: "4/abc" }), { error: "state is required" });
   assertEquals(parseCalendarRequest({ action: "google_calendars", account_id: ACC }), { action: "google_calendars", accountId: ACC });
   assertEquals(parseCalendarRequest({ action: "disconnect_google", account_id: ACC }), { action: "disconnect_google", accountId: ACC });
   assertEquals(parseCalendarRequest({ action: "disconnect_google" }), { error: "account_id must be a uuid" });

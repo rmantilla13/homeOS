@@ -145,7 +145,9 @@ create trigger event_members_source_guard
   for each row execute function public.event_members_source_guard();
 
 -- Parents may rename a calendar, recolor it, say who it's for, show it as
--- busy only, and turn it off. Everything else is the sync's.
+-- busy only, and turn it off. Everything else is the sync's. A Google
+-- calendar shown as Busy shows its details again only when the parent who
+-- connected that account says so: they're that person's calendars.
 create function public.calendar_sources_guard()
 returns trigger
 language plpgsql set search_path = public as $$
@@ -157,6 +159,12 @@ begin
          (old.id, old.family_id, old.provider, old.account_id, old.google_calendar_id, old.url_host,
           old.last_attempt_at, old.last_synced_at, old.last_error, old.event_count, old.created_by, old.created_at) then
     raise exception 'only a calendar''s name, color, person, privacy and on/off can be changed';
+  end if;
+  if tg_op = 'UPDATE' and current_user in ('authenticated', 'anon')
+     and old.busy_only and not new.busy_only and old.account_id is not null
+     and not exists (select 1 from public.calendar_accounts a
+                      where a.id = old.account_id and a.created_by = auth.uid()) then
+    raise exception 'only the person who connected this Google account can show its details';
   end if;
   if new.member_id is not null and (tg_op = 'INSERT' or new.member_id is distinct from old.member_id)
      and not exists (select 1 from public.members m where m.id = new.member_id and m.family_id = new.family_id) then

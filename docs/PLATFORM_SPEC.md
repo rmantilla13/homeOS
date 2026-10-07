@@ -509,7 +509,8 @@ days.
 | `event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)` | `table(id uuid, family_id uuid, title text, description text, location text, starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text, created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz, member_ids uuid[], source_id uuid)`, ordered by `starts_at`, then `all_day` desc, then `id`. `source_id` (20261012000001) is the connected calendar an imported event came from, null for the family's own |
 | `chores_due(fid uuid, day date)` | `setof tasks`, ordered by `created_at` |
 
-All four can be executed by `authenticated` only. `event_occurrences` and
+All four can be executed by `authenticated` only (and, since 20261012000001,
+`event_occurrences` by the service role too, for the family feed in §2.5). `event_occurrences` and
 `chores_due` are `stable` and security invoker, so RLS on `events`,
 `event_members`, `tasks`, `task_completions` and `families` applies:
 another family's id returns no rows.
@@ -687,8 +688,10 @@ uid (`events_source_has_id`).
   `member_id`, `busy_only` and `enabled` (`only a calendar's name, color,
   person, privacy and on/off can be changed`); `member_id` must be in the
   family (`that person isn't in this family`), `account_id` the family's
-  (`that account isn't in this family`). Names are trimmed. Turning a
-  calendar off sets `event_count` to 0.
+  (`that account isn't in this family`). Turning `busy_only` off on a Google
+  calendar is for the parent who connected that account (`only the person
+  who connected this Google account can show its details`). Names are
+  trimmed. Turning a calendar off sets `event_count` to 0.
 - `calendar_sources_apply` (after update, security definer): off deletes the
   calendar's events; a new color, person or `busy_only = true` applies to
   the events already there (titles become `Busy`, no description or
@@ -879,11 +882,16 @@ are matched case-insensitively.
 
 | `action` | Params | Who | Effect |
 |---|---|---|---|
-| `add_link` | `family_id`, `url`, `name?` (≤ 100), `color?` (`#RRGGBB`), `member_id?`, `busy_only?` | parent | `webcal://`/`webcals://` become `https://`; only http(s) to a public host (no `localhost`, `.local`, `.internal`, private, loopback, link-local or CGNAT addresses, no user or password in the link). Fetched (20 s, at most 5 redirects, each checked the same way, at most 5 MB) and parsed before anything is saved. 409 `That calendar is already connected.` for the same link in the family. Saves the source (`url_host`, the name given, else the calendar's `X-WR-CALNAME`, else the host) and the link, then applies the rows. `{ source_id, name, event_count }`, plus `sync_error` when the first apply failed. |
+| `add_link` | `family_id`, `url`, `name?` (≤ 100), `color?` (`#RRGGBB`), `member_id?`, `busy_only?` | parent | `webcal://`/`webcals://` become `https://`; only http(s) to a public host (no `localhost`, `.local`, `.internal`, private, loopback, link-local, CGNAT, multicast or NAT64/6to4 addresses, no user or password in the link; a name is also looked up before each request and refused when any answer is such an address). Fetched (20 s, at most 5 redirects, each checked the same way, at most 5 MB) and parsed before anything is saved. 409 `That calendar is already connected.` for the same link in the family. Saves the source (`url_host`, the name given, else the calendar's `X-WR-CALNAME`, else the host) and the link, then applies the rows. `{ source_id, name, event_count }`, plus `sync_error` when the first apply failed. |
 | `google_start` | `family_id` | parent | `{ url }`: Google's consent page for `openid email https://www.googleapis.com/auth/calendar.readonly`, offline access, `prompt=consent`, and a `state` signed with HMAC-SHA256 (keyed from the service role key) naming the family and the person, valid 15 minutes. 503 `Google Calendar isn't set up on this server yet.` without `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. |
-| `google_calendars` | `account_id` | parent (RLS on `calendar_accounts`) | `{ email, calendars: [{ id, name, color, primary, added }] }`: the account's readable, unhidden calendars, primary first, then by name; `color` is Google's as `#RRGGBB`; `added` when the family already has it. |
-| `add_google` | `account_id`, `calendar_id`, `name?`, `color?`, `member_id?`, `busy_only?` | parent | The calendar must be in the account's list (404 `That calendar isn't in this Google account.`); 409 when it's already connected. Color: the one given, else none when a person is given, else Google's. Syncs it. Same answer as `add_link`. |
-| `disconnect_google` | `account_id` | parent | Revokes the refresh token at Google (best effort) and deletes the account, its calendars and their events. `{ ok, revoked }`. |
+| `google_finish` | `code`, `state` (from the redirect below) | the parent named in `state` (403 `That Google sign-in was started by someone else.`), still a parent of that family | Checks the state (400 `That sign-in took too long. Try connecting again.`), exchanges the code, requires the calendar scope (else revokes the grant unless the same Google account is connected in another family, and says `Ohana needs permission to see your calendars. Try again and allow it.`), reads the email from the ID token, upserts the account (`needs_reconnect = false`, `created_by` the caller) and its tokens (keeping the stored refresh token when Google sends none), and marks its calendars due. `{ account_id, email }`. Finishing in the app, with the parent's own JWT, means a consent link sent to someone else can't attach their Google account to another family. |
+| `google_calendars` | `account_id` | the parent who connected it (403 `Only the person who connected this Google account can choose its calendars.`) | `{ email, calendars: [{ id, name, color, primary, added }] }`: the account's readable, unhidden calendars, primary first, then by name; `color` is Google's as `#RRGGBB`; `added` when the family already has it. |
+| `add_google` | `account_id`, `calendar_id`, `name?`, `color?`, `member_id?`, `busy_only?` | the parent who connected it | The calendar must be in the account's list (404 `That calendar isn't in this Google account.`); 409 when it's already connected. Color: the one given, else none when a person is given, else Google's. Syncs it. Same answer as `add_link`. |
+| `disconnect_google` | `account_id` | any parent | Deletes the account, its calendars and their events. Revokes the refresh token at Google (best effort) unless the same Google account is connected in another family, since Google's revoke ends the whole grant. `{ ok, revoked }`. |
+
+When Google refuses an account's token in `google_calendars`, `add_google`
+or a sync, `needs_reconnect` is set; the first two answer 409 `{ error,
+reconnect: true }`, and a sync records it in `last_error`.
 | `sync` | `family_id` or `source_id` (one of them), `force?` | anyone in the family, displays included | Claims (`calendar_claim_due`, up to 20) the family's calendars, or the one, not tried in the last 600 s (30 s with `force`), and syncs them: one in this request, several in one request each (below). `{ results: [{ source_id, ok: true, added, updated, removed, event_count } | { source_id, ok: false, error }] }`; an empty list means everything was fresh. 404 `calendar not found` for a calendar the caller can't see. |
 
 **`POST` with `Authorization: Bearer <CALENDAR_CRON_SECRET>`** (at least 16
@@ -898,7 +906,8 @@ CPU per request, so `sync_due` and a family `sync` hand each calendar to
 its own request.
 
 **Syncing one calendar.** The window is 60 days back to 365 days ahead; at
-most 5000 occurrences go to `calendar_apply_sync`, the nearest to now.
+most 5000 occurrences go to `calendar_apply_sync`, the nearest to now. A link
+with more than 50,000 occurrences in the window is refused as too big.
 
 - *Links:* parsed with ical.js. Repeats are expanded with EXDATE, RDATE and
   RECURRENCE-ID (moved or cancelled repeats); an old series without COUNT
@@ -927,19 +936,15 @@ most 5000 occurrences go to `calendar_apply_sync`, the nearest to now.
 **`GET …/calendar-sync/google/callback?code&state`** (the OAuth client's
 redirect URI; `GOOGLE_REDIRECT_URI` overrides
 `<SUPABASE_URL>/functions/v1/calendar-sync/google/callback`). Checks the
-state, exchanges the code, requires the calendar scope (else revokes and
-says so), reads the email from the ID token, checks the person is still a
-parent of the active family, upserts the account (`needs_reconnect =
-false`, `created_by` the person) and its tokens (keeping the stored refresh
-token when Google sends none), and marks its calendars due. Always answers
-302 to `CALENDAR_APP_REDIRECT` (default `ohanaos://google-calendar`) with
-`account_id` and `email`, or `error`: `Google sign-in was cancelled.`,
-`That sign-in took too long. Try connecting again.`, `Ohana needs
-permission to see your calendars. Try again and allow it.`, `Only a parent
-can connect calendars.`, …
+state's signature and age and answers 302 to `CALENDAR_APP_REDIRECT`
+(default `ohanaos://google-calendar`) with `code` and `state` for
+`google_finish`, or with `error`: `Google sign-in was cancelled.`, `That
+sign-in took too long. Try connecting again.`, `Google couldn't sign you
+in. Try again.` It saves nothing.
 
 **`GET` or `HEAD …/calendar-sync/feed/<token>.ics`** (`.ics` optional): the
-family's own events (`source_id` null) from `event_occurrences`, 30 days back
+family's own events (`source_id=is.null` on `event_occurrences`, so imported
+ones don't use up its 20,000-row reads), 30 days back
 to 365 ahead, as `text/calendar` (`Cache-Control: private, max-age=300`).
 Each occurrence is its own VEVENT in UTC; all-day events are dates. UID
 `<event id>@ohanaos`, or `<event id>-<local date>@ohanaos` for a repeat;
@@ -1365,8 +1370,12 @@ the Calendar tab)
   `sync` for the family (at most every 10 minutes per phone), reloading if
   anything changed. Pull to refresh and Sync now send `force`.
 - Parents: **Connect Google Calendar** opens `google_start`'s URL in
-  `ASWebAuthenticationSession` (callback scheme `ohanaos`), then lists
+  `ASWebAuthenticationSession` (callback scheme `ohanaos`), sends the
+  callback's `code` and `state` to `google_finish`, then lists
   `google_calendars` (the primary ticked) and adds each with `add_google`.
+  Only the parent who connected an account sees Choose calendars and Sign in
+  again for it, and can turn Busy off on its calendars; other parents see who
+  connected it and can disconnect it.
   **Add a calendar link** sends `add_link` with a name, person, color and
   Busy, and explains where iCloud, Google, Outlook and school calendars keep
   their links. A calendar's sheet edits name, person, Busy, on/off and color

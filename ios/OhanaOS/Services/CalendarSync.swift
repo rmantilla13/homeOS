@@ -51,16 +51,20 @@ struct CalendarSource: Codable, Identifiable, Hashable {
     var isGoogle: Bool { provider == "google" }
 }
 
-/// A Google account a parent connected for the family.
+/// A Google account a parent connected for the family. Only that parent
+/// chooses its calendars or shows their details; any parent can disconnect it.
 struct CalendarAccount: Codable, Identifiable, Hashable {
     let id: UUID
     var email: String
     /// Google stopped accepting Ohana's access (revoked, password changed).
     var needsReconnect: Bool
+    /// The parent who connected it.
+    var createdBy: UUID
 
     enum CodingKeys: String, CodingKey {
         case id, email
         case needsReconnect = "needs_reconnect"
+        case createdBy = "created_by"
     }
 }
 
@@ -120,6 +124,12 @@ extension FamilyStore {
     func calendarSource(_ id: UUID?) -> CalendarSource? { calendarSources.first { $0.id == id } }
     func calendarAccount(_ id: UUID?) -> CalendarAccount? { calendarAccounts.first { $0.id == id } }
 
+    /// Whether you connected this Google account (and so manage its calendars).
+    func isMine(_ account: CalendarAccount?) -> Bool {
+        guard let account, let me = me?.userId else { return false }
+        return account.createdBy == me
+    }
+
     /// Where a calendar comes from: "Google · mom@gmail.com", or a link's host.
     func calendarOrigin(of source: CalendarSource) -> String {
         if source.isGoogle {
@@ -151,7 +161,7 @@ extension FamilyStore {
             var feedURL: URL?
             if isParent {
                 struct Feed: Decodable { let token: String }
-                accounts = try await supabase.from("calendar_accounts").select("id, email, needs_reconnect")
+                accounts = try await supabase.from("calendar_accounts").select("id, email, needs_reconnect, created_by")
                     .eq("family_id", value: fid).order("created_at").execute().value
                 let feeds: [Feed] = try await supabase.from("calendar_feeds").select("token")
                     .eq("family_id", value: fid).execute().value
@@ -280,21 +290,38 @@ extension FamilyStore {
         }
     }
 
-    /// Reads calendar-sync's redirect back to the app
-    /// (`ohanaos://google-calendar?account_id=…&email=…`, or `?error=…`).
-    func connectedGoogleAccount(from callback: URL) async -> CalendarAccount? {
+    /// Finishes a Google sign-in from calendar-sync's redirect back to the app
+    /// (`ohanaos://google-calendar?code=…&state=…`, or `?error=…`). The server
+    /// checks that this signed-in parent is the one who started it.
+    func finishGoogleSignIn(from callback: URL) async -> CalendarAccount? {
+        struct Body: Encodable {
+            let action = "google_finish"
+            let code: String
+            let state: String
+        }
+        struct Reply: Decodable {
+            let account_id: UUID
+            let email: String
+        }
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let value: (String) -> String? = { name in items.first { $0.name == name }?.value }
         if let problem = value("error") {
             errorMessage = problem
             return nil
         }
-        guard let id = value("account_id").flatMap(UUID.init(uuidString:)) else {
+        guard let code = value("code"), let state = value("state") else {
             errorMessage = "Google didn't finish connecting. Try again."
             return nil
         }
-        await loadCalendars()
-        return calendarAccount(id) ?? CalendarAccount(id: id, email: value("email") ?? "Google", needsReconnect: false)
+        do {
+            let reply: Reply = try await supabase.functions.invoke(
+                Self.syncFunction, options: FunctionInvokeOptions(body: Body(code: code, state: state)))
+            await loadCalendars()
+            return calendarAccount(reply.account_id)
+        } catch {
+            report(error)
+            return nil
+        }
     }
 
     /// The calendars a connected Google account can see.

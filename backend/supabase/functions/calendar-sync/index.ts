@@ -10,9 +10,10 @@
 //     { action: "add_link", family_id, url, name?, color?, member_id?, busy_only? }
 //                                       parent -> { source_id, name, event_count, sync_error? }
 //     { action: "google_start", family_id }            parent -> { url }  (open it in a browser sheet)
-//     { action: "google_calendars", account_id }       parent -> { email, calendars: [{ id, name, color, primary, added }] }
+//     { action: "google_finish", code, state }         the parent who started it -> { account_id, email }
+//     { action: "google_calendars", account_id }       the parent who connected it -> { email, calendars: [...] }
 //     { action: "add_google", account_id, calendar_id, name?, color?, member_id?, busy_only? }
-//                                       parent -> { source_id, name, event_count, sync_error? }
+//                                       the parent who connected it -> { source_id, name, event_count, sync_error? }
 //     { action: "disconnect_google", account_id }      parent -> { ok, revoked }
 //     { action: "sync", source_id | family_id, force? } anyone in the family -> { results: [{ source_id, ok, ... }] }
 //   POST with `Authorization: Bearer <CALENDAR_CRON_SECRET>`:
@@ -22,7 +23,9 @@
 //     Edge functions get about 2 s of CPU per request, so a run that syncs
 //     several calendars hands each one to its own request.
 //   GET  .../calendar-sync/google/callback?code&state   Google's redirect after consent; answers with a
-//        redirect to CALENDAR_APP_REDIRECT (ohanaos://google-calendar) carrying account_id and email, or error
+//        redirect to CALENDAR_APP_REDIRECT (ohanaos://google-calendar) carrying code and state, or error.
+//        The app then sends google_finish with its own JWT, so only the parent who started the sign-in
+//        can finish it: a consent link sent to someone else can't attach their account to another family.
 //   GET  .../calendar-sync/feed/<token>.ics             the family's own events (the token is the secret)
 //
 // Errors are { error } with 400 (bad body, or a link or Google problem the
@@ -170,12 +173,51 @@ async function requireMemberRow(db: SupabaseClient, familyId: string, memberId: 
   if (!row) throw new HttpError(400, "that person isn't in this family");
 }
 
-/** A Google account the caller may manage (RLS: parents of its family). */
-async function accountFor(db: SupabaseClient, accountId: string): Promise<{ id: string; family_id: string; email: string }> {
-  const row = must(await db.from("calendar_accounts").select("id, family_id, email").eq("id", accountId).maybeSingle(), "account");
+interface Account {
+  id: string;
+  family_id: string;
+  email: string;
+  created_by: string;
+}
+
+/**
+ * A Google account the caller may manage (RLS: parents of its family). With
+ * `ownerOnly`, only the parent who connected it: their calendars are theirs
+ * to show or not.
+ */
+async function accountFor(db: SupabaseClient, userId: string, accountId: string, ownerOnly: boolean): Promise<Account> {
+  const row = must(
+    await db.from("calendar_accounts").select("id, family_id, email, created_by").eq("id", accountId).maybeSingle(),
+    "account",
+  ) as Account | null;
   if (!row) throw new HttpError(404, "account not found");
   await requireParent(db, row.family_id);
+  if (ownerOnly && row.created_by !== userId) {
+    throw new HttpError(403, "Only the person who connected this Google account can choose its calendars.");
+  }
   return row;
+}
+
+/** Runs a Google call for an account, flagging it to reconnect when Google refuses it. */
+async function withAccount<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (err instanceof GoogleReconnect) {
+      await service.from("calendar_accounts").update({ needs_reconnect: true }).eq("id", accountId);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Whether another family has the same Google account connected. Google's
+ * revoke withdraws Ohana's whole grant for the account, so it's skipped then.
+ */
+async function connectedElsewhere(email: string, exceptAccountId: string | null): Promise<boolean> {
+  let q = service.from("calendar_accounts").select("id").eq("provider", "google").eq("email", email).limit(1);
+  if (exceptAccountId) q = q.neq("id", exceptAccountId);
+  return (must(await q, "other connections") as unknown[]).length > 0;
 }
 
 // ───────────────────────────── Actions ─────────────────────────────
@@ -243,10 +285,9 @@ async function googleStart(db: SupabaseClient, userId: string, familyId: string)
   return json({ url: authUrl(GOOGLE, state) });
 }
 
-async function googleCalendars(db: SupabaseClient, accountId: string): Promise<Response> {
-  const account = await accountFor(db, accountId);
-  const token = await accessTokenFor(syncDeps(), account.id);
-  const calendars = await listCalendars(fetch, token);
+async function googleCalendars(db: SupabaseClient, userId: string, accountId: string): Promise<Response> {
+  const account = await accountFor(db, userId, accountId, true);
+  const calendars = await withAccount(account.id, async () => listCalendars(fetch, await accessTokenFor(syncDeps(), account.id)));
   const added = new Set(
     (must(await service.from("calendar_sources").select("google_calendar_id").eq("account_id", account.id), "added") as
       { google_calendar_id: string }[]).map((s) => s.google_calendar_id),
@@ -256,10 +297,11 @@ async function googleCalendars(db: SupabaseClient, accountId: string): Promise<R
 
 async function addGoogle(db: SupabaseClient, userId: string,
   r: Extract<CalendarRequest, { action: "add_google" }>): Promise<Response> {
-  const account = await accountFor(db, r.accountId);
+  const account = await accountFor(db, userId, r.accountId, true);
   await requireMemberRow(db, account.family_id, r.memberId);
   const deps = syncDeps();
-  const calendar = (await listCalendars(fetch, await accessTokenFor(deps, account.id))).find((c) => c.id === r.calendarId);
+  const calendar = (await withAccount(account.id, async () => listCalendars(fetch, await accessTokenFor(deps, account.id))))
+    .find((c) => c.id === r.calendarId);
   if (!calendar) return json({ error: "That calendar isn't in this Google account." }, 404);
 
   const name = r.name ?? calendar.name;
@@ -280,13 +322,16 @@ async function addGoogle(db: SupabaseClient, userId: string,
   return json(outcomeBody(source.id, name, await syncSource(deps, source)));
 }
 
-async function disconnectGoogle(db: SupabaseClient, accountId: string): Promise<Response> {
-  const account = await accountFor(db, accountId);
+async function disconnectGoogle(db: SupabaseClient, userId: string, accountId: string): Promise<Response> {
+  // Any parent may take an account off the family calendar.
+  const account = await accountFor(db, userId, accountId, false);
   const token = must(
     await service.from("calendar_account_tokens").select("refresh_token").eq("account_id", account.id).maybeSingle(),
     "token",
   );
-  const revoked = token ? await revokeToken(fetch, token.refresh_token) : false;
+  const revoked = token && !(await connectedElsewhere(account.email, account.id))
+    ? await revokeToken(fetch, token.refresh_token)
+    : false;
   // Its calendars and their events go with it (on delete cascade).
   must(await service.from("calendar_accounts").delete().eq("id", account.id), "delete account");
   return json({ ok: true, revoked });
@@ -367,33 +412,33 @@ function backToApp(params: Record<string, string>): Response {
 async function googleCallback(url: URL): Promise<Response> {
   const fail = (error: string) => backToApp({ error });
   if (!GOOGLE) return fail("Google Calendar isn't set up on this server yet.");
-  const state = await verifyState(SERVICE_KEY, url.searchParams.get("state"), Date.now());
-  if (!state) return fail("That sign-in took too long. Try connecting again.");
+  const stateText = url.searchParams.get("state") ?? "";
+  if (!await verifyState(SERVICE_KEY, stateText, Date.now())) return fail("That sign-in took too long. Try connecting again.");
   const denied = url.searchParams.get("error");
   if (denied) return fail(denied === "access_denied" ? "Google sign-in was cancelled." : "Google couldn't sign you in. Try again.");
   const code = url.searchParams.get("code");
   if (!code) return fail("Google couldn't sign you in. Try again.");
+  // The app finishes with google_finish, which proves who it is.
+  return backToApp({ code, state: stateText });
+}
 
-  let grant;
-  try {
-    grant = await exchangeCode(fetch, GOOGLE, code, Date.now());
-  } catch (err) {
-    if (err instanceof CalendarError) return fail(err.message);
-    throw err;
-  }
+/** Finishes a Google sign-in for the parent who started it. */
+async function googleFinish(db: SupabaseClient, userId: string,
+  r: Extract<CalendarRequest, { action: "google_finish" }>): Promise<Response> {
+  if (!GOOGLE) return json({ error: "Google Calendar isn't set up on this server yet." }, 503);
+  const state = await verifyState(SERVICE_KEY, r.state, Date.now());
+  if (!state) return json({ error: "That sign-in took too long. Try connecting again." }, 400);
+  if (state.userId !== userId) return json({ error: "That Google sign-in was started by someone else." }, 403);
+  await requireParent(db, state.familyId);
+
+  const grant = await exchangeCode(fetch, GOOGLE, r.code, Date.now());
   if (!grant.scopes.includes(CALENDAR_SCOPE)) {
-    await revokeToken(fetch, grant.refreshToken ?? grant.accessToken);
-    return fail("Ohana needs permission to see your calendars. Try again and allow it.");
+    if (!grant.email || !(await connectedElsewhere(grant.email, null))) {
+      await revokeToken(fetch, grant.refreshToken ?? grant.accessToken);
+    }
+    return json({ error: "Ohana needs permission to see your calendars. Try again and allow it." }, 400);
   }
-  if (!grant.email) return fail("Google didn't share the account's email. Try again.");
-
-  // Still a parent of an active family? The link was made up to 15 minutes ago.
-  const parent = must(
-    await service.from("members").select("id, families!inner(status)").eq("family_id", state.familyId)
-      .eq("user_id", state.userId).eq("role", "parent").eq("families.status", "active").maybeSingle(),
-    "parent check",
-  );
-  if (!parent) return fail("Only a parent can connect calendars.");
+  if (!grant.email) return json({ error: "Google didn't share the account's email. Try again." }, 400);
 
   const existing = must(
     await service.from("calendar_accounts").select("id, calendar_account_tokens(refresh_token)")
@@ -402,14 +447,14 @@ async function googleCallback(url: URL): Promise<Response> {
   ) as { id: string; calendar_account_tokens: { refresh_token: string } | { refresh_token: string }[] | null } | null;
   const stored = existing?.calendar_account_tokens;
   const refreshToken = grant.refreshToken ?? (Array.isArray(stored) ? stored[0] : stored)?.refresh_token;
-  if (!refreshToken) return fail("Google didn't give Ohana lasting access. Try connecting again.");
+  if (!refreshToken) return json({ error: "Google didn't give Ohana lasting access. Try connecting again." }, 400);
 
   const account = must(
     await service.from("calendar_accounts").upsert({
       family_id: state.familyId,
       provider: "google",
       email: grant.email,
-      created_by: state.userId,
+      created_by: userId,
       needs_reconnect: false,
     }, { onConflict: "family_id,provider,email" }).select("id").single(),
     "save account",
@@ -423,7 +468,7 @@ async function googleCallback(url: URL): Promise<Response> {
   }), "save token");
   // A reconnected account's calendars catch up now rather than in 15 minutes.
   must(await service.from("calendar_sources").update({ last_attempt_at: null }).eq("account_id", account.id), "reset");
-  return backToApp({ account_id: account.id, email: grant.email });
+  return json({ account_id: account.id, email: grant.email });
 }
 
 async function serveFeed(token: string, head: boolean): Promise<Response> {
@@ -443,7 +488,8 @@ async function serveFeed(token: string, head: boolean): Promise<Response> {
   const window = { range_start: new Date(now - 30 * 86_400_000).toISOString(), range_end: new Date(now + 365 * 86_400_000).toISOString() };
   for (let offset = 0; offset < 20_000; offset += 1000) {
     const page = must(
-      await service.rpc("event_occurrences", { fid: feed.family_id, ...window }).range(offset, offset + 999),
+      await service.rpc("event_occurrences", { fid: feed.family_id, ...window }).is("source_id", null)
+        .range(offset, offset + 999),
       "occurrences",
     ) as FeedOccurrence[];
     occurrences.push(...page);
@@ -523,12 +569,14 @@ async function handle(req: Request): Promise<Response> {
       return await addLink(db, userId, request);
     case "google_start":
       return await googleStart(db, userId, request.familyId);
+    case "google_finish":
+      return await googleFinish(db, userId, request);
     case "google_calendars":
-      return await googleCalendars(db, request.accountId);
+      return await googleCalendars(db, userId, request.accountId);
     case "add_google":
       return await addGoogle(db, userId, request);
     case "disconnect_google":
-      return await disconnectGoogle(db, request.accountId);
+      return await disconnectGoogle(db, userId, request.accountId);
     case "sync":
       return await syncNow(db, request);
   }

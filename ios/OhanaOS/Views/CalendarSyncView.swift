@@ -119,6 +119,7 @@ struct ConnectedCalendarsView: View {
 
     private func accountRow(_ account: CalendarAccount) -> some View {
         let count = store.calendarSources.filter { $0.accountId == account.id }.count
+        let mine = store.isMine(account)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.email)
@@ -133,12 +134,19 @@ struct ConnectedCalendarsView: View {
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
                 }
+                if !mine {
+                    Text("Connected by \(connectedBy(account)). Only they can choose its calendars.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
             }
             HStack(spacing: 18) {
-                if account.needsReconnect {
-                    Button("Sign in again") { Task { await connectGoogle() } }
-                } else {
-                    Button("Choose calendars") { picking = account }
+                if mine {
+                    if account.needsReconnect {
+                        Button("Sign in again") { Task { await connectGoogle() } }
+                    } else {
+                        Button("Choose calendars") { picking = account }
+                    }
                 }
                 Spacer()
                 Button("Disconnect", role: .destructive) { disconnecting = account }
@@ -149,15 +157,22 @@ struct ConnectedCalendarsView: View {
         .padding(.vertical, 4)
     }
 
+    private func connectedBy(_ account: CalendarAccount) -> String {
+        store.profile(for: account.createdBy)?.displayName.nilIfEmpty
+            ?? store.members.first { $0.userId == account.createdBy }?.displayName
+            ?? "another parent"
+    }
+
     /// Google sign-in in a browser sheet. calendar-sync sends the browser
-    /// back to ohanaos://google-calendar, which ends the sheet.
+    /// back to ohanaos://google-calendar, which ends the sheet, and the app
+    /// finishes the sign-in with its own session.
     private func connectGoogle() async {
         connecting = true
         defer { connecting = false }
         guard let url = await store.googleSignInURL() else { return }
         do {
             let callback = try await webAuthenticationSession.authenticate(using: url, callbackURLScheme: Config.urlScheme)
-            if let account = await store.connectedGoogleAccount(from: callback) {
+            if let account = await store.finishGoogleSignIn(from: callback) {
                 picking = account
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -491,6 +506,11 @@ struct CalendarSourceEditor: View {
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    /// Someone else's Google calendar shown as Busy: only they can show its details.
+    private var busyLocked: Bool {
+        source.isGoogle && source.busyOnly && !store.isMine(store.calendarAccount(source.accountId))
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -505,9 +525,12 @@ struct CalendarSourceEditor: View {
                         }
                     }
                     Toggle("Show as Busy", isOn: $busyOnly)
+                        .disabled(busyLocked)
                     Toggle("Show in Ohana", isOn: $enabled)
                 } footer: {
-                    Text("Busy shows only when something is on, without titles or places. Turned off, its events leave the family calendar until you turn it back on.")
+                    Text(busyLocked
+                         ? "Only the parent who connected this Google account can show its details. Turned off, its events leave the family calendar until you turn it back on."
+                         : "Busy shows only when something is on, without titles or places. Turned off, its events leave the family calendar until you turn it back on.")
                 }
                 Section {
                     ColorPalettePicker(selection: $color, colors: palette)

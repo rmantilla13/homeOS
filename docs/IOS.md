@@ -191,9 +191,12 @@ Connected calendars).
 - **Connect Google Calendar** (parents): Google's sign-in opens in an
   `ASWebAuthenticationSession` sheet through SwiftUI's
   `webAuthenticationSession`, and the function sends it back to
-  `ohanaos://google-calendar`. Then **Choose calendars** lists the account's
-  calendars with the main one ticked. Connected accounts can sign in again
-  (when Google stopped accepting Ohana) or disconnect.
+  `ohanaos://google-calendar` with a code, which the app sends to
+  `google_finish` with its own session. Then **Choose calendars** lists the
+  account's calendars with the main one ticked. The parent who connected an
+  account can choose more calendars or sign in again (when Google stopped
+  accepting Ohana); other parents see who connected it, can't turn Busy off
+  on its calendars, and can disconnect it.
 - **Add a calendar link** (parents): a `webcal://` or `https://` link, an
   optional name, who it's for, Busy, and a color, with where to find the
   link in iCloud, Google, Outlook and on school or team sites. The server

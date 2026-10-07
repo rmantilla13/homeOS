@@ -8,7 +8,7 @@
 // should. Working-location and focus-time blocks are left out.
 
 import { allDaySpan, addDays } from "./time.ts";
-import { BUSY, CalendarError, clip, MAX_ROWS, overlaps, type SyncRow } from "./rows.ts";
+import { BUSY, CalendarError, clip, overlaps, type SyncRow } from "./rows.ts";
 import type { Fetch } from "./fetch.ts";
 
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
@@ -259,12 +259,12 @@ export interface GoogleEvent {
   end?: { date?: string; dateTime?: string };
 }
 
-/** Every occurrence in [from, to), up to MAX_ROWS, repeats expanded by Google. */
+/** Every occurrence in [from, to), repeats expanded by Google, up to MAX_PAGES pages (the sync keeps the nearest MAX_ROWS). */
 export async function listEvents(doFetch: Fetch, accessToken: string, calendarId: string,
   window: { from: number; to: number }): Promise<GoogleEvent[]> {
   const items: GoogleEvent[] = [];
   let pageToken: string | undefined;
-  for (let page = 0; page < MAX_PAGES && items.length < MAX_ROWS; page++) {
+  for (let page = 0; page < MAX_PAGES; page++) {
     const q = new URLSearchParams({
       singleEvents: "true",
       orderBy: "startTime",
