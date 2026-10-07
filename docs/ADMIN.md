@@ -235,10 +235,9 @@ code in the user's metadata. To show the code in the email, edit
 The link in the email opens the iOS app at `ohanaos://auth-callback`, which
 signs the person in and starts their family. Add that URL to **Redirect URLs**
 under **Authentication → URL Configuration** (see [IOS.md](IOS.md)); without
-it Supabase sends the link to the Site URL, `https://ohanaos.co`, and the
-person signs up in the app with the code instead. For custom limits (several
-uses, another expiry), create the invite without email and share the code
-yourself.
+it Supabase sends the link to the Site URL, `https://ohanaos.co`, which
+can't sign anyone in to the app. For custom limits (several uses, another
+expiry), create the invite without email and share the code yourself.
 
 ## The first admin
 
