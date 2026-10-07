@@ -108,15 +108,49 @@ private struct LoadingView: View {
     }
 }
 
-/// Five screens behind a floating tab bar.
+/// Five screens behind a floating tab bar. On a regular-width, regular-height
+/// screen (the iPhone Duo open) the calendar gets its own pane on the leading
+/// side, and the other four tabs share the trailing one.
 struct MainTabView: View {
     #if DEBUG
     @State private var tab: AppTab = DemoMode.initialTab
     #else
     @State private var tab: AppTab = .home
     #endif
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var splitsCalendar: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
 
     var body: some View {
+        Group {
+            if splitsCalendar {
+                HStack(spacing: 0) {
+                    CalendarView()
+                        .frame(maxWidth: .infinity)
+                    Rectangle()
+                        .fill(Theme.sunken)
+                        .frame(width: 1)
+                        .ignoresSafeArea()
+                    tabs(AppTab.besideCalendar)
+                        .frame(maxWidth: .infinity)
+                }
+                .environment(\.calendarIsBeside, true)
+            } else {
+                tabs(AppTab.allCases)
+            }
+        }
+        .screenBackground()
+        // Opening the phone on the Calendar tab: the calendar moves to its
+        // pane and Home takes the other.
+        .onChange(of: splitsCalendar, initial: true) { _, splits in
+            if splits && tab == .calendar { tab = .home }
+        }
+    }
+
+    private func tabs(_ shown: [AppTab]) -> some View {
         ZStack {
             switch tab {
             case .home: HomeView(selectedTab: $tab).transition(.opacity)
@@ -127,9 +161,8 @@ struct MainTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .screenBackground()
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            FloatingTabBar(selection: $tab)
+            FloatingTabBar(selection: $tab, tabs: shown)
                 .padding(.bottom, 2)
         }
     }

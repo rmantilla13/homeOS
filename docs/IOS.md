@@ -696,6 +696,14 @@ What the app does about it:
 
 - Layout keys off `horizontalSizeClass`, never orientation, idiom or
   `UIScreen.main` (the app uses none of those).
+- **Calendar beside everything else.** When both size classes are regular
+  (open, full screen), `MainTabView` splits the screen: the calendar in its
+  own pane on the leading side, and Home, Chores, Media and Family on the
+  trailing side with their own tab bar (no Calendar tab). Opening the phone
+  on the Calendar tab lands on Home beside it. Home's "See all" next to
+  upcoming activities hides, since the calendar is already showing. In Split
+  View or closed, it's the usual five tabs. Moving between the two layouts
+  makes a new calendar, so it goes back to its default view and date.
 - `readableColumn()` (`Theme.swift`) caps Home, Chores, Family and the
   assistant chat at 680 pt and centers them on a regular-width screen. On a
   compact iPhone it does nothing.
@@ -708,9 +716,8 @@ What the app does about it:
 Test it in Xcode 27.1's iPhone Duo simulator (Device Hub): open, close, rotate
 and fold the device, and drag the app into Split View on the inner display.
 Check every tab, the assistant, the media viewer, the onboarding screens and
-the sheets in each pose. Not done yet: a sidebar (`NavigationSplitView`) on
-the inner display, `ReservedRegion` for the custom tab bar, and lifting the
-portrait lock on the outer display. The app still builds with the iOS 17
+the sheets in each pose. Not done yet: `ReservedRegion` for the custom tab
+bar, and lifting the portrait lock on the outer display. The app still builds with the iOS 17
 deployment target and Xcode 16+, so none of this needs `#available`.
 
 ## Data notes
