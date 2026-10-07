@@ -25,9 +25,10 @@ There are two kinds of auth users:
 - A **member** is someone on the family screen. Kids usually have a member row
   with no account. A member row gets an account only by accepting an invite,
   never by a direct write, and a row with an account can't be moved to
-  another family. Parents can give a member without an account a photo
+  another family. Parents can give a member a photo
   (`avatars/<family_id>/<file>`, in `members.avatar_path`), which everyone in
-  the family can see; a member with an account shows their profile photo.
+  the family can see; a member whose account has a profile photo shows that
+  one instead.
 - **Roles** are `parent`, `child` and `other`. Parents manage the family:
   members, invites, rewards and approvals. Everyone can edit their own name,
   color and avatar. A family always keeps at least one parent with an account:

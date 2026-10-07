@@ -344,8 +344,9 @@ the `admin` function (§2.2), which also removes its Storage files.
     Upload, update, delete: the owner only (the first folder equals
     `auth.uid()::text`). Read: the owner, or anyone who shares a family with
     that user.
-  - **Member photos** at `<family_id>/<file>` (`members.avatar_path`), for
-    members without a login. Upload, update, delete: a parent of that family
+  - **Member photos** at `<family_id>/<file>` (`members.avatar_path`), which
+    a parent sets for a member whose account has no photo of its own, usually
+    a kid without a login. Upload, update, delete: a parent of that family
     (`can_write_member_photo`: exactly one level down, family active). Read:
     anyone in the family, its displays included (`is_family_member`).
 - `members_avatar_guard` (before insert or update) raises `that photo isn't
@@ -356,7 +357,10 @@ the `admin` function (§2.2), which also removes its Storage files.
   their member photo. The iOS app writes each member photo to a new file
   (`<member_id>-<random>.jpg`) and then deletes the old one, so a cached
   copy is never stale; it deletes the file when it removes the photo or the
-  member. Deleting a family empties `avatars/<family_id>/` (§2.2, §2.4).
+  member. When you remove your own photo it clears both your profile photo
+  and your row's `avatar_path`, so no photo shows; a non-parent can't delete
+  the family-folder file, which stays until the family goes. Deleting a
+  family empties `avatars/<family_id>/` (§2.2, §2.4).
 
 ### 1.8 Direct-write guards
 
@@ -1519,8 +1523,8 @@ through the media API and Storage paths through Storage.
 
 - Members list, on the Family tab and in Profile → Manage family. Parents
   can add members (name, role, color, optional photo), edit anyone's name,
-  color and role, set or remove the photo of a member without a login
-  (§1.7), and remove members; anyone can edit their own name and color, and
+  color and role, set or remove the photo of a member whose account has no
+  photo of its own (§1.7), and remove members; anyone can edit their own name and color, and
   their own photo, which is their profile photo.
 - Invites, for parents: create (role, optional "for an existing member"
   picker listing members without accounts, optional email), share (share

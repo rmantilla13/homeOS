@@ -695,14 +695,34 @@ final class FamilyStore {
         return ok
     }
 
-    func removeAvatar() async {
-        guard let uid = currentUserId, let path = myProfile?.avatarPath else { return }
-        await perform {
+    /// Removes your photo: your profile photo, and the one a parent set on your
+    /// member row, which would otherwise show in its place. Both go in one
+    /// write and one reload, so nothing else shows in between. Both are
+    /// cleared whatever this phone shows: a try that failed offline, or
+    /// another device, may have left a photo on the server. Clearing an empty
+    /// one, or removing a file that isn't there, does nothing.
+    @discardableResult
+    func removeAvatar() async -> Bool {
+        let me = self.me
+        let familyPhoto = me?.avatarPath
+        let uid = currentUserId
+        // uploadAvatar always writes here.
+        let profileFile = uid.map { myProfile?.avatarPath ?? "\($0.uuidString.lowercased())/avatar.jpg" }
+        if let me, let i = members.firstIndex(where: { $0.id == me.id }) { members[i].avatarPath = nil }
+        let ok = await perform {
             let clear: [String: AnyJSON] = ["avatar_path": .null]
-            try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
-            _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [path])
+            if let me {
+                try await supabase.from("members").update(clear).eq("id", value: me.id.uuidString).execute()
+            }
+            if let uid, let profileFile {
+                try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
+                _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [profileFile])
+            }
         }
-        AvatarCache.shared.forget(path: path)
+        if let profileFile { AvatarCache.shared.forget(path: profileFile) }
+        if ok, let me, let familyPhoto { await removeMemberPhotoFile(familyPhoto, in: me.familyId) }
+        if family == nil { await loadProfiles() }
+        return ok
     }
 
     /// A profile's photo in the `avatars` bucket, versioned by `updated_at`.
@@ -722,10 +742,11 @@ final class FamilyStore {
 
     // MARK: Member photos
 
-    /// Parents give a member without a login a photo. It goes to a new file in
-    /// the family's folder, `avatars/<family_id>/<member_id>-<random>.jpg`,
-    /// so other phones don't keep showing the old one from their cache; then
-    /// the old file goes.
+    /// Parents give a member whose account has no photo of its own (usually a
+    /// kid without a login) the family's photo. It goes to a new file in the
+    /// family's folder, `avatars/<family_id>/<member_id>-<random>.jpg`, so
+    /// other phones don't keep showing the old one from their cache; then the
+    /// old file goes.
     func setMemberPhoto(_ jpeg: Data, for member: Member) async -> Bool {
         let old = self.member(member.id)?.avatarPath ?? member.avatarPath
         var path: String?
@@ -735,7 +756,7 @@ final class FamilyStore {
                 try await supabase.from("members").update(["avatar_path": uploaded])
                     .eq("id", value: member.id.uuidString).execute()
             } catch {
-                await self.removeMemberPhotoFile(uploaded, in: member.familyId)
+                await self.discardUpload(uploaded, in: member.familyId, after: error)
                 throw error
             }
             path = uploaded
@@ -744,14 +765,17 @@ final class FamilyStore {
         return ok
     }
 
+    /// Clears a member's family photo, then deletes its file. The update goes
+    /// out even when this phone has no path left, so trying again after a
+    /// failure still reaches the server (a file it can't name stays behind).
     func removeMemberPhoto(for member: Member) async -> Bool {
-        guard let path = self.member(member.id)?.avatarPath ?? member.avatarPath else { return true }
+        let path = self.member(member.id)?.avatarPath ?? member.avatarPath
         if let i = members.firstIndex(where: { $0.id == member.id }) { members[i].avatarPath = nil }
         let ok = await perform {
             let clear: [String: AnyJSON] = ["avatar_path": .null]
             try await supabase.from("members").update(clear).eq("id", value: member.id.uuidString).execute()
         }
-        if ok { await removeMemberPhotoFile(path, in: member.familyId) }
+        if ok, let path { await removeMemberPhotoFile(path, in: member.familyId) }
         return ok
     }
 
@@ -764,6 +788,15 @@ final class FamilyStore {
         _ = try await supabase.storage.from(Config.avatarBucket)
             .upload(path, data: jpeg, options: FileOptions(cacheControl: "3600", contentType: "image/jpeg", upsert: false))
         return path
+    }
+
+    /// After a write that failed, deletes the photo uploaded for it, but only
+    /// when PostgREST or Postgres refused it: their errors carry a code. A
+    /// dropped connection or a gateway error can come after the write went
+    /// through, and a file left behind goes with the family's folder later.
+    private func discardUpload(_ path: String, in familyId: UUID, after error: Error) async {
+        guard let refusal = error as? PostgrestError, refusal.code != nil else { return }
+        await removeMemberPhotoFile(path, in: familyId)
     }
 
     /// Best effort: a file left behind goes with the family's folder later.
@@ -900,21 +933,29 @@ final class FamilyStore {
 
     /// Parents add someone to the family screen, with a photo when `photo` is
     /// a JPEG. The photo goes up first, so either both are saved or neither.
-    func addMember(name: String, role: MemberRole, color: String, photo: Data? = nil) async -> Bool {
+    /// Try again with the same `id`: if the last try went through but its
+    /// answer was lost, the member isn't added twice.
+    func addMember(id: UUID = UUID(), name: String, role: MemberRole, color: String,
+                   photo: Data? = nil) async -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let family, !name.isEmpty else { return false }
         let order = (members.map(\.sortOrder).max() ?? 0) + 1
-        var new = NewMember(familyId: family.id, displayName: name, role: role, color: color, sortOrder: order)
-        members.append(Member(id: new.id, familyId: family.id, userId: nil, displayName: name, role: role,
-                              color: color, sortOrder: order))
+        var new = NewMember(id: id, familyId: family.id, displayName: name, role: role, color: color, sortOrder: order)
+        if member(id) == nil {
+            members.append(Member(id: id, familyId: family.id, userId: nil, displayName: name, role: role,
+                                  color: color, sortOrder: order))
+        }
         return await perform {
             if let photo {
-                new.avatarPath = try await self.uploadMemberPhoto(photo, for: new.id, in: family.id)
+                new.avatarPath = try await self.uploadMemberPhoto(photo, for: id, in: family.id)
             }
             do {
                 try await supabase.from("members").insert(new).execute()
-            } catch {
+            } catch let error as PostgrestError where error.code == "23505" {
+                // Already there from the last try; its photo is the one to keep.
                 if let path = new.avatarPath { await self.removeMemberPhotoFile(path, in: family.id) }
+            } catch {
+                if let path = new.avatarPath { await self.discardUpload(path, in: family.id, after: error) }
                 throw error
             }
         }

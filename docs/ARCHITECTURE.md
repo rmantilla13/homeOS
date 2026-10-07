@@ -59,7 +59,7 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | Table | Notes |
 |---|---|
 | `families` | One household |
-| `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member without a login a photo |
+| `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member whose account has no photo of its own (usually a kid without a login) a photo |
 | `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
 | `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members`. Events copied from a connected calendar have `source_id` and are read-only |
 | `calendar_sources` / `calendar_accounts` | Connected calendars (a Google calendar or a calendar link) and the Google accounts behind them. Refresh tokens and links sit in service-only tables |

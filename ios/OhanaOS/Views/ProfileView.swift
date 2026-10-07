@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var saving = false
     @State private var photoItem: PhotosPickerItem?
     @State private var uploading = false
+    @State private var removingPhoto = false
     @State private var confirmingSignOut = false
     @State private var confirmingDelete = false
     @State private var deleting = false
@@ -23,6 +24,14 @@ struct ProfileView: View {
     private var shownName: String {
         store.myProfile?.displayName.nilIfEmpty ?? store.me?.displayName ?? "You"
     }
+
+    /// Your own photo, else the one a parent set for you on the family screen.
+    /// Remove photo takes away both.
+    private var shownPhoto: (path: String, version: String)? {
+        store.avatarPath(for: store.me) ?? store.photo(of: store.myProfile)
+    }
+    /// Uploading or removing a photo: the photo buttons wait.
+    private var photoBusy: Bool { uploading || removingPhoto }
 
     private var nameChanged: Bool {
         guard !trimmedName.isEmpty else { return false }
@@ -64,15 +73,19 @@ struct ProfileView: View {
                 }
                 Section("Photo") {
                     PhotosPicker(selection: $photoItem, matching: .images) {
-                        Label(store.myProfile?.avatarPath == nil ? "Add a photo" : "Choose a new photo",
+                        Label(shownPhoto == nil ? "Add a photo" : "Choose a new photo",
                               systemImage: "photo.on.rectangle")
                     }
-                    .disabled(uploading)
-                    if store.myProfile?.avatarPath != nil {
+                    .disabled(photoBusy)
+                    if shownPhoto != nil {
                         Button("Remove photo", systemImage: "trash", role: .destructive) {
-                            Task { await store.removeAvatar() }
+                            Task {
+                                removingPhoto = true
+                                await store.removeAvatar()
+                                removingPhoto = false
+                            }
                         }
-                        .disabled(uploading)
+                        .disabled(photoBusy)
                     }
                 }
                 Section("Account") {
@@ -215,9 +228,9 @@ struct ProfileView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            AvatarCircle(name: shownName, color: store.me?.color ?? "#8E9CE6", photo: store.photo(of: store.myProfile), size: 96)
+            AvatarCircle(name: shownName, color: store.me?.color ?? "#8E9CE6", photo: shownPhoto, size: 96)
                 .overlay {
-                    if uploading {
+                    if photoBusy {
                         Circle().fill(.black.opacity(0.35))
                         ProgressView().tint(.white)
                     }
@@ -232,7 +245,7 @@ struct ProfileView: View {
                             .overlay(Circle().stroke(Theme.surface, lineWidth: 2))
                     }
                     .buttonStyle(.borderless)  // only the badge is tappable, not the whole row
-                    .disabled(uploading)
+                    .disabled(photoBusy)
                     .accessibilityLabel("Change photo")
                 }
             Text(shownName)
