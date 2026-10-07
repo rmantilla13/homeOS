@@ -353,6 +353,70 @@ private slots:
         QCOMPARE(text, QStringLiteral("I couldn't reach Ohana cloud just now. Try again in a moment."));
     }
 
+    void failedSyncIsRetriedSoon()
+    {
+        // After a reboot the app is up before Wi-Fi: its first sync fails.
+        // It must not wait for the next sync, a minute later.
+        auto tokens = std::make_shared<int>(0);
+        route("/auth/v1/token", [tokens](const Request &) {
+            if (++*tokens == 1)
+                return json("{\"message\":\"no network yet\"}", 503);
+            return json("{\"access_token\":\"access-1\",\"refresh_token\":\"refresh-1\"}");
+        });
+        Rig rig(baseUrl());
+        rig.client.setRefreshToken("refresh-0");
+        rig.store.start();
+        QTRY_VERIFY(!rig.store.lastError().isEmpty());
+        QVERIFY(!rig.store.online());
+        QTRY_VERIFY_WITH_TIMEOUT(rig.store.online() && rig.store.familyName() == "Test Family", 4000);
+        QCOMPARE(*tokens, 2);
+
+        // Synced: no more retries until the next sync.
+        const qsizetype loads = requestsTo("/rest/v1/families").size();
+        QTest::qWait(4500);
+        QCOMPARE(requestsTo("/rest/v1/families").size(), loads);
+    }
+
+    void networkUpSyncsNow()
+    {
+        // Wi-Fi joins while the store waits 4 s for its next retry.
+        auto tokens = std::make_shared<int>(0);
+        route("/auth/v1/token", [tokens](const Request &) {
+            if (++*tokens <= 2)
+                return json("{\"message\":\"no network yet\"}", 503);
+            return json("{\"access_token\":\"access-1\",\"refresh_token\":\"refresh-1\"}");
+        });
+        Rig rig(baseUrl());
+        rig.client.setRefreshToken("refresh-0");
+        rig.store.start();
+        QTRY_COMPARE(*tokens, 2); // the first retry, 2 s in
+        QTest::qWait(300);
+        QVERIFY(!rig.store.online());
+        rig.store.networkUp();
+        QTRY_VERIFY_WITH_TIMEOUT(rig.store.online(), 1000);
+        QCOMPARE(*tokens, 3);
+
+        // Online already: nothing to do.
+        const qsizetype loads = requestsTo("/rest/v1/families").size();
+        rig.store.networkUp();
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/rest/v1/families").size(), loads);
+    }
+
+    void retriesBackOffWhenATableKeepsFailing()
+    {
+        // Every other table loads, so the store is online between failures.
+        // That must not reset the wait to 2 s each time: 2 s, then 4 s, ...
+        route("/rest/v1/members", [](const Request &) { return json("{\"message\":\"boom\"}", 500); });
+        Rig rig(baseUrl());
+        rig.client.setRefreshToken("refresh-0");
+        rig.store.start();
+        QTRY_COMPARE(requestsTo("/rest/v1/members").size(), 2); // the retry, 2 s in
+        QTest::qWait(2500);                                     // 4.5 s in: the next is at 6 s
+        QCOMPARE(requestsTo("/rest/v1/members").size(), 2);
+        QTRY_COMPARE_WITH_TIMEOUT(requestsTo("/rest/v1/members").size(), 3, 3000);
+    }
+
     void refreshTokenIsSavedPrivately()
     {
         auto rig = signedIn();

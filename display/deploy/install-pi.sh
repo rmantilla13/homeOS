@@ -212,6 +212,8 @@ HOMEOS_IDLE_SECONDS=120
 #HOMEOS_MEDIA_URL=https://YOUR-ADMIN.vercel.app
 # The on-device voice service (install with install-pi.sh --with-voice).
 #HOMEOS_VOICE_URL=ws://127.0.0.1:8765
+# Seconds the boot video waits for Wi-Fi, so Ohana opens connected (0-60).
+#HOMEOS_BOOT_NETWORK_WAIT=30
 # Video decoding: drm = the Pi 5 HEVC decoder, "," = CPU only. install-pi.sh
 # checks the decoder and sets this; a value you write or change is kept.
 #QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm

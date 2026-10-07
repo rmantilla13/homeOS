@@ -4,6 +4,10 @@
 # homeos-display runs this before it opens HDMI. It must not call
 # `systemctl stop`: that queues a job, and during boot the job cannot run
 # until this service finishes starting, so the two wait on each other.
+#
+# While the video is up, this first gives the network some time to come up
+# (see `homeos-bootscreen --wait-online`). The app reaches the panel before
+# Wi-Fi has joined, and would otherwise open offline and empty.
 set +e
 
 pid="${HOMEOS_BOOTSCREEN_PID:-}"
@@ -15,6 +19,15 @@ fi
 case "$pid" in
     ''|0|*[!0-9]*) pid="" ;;
 esac
+procs="/sys/fs/cgroup${cgroup}/cgroup.procs"
+
+# The video is up only at boot. A restart of the app has none, and holding
+# then would leave the console on the panel. This comes before the processes
+# are listed below: the wrapper may start another player while it waits.
+if { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; } \
+    || { [ -n "$cgroup" ] && [ -n "$(cat "$procs" 2>/dev/null)" ]; }; then
+    "$(dirname "$0")/homeos-bootscreen" --wait-online
+fi
 
 # Every process to wait for, listed before anything is signalled: the
 # wrapper, its players, and whatever else is left in the unit's cgroup. A
@@ -31,7 +44,6 @@ pids=()
 if [ -n "$pid" ]; then
     mapfile -t pids < <(tree "$pid")
 fi
-procs="/sys/fs/cgroup${cgroup}/cgroup.procs"
 if [ -n "$cgroup" ] && [ -r "$procs" ]; then
     mapfile -t -O "${#pids[@]}" pids <"$procs"
 fi

@@ -88,6 +88,8 @@ public:
     // Syncs now (live), or asks for a pairing code again now if the last try
     // failed (e.g. Wi-Fi was just joined). Also re-checks the date.
     Q_INVOKABLE void refresh();
+    // The network is back: sync now if offline, instead of at the next retry.
+    void networkUp();
     Q_INVOKABLE void completeTask(const QString &taskId, const QString &memberId);
     Q_INVOKABLE void redeemReward(const QString &rewardId, const QString &memberId);
     Q_INVOKABLE void setListItemDone(const QString &listId, const QString &itemId, bool done);
@@ -134,6 +136,8 @@ private:
     QString signedUrl(bool blob, const QString &path) const;
     void forgetMedia();
     void withSession(std::function<void()> fn);
+    void retrySoon();
+    void stopRetrying();
     void checkIn();
     void syncCalendars(const QString &familyId);
     void startPairing();
@@ -154,6 +158,8 @@ private:
     QString m_lastError;
 
     QTimer m_syncTimer;
+    QTimer m_retryTimer; // a failed sync, tried again before the next one
+    int m_retryMs = 0;   // its last delay; 0 after a clean sync
     QTimer m_pairTimer;
     QTimer m_pairRetryTimer;
     QString m_pairingCode;
