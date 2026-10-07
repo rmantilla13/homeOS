@@ -232,9 +232,13 @@ playback stop, Delete account fails, and the App Store links break.
 30-day platform invite and sends Supabase Auth's **Invite user** email with the
 code in the user's metadata. To show the code in the email, edit
 **Authentication → Emails → Invite user** and include `{{ .Data.invite_code }}`.
-The link in the email goes to the project's Site URL
-(**Authentication → URL Configuration**). For custom limits (several uses,
-another expiry), create the invite without email and share the code yourself.
+The link in the email opens the iOS app at `ohanaos://auth-callback`, which
+signs the person in and starts their family. Add that URL to **Redirect URLs**
+under **Authentication → URL Configuration** (see [IOS.md](IOS.md)); without
+it Supabase sends the link to the Site URL, `https://ohanaos.co`, and the
+person signs up in the app with the code instead. For custom limits (several
+uses, another expiry), create the invite without email and share the code
+yourself.
 
 ## The first admin
 

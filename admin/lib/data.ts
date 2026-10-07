@@ -7,6 +7,7 @@ import * as demo from "@/lib/demo/store";
 import { demoMode, supabaseConfig } from "@/lib/env";
 import { DataError } from "@/lib/errors";
 import { deleteFamilyBlobs } from "@/lib/media/cleanup";
+import { APP_AUTH_CALLBACK_URL } from "@/lib/site";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   Admin,
@@ -331,10 +332,13 @@ export async function createPlatformInvite(input: {
 }
 
 // Creates a platform invite and has Supabase Auth email it (admin → invite_email).
+// The email's link opens the iOS app, which signs the person in.
 export async function emailPlatformInvite(email: string, note: string | null): Promise<{ code: string }> {
   const src = await source();
   if (src.demo) return { code: demo.demoEmailInvite(email, note).code };
-  const result = await adminFunction<{ code: string }>(src.db, { action: "invite_email", email, note });
+  const result = await adminFunction<{ code: string }>(src.db, {
+    action: "invite_email", email, note, redirect_to: APP_AUTH_CALLBACK_URL,
+  });
   return { code: result.code };
 }
 
