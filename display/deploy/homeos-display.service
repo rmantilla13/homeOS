@@ -13,8 +13,10 @@ After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.se
 After=systemd-udev-trigger.service
 # Do not wait for network-online. That target sits until Wi-Fi associates
 # (or until its timeout, when the network is down) and the panel stays on
-# the console the whole time. The app paints immediately and connects when
-# the network shows up.
+# the console the whole time. Instead the stop helper (ExecStartPre) keeps
+# the boot video up while Wi-Fi joins, for at most HOMEOS_BOOT_NETWORK_WAIT
+# seconds (30), and only when the video is playing, so the app opens
+# connected. When the network comes later, the app retries within seconds.
 Wants=systemd-logind.service
 Wants=user@@UID@.service
 After=user@@UID@.service

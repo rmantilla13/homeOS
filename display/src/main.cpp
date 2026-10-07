@@ -1,6 +1,7 @@
 #include <QCommandLineParser>
 #include <QFile>
 #include <QGuiApplication>
+#include <QNetworkInformation>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -183,5 +184,17 @@ int main(int argc, char *argv[])
 
     store.start();
     voice.start();
+
+    // NetworkManager says when Wi-Fi has joined: sync then (after a reboot,
+    // the app is up first). Without it (no D-Bus, a container), the store's
+    // retries find the network a little later.
+    if (QNetworkInformation::loadBackendByFeatures(QNetworkInformation::Feature::Reachability)) {
+        QObject::connect(QNetworkInformation::instance(), &QNetworkInformation::reachabilityChanged, &store,
+                         [&store](QNetworkInformation::Reachability reachability) {
+                             if (reachability == QNetworkInformation::Reachability::Online
+                                 || reachability == QNetworkInformation::Reachability::Site)
+                                 store.networkUp();
+                         });
+    }
     return app.exec();
 }

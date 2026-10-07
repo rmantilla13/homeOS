@@ -1014,6 +1014,15 @@ needs a microphone (see docs/VOICE.md)".
 `devices` row (the id saved at pairing) at most every 5 minutes; the iOS app
 and the admin console show it.
 
+**Sync:** while live, the display loads its tables every 60 s. A sync that
+fails (no network yet after a reboot, Wi-Fi dropped, a table that errors) is
+tried again after 2 s, then 4, 8, … up to 60 s; a sync where every request
+succeeds ends the retries. When NetworkManager reports the network up (Qt's
+`QNetworkInformation`), an offline display syncs at once. At boot,
+`homeos-stop-bootscreen` keeps the boot video up until the backend's host
+name resolves, for at most `HOMEOS_BOOT_NETWORK_WAIT` seconds (default 30,
+at most 60, only while the video plays), so the app opens connected.
+
 **Media playback:** `HOMEOS_MEDIA_URL` (settings key `media/url`) is the admin
 app origin. Rows with `file_store = 'blob'` (new photos and videos) are
 signed with `POST /api/media/urls` and the device access token (6 hours,

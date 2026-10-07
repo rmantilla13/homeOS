@@ -179,13 +179,22 @@ the installer. Remove it to go back to the built-in video. 1920×1200 (or
 1920×1080), a few seconds, silent or very quiet: the screen's speakers hiss
 if a soundtrack plays at boot.
 
+The app is ready before Wi-Fi has joined, so the boot video stays up until the
+Pi is online, for at most 30 seconds. Ohana then opens with your family's data
+instead of offline and empty. To change the limit, set
+`HOMEOS_BOOT_NETWORK_WAIT` (0 to 60 seconds; 0 does not wait) in
+`/etc/homeos/display.env`. If the network takes longer, Ohana opens with
+**Offline — reconnecting…** and connects within a few seconds of the network
+coming up. `journalctl -u homeos-display -b | grep bootscreen` shows how long
+the boot waited.
+
 The admin console (Settings → Boot video) can set one short silent MP4 for
 every display. If `/etc/homeos/display.env` has `HOMEOS_SUPABASE_URL` and
 `HOMEOS_SUPABASE_ANON_KEY`, the Pi checks for it in the background
 (`homeos-boot-video-sync.timer`): a couple of minutes after boot, once the
 network is up, and every six hours after that. A new video is downloaded to
-`/var/lib/homeos/boot.mp4` and plays from the next boot; the boot itself never
-waits for Wi-Fi. To check right away, run
+`/var/lib/homeos/boot.mp4` and plays from the next boot; the download never
+holds up the boot. To check right away, run
 `sudo systemctl start homeos-boot-video-sync`. A file you copied to
 `/etc/homeos/boot.mp4` still wins, and the download does not overwrite it.
 Until the first download, the built-in clip plays. A failed check keeps the
@@ -381,8 +390,9 @@ journalctl -u homeos-display -b --no-pager
 |---|---|
 | A terminal or login prompt is on the screen | `journalctl` will not change the picture. Run `sudo systemctl enable --now homeos-display`. `systemctl is-active homeos-display` should print `active`, and `systemctl is-enabled homeos-display` should print `enabled`. If the unit could not be found, or a login prompt comes back after a reboot, re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. It enables and starts `homeos-display`, masks `getty@tty1` / `autovt@tty1` (`systemctl is-enabled getty@tty1` should say `masked`), and applies quiet boot. If it stays inactive, `journalctl -u homeos-display -b --no-pager` shows why. |
 | The service is `active` but the panel is still a terminal | The app did not open the HDMI device. `journalctl -u homeos-display -b --no-pager` and `cat /etc/homeos/kms.json`. The device should be one of `ls -l /dev/dri/by-path/`, and the output name should be `HDMI1` for the HDMI0 port (kernel name `HDMI-A-1`). Re-run `./display/deploy/install-pi.sh`. |
-| Boot text, the rainbow square, or `Completed socket interaction for boot stage final` stays on the screen, or Ohana appears only after Wi-Fi connects | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. Quiet boot is in `/boot/firmware/cmdline.txt`, `disable_splash=1` is in `/boot/firmware/config.txt`, cloud-init is sent to the log (`/etc/cloud/cloud.cfg.d/99-homeos-quiet.cfg`), and the display service no longer waits for the network. The cloud-init line is a successful boot note, not a hang. |
+| Boot text, the rainbow square, or `Completed socket interaction for boot stage final` stays on the screen, or the console shows until Wi-Fi connects | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. Quiet boot is in `/boot/firmware/cmdline.txt`, `disable_splash=1` is in `/boot/firmware/config.txt`, cloud-init is sent to the log (`/etc/cloud/cloud.cfg.d/99-homeos-quiet.cfg`), and the display service no longer waits for the network-online target. The boot video staying up while Wi-Fi joins (at most 30 seconds) is expected. The cloud-init line is a successful boot note, not a hang. |
 | The boot video never appears, or stays up over Ohana | `journalctl -u homeos-bootscreen -b`. The app stops that service before it uses the screen. `sudo systemctl stop homeos-bootscreen` releases it if you need to. |
+| Ohana says **Offline — reconnecting…** after a reboot | Wi-Fi took longer than the boot video waits (30 seconds). Ohana connects within a few seconds of the network coming up. `journalctl -u homeos-display -b \| grep -E 'bootscreen\|failed'` shows how long the boot waited and why the first sync failed. A slow router can be given longer: `HOMEOS_BOOT_NETWORK_WAIT=60` in `/etc/homeos/display.env`. |
 | The admin's boot video does not play | `journalctl -u homeos-boot-video-sync` shows each check. `sudo systemctl start homeos-boot-video-sync` checks now; reboot after it says the video was downloaded. A file at `/etc/homeos/boot.mp4` wins over the admin video. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every second. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | Photos and videos from the phone never show (older ones do), or show as colored tiles | `journalctl -u homeos-display -b -o cat \| grep -E 'media service\|signing blob media'`. `media service:` should name the admin app the phones upload through (`https://ohanaos.co` unless their build sets `MEDIA_API_URL`); fix `HOMEOS_MEDIA_URL` in `/etc/homeos/display.env` if not. `signing blob media failed: ... (HTTP 401)` means that admin app uses another Supabase project than the display. New items appear within a minute. |

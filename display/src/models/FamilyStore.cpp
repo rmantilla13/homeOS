@@ -23,6 +23,9 @@
 namespace {
 
 constexpr int kSyncIntervalMs = 60 * 1000; // fallback until Realtime subscriptions land (M1)
+// A sync that failed (no network yet after a reboot, Wi-Fi dropped) is tried
+// again after this, then twice as long each time, up to the sync interval.
+constexpr int kRetryFirstMs = 2000;
 constexpr int kPairPollMs = 3000;
 constexpr int kPairRetryMs = 10 * 1000;
 constexpr qint64 kCheckInIntervalMs = 5 * 60 * 1000;
@@ -62,6 +65,8 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
 {
     m_syncTimer.setInterval(kSyncIntervalMs);
     connect(&m_syncTimer, &QTimer::timeout, this, &FamilyStore::refresh);
+    m_retryTimer.setSingleShot(true);
+    connect(&m_retryTimer, &QTimer::timeout, this, &FamilyStore::loadLive);
 
     // Photo colors arrive asynchronously; fold them in with one rebuild.
     connect(&m_colors, &ColorSampler::sampled, this, &FamilyStore::scheduleRebuild);
@@ -91,6 +96,7 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
         m_settings.remove("device/refreshToken");
         m_client->clearSession();
         m_syncTimer.stop();
+        stopRetrying();
         startPairing();
     });
 }
@@ -175,6 +181,14 @@ void FamilyStore::refresh()
     } else if (m_mode == "pairing" && m_pairRetryTimer.isActive()) {
         startPairing(); // the last try failed: don't wait for the next one
     }
+}
+
+void FamilyStore::networkUp()
+{
+    if (m_online)
+        return;
+    stopRetrying(); // if this try is still too early, the next is 2 s later
+    refresh();
 }
 
 // Reads the clock: sets `today` and arms the timer for the next check, just
@@ -293,11 +307,27 @@ void FamilyStore::withSession(std::function<void()> fn)
     m_client->refreshSession([this, fn, generation](bool ok) {
         if (generation != m_generation)
             return; // re-paired meanwhile
-        if (ok)
+        if (ok) {
             fn();
-        else
+        } else {
             setOnline(false, tr("Can't reach Ohana cloud"));
+            retrySoon();
+        }
     });
+}
+
+// Tries a failed sync again soon instead of at the next sync interval: after
+// a reboot the app is up before Wi-Fi, and its first sync always fails.
+void FamilyStore::retrySoon()
+{
+    m_retryMs = m_retryMs == 0 ? kRetryFirstMs : qMin(m_retryMs * 2, kSyncIntervalMs);
+    m_retryTimer.start(m_retryMs);
+}
+
+void FamilyStore::stopRetrying()
+{
+    m_retryTimer.stop();
+    m_retryMs = 0;
 }
 
 void FamilyStore::loadLive()
@@ -313,16 +343,36 @@ void FamilyStore::loadLive()
             qWarning() << "load" << what << "failed:" << error;
             setOnline(false, error);
         };
+        // The requests of this sync still out, and whether one has failed.
+        // Once all are back, a failure tries again soon; a clean sync ends
+        // the retries. (A partial success must not: one table failing every
+        // time would retry every 2 s.)
+        struct Sync
+        {
+            int pending = 0;
+            bool failed = false;
+        };
+        auto sync = std::make_shared<Sync>();
         using Apply = std::function<void(const QJsonDocument &)>;
-        auto handler = [this, onError, generation, base](const QString &what, Apply apply) {
-            return [this, what, apply, onError, generation, base](const QJsonDocument &doc, const QString &error) {
+        auto handler = [this, onError, generation, base, sync](const QString &what, Apply apply) {
+            ++sync->pending;
+            return [this, what, apply, onError, generation, base, sync](const QJsonDocument &doc, const QString &error) {
                 if (generation != m_generation || base != m_today)
                     return;
-                if (!error.isEmpty())
-                    return onError(what, error);
-                setOnline(true);
-                apply(doc);
-                rebuild();
+                if (!error.isEmpty()) {
+                    sync->failed = true;
+                    onError(what, error);
+                } else {
+                    setOnline(true);
+                    apply(doc); // may send more requests of this sync (the repeats)
+                    rebuild();
+                }
+                if (--sync->pending > 0)
+                    return;
+                if (sync->failed)
+                    retrySoon();
+                else
+                    stopRetrying();
             };
         };
         auto load = [this, handler](const QString &table, QUrlQuery q, Apply apply) {
@@ -883,6 +933,7 @@ void FamilyStore::unpair()
     }
     ++m_generation;
     m_syncTimer.stop();
+    stopRetrying();
     m_settings.remove("device/refreshToken");
     m_settings.remove("device/familyId");
     m_settings.remove("device/id");

@@ -244,6 +244,87 @@ grep -qx 'apikey: eyJhbGciOiJIUzI1NiJ9.e30.sig' "$tmp/curl.args" || fail "legacy
 grep -qx 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig' "$tmp/curl.args" || fail "legacy anon key was not the bearer token"
 grep -qx -- '-z' "$tmp/curl.args" || fail "a repeat check downloads the whole file again"
 
+# Waiting for the network while the video plays. The resolve stand-in logs
+# each host it is asked for, and succeeds once the "online" file exists.
+cat >"$tmp/resolve" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$1" >>"${HOMEOS_RESOLVE_LOG:?}"
+[ -e "${HOMEOS_ONLINE:?}" ]
+EOF
+chmod +x "$tmp/resolve"
+export HOMEOS_BOOT_RESOLVE="$tmp/resolve"
+export HOMEOS_RESOLVE_LOG="$tmp/resolve.log"
+export HOMEOS_ONLINE="$tmp/online"
+wait_online() { "$player" --wait-online 2>"$tmp/wait.log"; }
+
+# No backend: nothing to wait for.
+rm -f "$tmp/resolve.log" "$tmp/online"
+HOMEOS_DISPLAY_ENV="$tmp/missing.env" wait_online || fail "no backend failed the network wait"
+[ ! -f "$tmp/resolve.log" ] || fail "waited for the network with no backend configured"
+
+# The host is what gets resolved, whatever the URL around it.
+: >"$tmp/online"
+for pair in 'https://example.supabase.co|example.supabase.co' \
+    'http://127.0.0.1:54321/|127.0.0.1' \
+    'https://user@[::1]:8000/x|::1' \
+    'https://example.supabase.co/?q=1|example.supabase.co'; do
+    printf 'HOMEOS_SUPABASE_URL=%s\nHOMEOS_SUPABASE_ANON_KEY=k\n' "${pair%%|*}" >"$tmp/host.env"
+    rm -f "$tmp/resolve.log"
+    HOMEOS_DISPLAY_ENV="$tmp/host.env" wait_online || fail "online network wait failed for ${pair%%|*}"
+    [ "$(cat "$tmp/resolve.log")" = "${pair#*|}" ] || fail "resolved '$(cat "$tmp/resolve.log")' for ${pair%%|*}"
+done
+[ ! -s "$tmp/wait.log" ] || fail "an immediate network said it waited: $(cat "$tmp/wait.log")"
+
+# The network comes up a moment later.
+rm -f "$tmp/online" "$tmp/resolve.log"
+( sleep 1.2; : >"$tmp/online" ) &
+wait_online || fail "the network wait gave up although the network came up"
+[ "$(wc -l <"$tmp/resolve.log")" -ge 2 ] || fail "the network wait did not try again"
+grep -q 'network up after' "$tmp/wait.log" || fail "the network wait did not log how long it took"
+
+# No network at all: give up after the limit, so the app opens offline.
+rm -f "$tmp/online"
+started=$SECONDS
+if HOMEOS_BOOT_NETWORK_WAIT=1 wait_online; then
+    fail "the network wait reported a network that never came up"
+fi
+[ $((SECONDS - started)) -le 4 ] || fail "the network wait ran past its limit"
+grep -q 'no network after 1 s' "$tmp/wait.log" || fail "the network wait did not log that it gave up"
+started=$SECONDS
+if HOMEOS_BOOT_NETWORK_WAIT=0 wait_online; then
+    fail "a wait of 0 reported a network that is down"
+fi
+[ $((SECONDS - started)) -le 2 ] || fail "a wait of 0 waited"
+
+# The stop helper holds the video until the network is up...
+sleep 30 &
+pid=$!
+HOMEOS_BOOTSCREEN_PID=$pid "$stop" 2>/dev/null &
+stopper=$!
+sleep 1.5
+kill -0 "$pid" 2>/dev/null || fail "stop helper took the video down before the network was up"
+: >"$tmp/online"
+for _ in $(seq 1 50); do
+    kill -0 "$stopper" 2>/dev/null || break
+    sleep 0.1
+done
+if kill -0 "$stopper" 2>/dev/null || kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$stopper" "$pid" 2>/dev/null || true
+    fail "stop helper did not stop the video once the network was up"
+fi
+wait "$stopper" 2>/dev/null || true
+
+# ...but with no video up (an app restart) it does not wait at all.
+rm -f "$tmp/online" "$tmp/resolve.log"
+true &
+gone=$!
+wait "$gone"
+started=$SECONDS
+HOMEOS_BOOTSCREEN_PID=$gone "$stop"
+[ ! -f "$tmp/resolve.log" ] || fail "stop helper waited for the network with no video up"
+[ $((SECONDS - started)) -le 1 ] || fail "stop helper held an app restart"
+: >"$tmp/online"
+
 # The stop helper must end the player without asking systemd for a job.
 sleep 30 &
 pid=$!
