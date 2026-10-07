@@ -5,8 +5,24 @@ import HomeOS
 import HomeOS.Core
 
 // First-run screen: shows a 6-digit code that a parent enters in the iOS app.
+// Wi-Fi settings are reachable from here, since a display that has never been
+// online can't get a code.
 Rectangle {
+    id: pairing
     color: Theme.background
+    signal wifiRequested()
+
+    // A network came up (e.g. Wi-Fi joined in Settings): ask for a code right
+    // away instead of waiting for the next retry.
+    Connections {
+        target: System
+        function onWifiChanged() { pairing.retry() }
+        function onIpChanged() { pairing.retry() }
+    }
+    function retry() {
+        if (Store.mode === "pairing" && (System.wifiSsid || System.ipAddress))
+            Store.refresh()
+    }
 
     ColumnLayout {
         anchors.centerIn: parent
@@ -61,6 +77,15 @@ Rectangle {
                   : (Store.lastError ? qsTr("Can't reach Ohana cloud. Retrying…") : qsTr("Getting a pairing code…"))
             color: Theme.textMuted
             font.pixelSize: Theme.fontMd
+        }
+
+        // The primary action while the cloud can't be reached.
+        PillButton {
+            Layout.alignment: Qt.AlignHCenter
+            text: System.wifiSsid ? qsTr("Wi-Fi: %1").arg(System.wifiSsid) : qsTr("Wi-Fi settings")
+            fill: Store.lastError ? Theme.accent : Theme.surface
+            ink: Store.lastError ? Theme.accentInk : Theme.text
+            onClicked: pairing.wifiRequested()
         }
     }
 }

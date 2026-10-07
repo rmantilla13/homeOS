@@ -81,12 +81,87 @@ struct ChoreBoard: View {
                 }
                 .card()
             }
-            if people.isEmpty && anyone.isEmpty {
+            if people.isEmpty && anyone.isEmpty && !store.choresLoadedToday {
+                EmptyCard(text: "Today's chores haven't loaded yet. Pull to refresh.", systemImage: "arrow.clockwise")
+            } else if people.isEmpty && anyone.isEmpty {
                 EmptyCard(text: store.isParent ? "No chores today. Add one with +." : "No chores today.",
                           systemImage: "checkmark.circle")
             }
+            if store.isParent {
+                OtherChores()
+            }
         }
         .animation(Theme.springy, value: store.completions)
+    }
+}
+
+/// Parents only: chores that aren't up today (another day's repeat, or a
+/// rule that has run out), folded away at the bottom so they can still be
+/// found and removed.
+struct OtherChores: View {
+    @Environment(FamilyStore.self) private var store
+    @State private var expanded = false
+
+    var body: some View {
+        let others = store.choresNotDueToday
+        if !others.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Button { withAnimation(Theme.springy) { expanded.toggle() } } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "calendar.badge.clock")
+                            .foregroundStyle(Theme.muted)
+                            .frame(width: 44, height: 44)
+                            .background(Theme.sunken, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Other chores").font(.headline).foregroundStyle(Theme.text)
+                            Text("\(others.count) not due today").font(.caption).foregroundStyle(Theme.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Theme.muted)
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(expanded ? "Shown" : "Hidden")
+                if expanded {
+                    ForEach(others) { task in OtherChoreRow(task: task) }
+                }
+            }
+            .card()
+        }
+    }
+}
+
+/// A chore that isn't up today: when it repeats and who it's for. Long-press
+/// to remove it, as on today's list.
+struct OtherChoreRow: View {
+    @Environment(FamilyStore.self) private var store
+    let task: FamilyTask
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(task.icon ?? "✔️")
+                .font(.title3)
+                .frame(width: 40, height: 40)
+                .background(Theme.sunken, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                Text("\(ChoreRow.repeatLabel(task.rrule)) · \(store.member(task.assigneeId)?.displayName ?? "Anyone")")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("Remove chore", systemImage: "trash", role: .destructive) { Task { await store.archiveTask(task) } }
+        }
     }
 }
 
@@ -140,7 +215,7 @@ struct ChoreRow: View {
                     .strikethrough(status == "approved", color: Theme.muted)
                     .foregroundStyle(status == "approved" ? Theme.muted : Theme.text)
                 HStack(spacing: 6) {
-                    Text(repeatLabel(task.rrule))
+                    Text(Self.repeatLabel(task.rrule))
                     if task.points > 0 {
                         Text("+\(task.points) ★").foregroundStyle(Theme.warning)
                     }
@@ -211,15 +286,43 @@ struct ChoreRow: View {
             .contentShape(Circle())
     }
 
-    private func repeatLabel(_ rrule: String?) -> String {
-        guard let rrule else { return "One time" }
-        if rrule.contains("DAILY") { return "Every day" }
-        if rrule.contains("BYDAY=MO,TU,WE,TH,FR") { return "Weekdays" }
-        if rrule.contains("BYDAY=SA,SU") { return "Weekends" }
-        if let days = rrule.components(separatedBy: "BYDAY=").dropFirst().first, rrule.contains("WEEKLY") {
-            return "Weekly: \(days.lowercased().capitalized)"
+    /// "Every day", "Weekdays", "Every 2 weeks: Mon, Thu", "Monthly"… from the
+    /// chore's RRULE. The server decides when it's due; this only names it.
+    static func repeatLabel(_ rrule: String?) -> String {
+        guard let rrule, !rrule.trimmingCharacters(in: .whitespaces).isEmpty else { return "One time" }
+        var parts: [String: String] = [:]
+        for part in rrule.uppercased().replacingOccurrences(of: "RRULE:", with: "").split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { parts[pair[0]] = pair[1] }
         }
-        return "Repeats"
+        let interval = max(Int(parts["INTERVAL"] ?? "") ?? 1, 1)
+        let every: (String) -> String = { unit in interval > 1 ? "Every \(interval) \(unit)s" : "Every \(unit)" }
+        switch parts["FREQ"] ?? "" {
+        case "DAILY":
+            return every("day")
+        case "WEEKLY":
+            let days = weekdayNames(parts["BYDAY"])
+            if interval == 1 && parts["BYDAY"] == "MO,TU,WE,TH,FR" { return "Weekdays" }
+            if interval == 1 && parts["BYDAY"] == "SA,SU" { return "Weekends" }
+            if interval == 1 { return days.isEmpty ? "Weekly" : "Weekly: \(days)" }
+            return days.isEmpty ? every("week") : "\(every("week")): \(days)"
+        case "MONTHLY":
+            return interval > 1 ? every("month") : "Monthly"
+        case "YEARLY":
+            return interval > 1 ? every("year") : "Yearly"
+        default:
+            return "Repeats"
+        }
+    }
+
+    /// "MO,TH" → "Mon, Thu" in the phone's language. Ordinals ("2TU") keep their weekday.
+    private static func weekdayNames(_ byDay: String?) -> String {
+        let codes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+        let symbols = Calendar.current.shortWeekdaySymbols
+        return (byDay ?? "").split(separator: ",")
+            .compactMap { codes.firstIndex(of: String($0.suffix(2))) }
+            .map { symbols[$0] }
+            .joined(separator: ", ")
     }
 }
 

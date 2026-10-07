@@ -38,6 +38,8 @@ public:
     // PostgREST accepts a JSON array for multi-row inserts (e.g. event_members).
     void insert(const QString &table, const QJsonArray &rows, Callback cb);
     void update(const QString &table, const QUrlQuery &filter, const QJsonObject &patch, Callback cb);
+    // The result is what the function returns: an array of rows for a
+    // set-returning function (`returns setof` / `returns table`).
     void rpc(const QString &function, const QJsonObject &args, Callback cb);
     void callFunction(const QString &name, const QJsonObject &body, Callback cb);
 

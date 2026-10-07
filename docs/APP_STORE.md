@@ -16,9 +16,8 @@ pages as of 2026-10-07 (Sources, at the bottom).
 
 Things the copy deliberately doesn't claim, because the app doesn't do
 them: notifications, widgets, live updates (changes show after a refresh),
-syncing with Google or Apple calendars, repeating events beyond the first
-date, offline use, an iPad or Android app, a web app for families, or
-end-to-end encryption.
+syncing with Google or Apple calendars, offline use, an iPad or Android
+app, a web app for families, or end-to-end encryption.
 
 ## 1. TestFlight → Test Information
 
@@ -94,7 +93,7 @@ Please try:
 8. Siri: say "Ask Ohana Display", then your question.
 9. Parents with a wall display: pair it from Family > Pair a display.
 
-Known gaps: a repeating event shows only its first date, and other people's changes appear after you pull to refresh.
+Known gap: other people's changes appear after you pull to refresh.
 
 Send feedback from the TestFlight app, or email support@ohanaos.co.
 ```
@@ -492,7 +491,7 @@ shorter.
 |---|---|---|---|
 | Beta App Description | 4,000 chars (assumed) | 595 | 595 |
 | TestFlight Review Notes | 4,000 bytes (assumed) | 1,019 | 1,019 |
-| What to Test | 4,000 chars (assumed) | 1,086 | 1,086 |
+| What to Test | 4,000 chars (assumed) | 1,036 | 1,036 |
 | App Name | 30 chars | 13 | 13 |
 | App Name, fallback 1 | 30 chars | 29 | 29 |
 | App Name, fallback 2 | 30 chars | 24 | 24 |

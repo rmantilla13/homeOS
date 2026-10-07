@@ -106,7 +106,9 @@ struct HomeView: View {
                 Button("See all") { withAnimation(Theme.springy) { selectedTab = .chores } }
                     .font(.subheadline.weight(.semibold))
             }
-            if people.isEmpty {
+            if people.isEmpty && !store.choresLoadedToday {
+                EmptyCard(text: "Today's chores haven't loaded yet. Pull to refresh.", systemImage: "arrow.clockwise")
+            } else if people.isEmpty {
                 EmptyCard(text: "No chores today", systemImage: "checkmark.circle")
             } else {
                 VStack(spacing: 16) {

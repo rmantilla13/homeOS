@@ -24,6 +24,15 @@ Dialog {
     background: Rectangle { radius: 32; color: Theme.surface }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.35) }
 
+    // Like every dialog and sheet, it closes when the display goes idle.
+    Connections {
+        target: Device
+        function onIdleChanged() {
+            if (Device.idle)
+                picker.close()
+        }
+    }
+
     contentItem: ColumnLayout {
         spacing: 24
         RowLayout {

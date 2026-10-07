@@ -12,7 +12,7 @@ Item {
 
     readonly property date first: new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1)
     readonly property date gridStart: { const d = new Date(first); d.setDate(d.getDate() - (first.getDay() + 6) % 7); return d }
-    readonly property string todayIso: Qt.formatDate(new Date(), "yyyy-MM-dd")
+    readonly property string todayIso: Store.today
 
     ColumnLayout {
         anchors.fill: parent
