@@ -24,7 +24,7 @@
 import { type AuthError, createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { authenticate, bearerToken, json, preflight, readJson } from "../_shared/http.ts";
 import { commitBootVideo, createBootVideoUpload, getBootVideo, removeBootVideo } from "./boot.ts";
-import { removeFolder, removePaths } from "./files.ts";
+import { removeFolder, removePaths } from "../_shared/files.ts";
 import { mediaObjectPath, signableMediaPath } from "./media.ts";
 import { type AdminRequest, parseAdminRequest } from "./request.ts";
 

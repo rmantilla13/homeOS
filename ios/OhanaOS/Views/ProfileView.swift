@@ -2,7 +2,8 @@ import AppIntents
 import PhotosUI
 import SwiftUI
 
-/// Your account: name, photo, email, which family to show, Siri, sign out.
+/// Your account: name, photo, email, which family to show, Siri, privacy
+/// and support links, sign out, and deleting the account.
 struct ProfileView: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -13,6 +14,8 @@ struct ProfileView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var uploading = false
     @State private var confirmingSignOut = false
+    @State private var confirmingDelete = false
+    @State private var deleting = false
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -102,9 +105,32 @@ struct ProfileView: View {
                 } footer: {
                     Text("Ask a quick question hands-free, like “Ask Ohana what's for dinner”. Siri asks what you'd like to know.")
                 }
+                Section("About") {
+                    Link(destination: Config.privacyPolicyURL) {
+                        Label("Privacy policy", systemImage: "hand.raised")
+                    }
+                    Link(destination: Config.supportURL) {
+                        Label("Help and support", systemImage: "questionmark.circle")
+                    }
+                }
                 Section {
                     Button("Sign out", role: .destructive) { confirmingSignOut = true }
                         .frame(maxWidth: .infinity)
+                }
+                Section {
+                    Button(role: .destructive) {
+                        confirmingDelete = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Delete account")
+                            if deleting { ProgressView().padding(.leading, 6) }
+                            Spacer()
+                        }
+                    }
+                    .disabled(deleting)
+                } footer: {
+                    Text("Deletes your login, profile and chats with Ohana for good.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -112,7 +138,7 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.disabled(deleting) }
             }
             .onAppear {
                 guard name.isEmpty else { return }
@@ -128,6 +154,15 @@ struct ProfileView: View {
                     Task { await store.signOut() }
                 }
             }
+            .alert("Delete your account?", isPresented: $confirmingDelete) {
+                Button("Delete account", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(deleteWarning)
+            }
+            .interactiveDismissDisabled(deleting)
             .showsStoreErrors()
         }
     }
@@ -164,6 +199,28 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .listRowBackground(Color.clear)
+    }
+
+    /// What goes and what stays, for the family on screen.
+    private var deleteWarning: String {
+        var text = "Your login, profile, photo and chats with Ohana are deleted. This can't be undone."
+        if let family = store.family {
+            let othersHaveLogins = store.members.contains { $0.userId != nil && $0.id != store.me?.id }
+            text += othersHaveLogins
+                ? " \(family.name) keeps your name on its screen, your points and what you've added."
+                : " You're the only one with a login in \(family.name), so it's deleted too, with its calendar, chores, photos and displays."
+        }
+        if store.families.count > 1 {
+            text += " Any other family where you're the only login is deleted too."
+        }
+        return text
+    }
+
+    private func deleteAccount() async {
+        deleting = true
+        let deleted = await store.deleteAccount()
+        deleting = false
+        if deleted { dismiss() }
     }
 
     private var familySelection: Binding<UUID> {

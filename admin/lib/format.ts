@@ -86,6 +86,7 @@ const ACTIONS: Record<string, string> = {
   ban_user: "Banned user",
   unban_user: "Unbanned user",
   delete_user: "Deleted user",
+  delete_own_account: "Deleted own account",
 };
 
 export function describeAction(action: string, details: Record<string, unknown> = {}): string {

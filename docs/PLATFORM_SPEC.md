@@ -43,8 +43,10 @@ Migrations are added after the existing ones, never edited in place:
 - `20261009000002_video_blob.sql`: `media_items.file_store` (§1.10)
 - `20261009000003_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
 - `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
-- `20261010000001_recurrence.sql`: `rrule_occurs_on`, `rrule_days`,
-  `event_occurrences` and `chores_due` (§1.11). Safe to run again
+- `20261010000001_account_deletion.sql`: `delete_my_account()`, deleting your
+  own account from the iOS app (§1.11). Safe to run again
+- `20261010000002_recurrence.sql`: `rrule_occurs_on`, `rrule_days`,
+  `event_occurrences` and `chores_due` (§1.12). Safe to run again
 
 `20261009000002` to `20261009000004` were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -433,7 +435,35 @@ are capped at 50 MB; videos at 2 GiB.
 empties `family-media/<family_id>/` (files uploaded before Blob). The console
 then deletes Blob objects under that same prefix (§3).
 
-### 1.11 Repeats: events and chores
+### 1.11 Deleting your own account
+
+App Store guideline 5.1.1(v): an app that creates accounts must let people
+delete them. `delete_my_account()` (security definer, `authenticated` only)
+works on the caller, in one transaction:
+
+1. Refuses `not signed in`; a display's account (`a display can't delete its
+   account; unpair it instead`); a platform admin (`platform admins can't
+   delete their account here; ask another admin to remove your admin access
+   first`).
+2. For each family the caller is linked to, locks the family row. If nobody
+   else there has an account, the family is marked to go. Otherwise a parent
+   with no other linked parent is refused: `you're the only parent with a
+   login in {family}. Make someone else there a parent first`.
+3. Deletes the marked families (everything cascades, displays included) and
+   unlinks the caller's member rows in the rest (`user_id = null`, as
+   `leave_family` does: the row, points and history stay).
+4. Audits `delete_own_account` (target the user id; details
+   `families_deleted` and `device_accounts` counts, no email).
+5. Tries `delete from auth.users` for the caller and the deleted families'
+   display accounts. The profile, assistant threads and invite redemptions go
+   by cascade; rows they created for a family keep a null author.
+
+Returns `{ families_deleted: uuid[], device_users: uuid[], auth_user_removed }`.
+`auth_user_removed` is false when SQL may not touch `auth.users`; the
+`delete-account` function (§2.4) then deletes them through Auth. Calling it
+again after that is harmless.
+
+### 1.12 Repeats: events and chores
 
 `events.rrule` and `tasks.rrule` are worked out in one place, the database.
 The display, the iOS app and the assistant call these functions instead of
@@ -572,7 +602,7 @@ Every function answers with JSON and the CORS headers, errors included
 (`{ "error": string }`): 405 for anything but `POST`, 413
 `request body too large` above 64 KiB (256 KiB for `assistant`, whose legacy
 body carries a conversation), 400 `invalid JSON`, and a JSON 500 for anything
-unexpected. `assistant` and `admin` answer 401 when Supabase Auth rejects the
+unexpected. `assistant`, `admin` and `delete-account` answer 401 when Supabase Auth rejects the
 token and 503 (`couldn't check your sign-in; try again in a moment`) when
 Auth can't be reached, so clients don't treat an outage as being signed out.
 
@@ -698,6 +728,26 @@ device user. A missing family is 404 `family not found`. Anything other than
 still can't pair a suspended family. Device users must not get profiles
 (see 1.1). The body must be a JSON object, at most 64 KiB.
 
+### 2.4 `delete-account`
+
+`POST` with the person's JWT; the body is ignored. Called by the admin app's
+`/api/account/delete` (§3), not by the phone directly. It authenticates the
+caller (401, or 503 when Auth is down), then:
+
+1. `rpc('delete_my_account')` with the caller's own client. A refusal
+   (`P0001`) is a 400 with the function's message; anything else a 500.
+2. With the service role: empties `avatars/<user_id>/` and
+   `family-media/<family_id>/` for each deleted family. These go before step
+   3, because a retry finds no families left to name.
+3. If `auth_user_removed` is false: `auth.admin.deleteUser` for each display
+   account, then the caller (a 404 counts as removed).
+
+Returns `{ ok: true, families_deleted, files_error? }`. If Auth refuses the
+caller, 502 `your data is deleted, but your login couldn't be removed yet;
+try again in a moment` with `families_deleted`. A file or display cleanup
+failure is logged and doesn't fail the request. `verify_jwt = false`, like
+the other functions.
+
 ---
 
 ## 3. Admin console (`admin/`)
@@ -709,8 +759,8 @@ radius 20–28, accent `#4F7CF7`, glow gradient `#5B7CF5 → #F07F5A → #F6B94A
 and Inter, with a dark-mode variant. There's no UI kit dependency.
 
 **Auth:** email and password sign-in through Supabase. Middleware refreshes
-the session. Every page except `/login` requires a session and
-`is_platform_admin()`. Signed-out visitors are redirected to
+the session. Every page except `/login`, `/privacy` and `/support` requires a
+session and `is_platform_admin()`. Signed-out visitors are redirected to
 `/login?next=<path>` (same-site paths only), signed-in non-admins to
 `/login?error=not_admin`. Session cookies are httpOnly.
 
@@ -734,6 +784,9 @@ the session. Every page except `/login` requires a session and
   can't undo another admin's change. The boot video is one silent MP4 for
   every display, stored in the private `boot-video` bucket.
 - `/audit`: paginated audit log.
+- `/privacy` and `/support` (public, `app/(public)`, `lib/site.ts`): the
+  privacy policy and help page the iOS app links to and App Store Connect
+  lists. Indexed, unlike the console.
 
 **Media API** (family JWT, not the admin session)
 
@@ -752,7 +805,18 @@ Errors are `{ "error": string }`: 400 bad JSON or body, 401 missing or
 rejected token, 403 not in the family, 413 body over 64 KiB, 502 Blob
 failed, 503 Supabase or Blob isn't configured.
 Deployment Protection in front of the whole app blocks phones and displays;
-leave `/api/media` reachable by a family JWT.
+leave `/api/media`, `/api/account/delete`, `/privacy` and `/support` reachable.
+
+**Account API** (the person's JWT)
+
+`POST /api/account/delete`, also let through before the admin gate. It sends
+the bearer token (and the anon key as `apikey`) to the `delete-account`
+function (§2.4), then deletes Blob objects under `<family_id>/` for each id in
+`families_deleted`, also when the function answered 502. It passes the
+function's status and `{ error }` through and answers
+`{ ok: true, families_deleted, files_left? }`. A Blob failure doesn't fail the
+request; it sets `files_left` and is logged. 401 without a token, 503 when
+Supabase isn't configured or the function can't be reached.
 
 Blob credentials: on Vercel, connect a private store so the function has
 `BLOB_STORE_ID` and `VERCEL_OIDC_TOKEN`. `BLOB_READ_WRITE_TOKEN` is the
@@ -994,7 +1058,12 @@ files still play.
 
 **Profile:** edit display name and avatar (PhotosPicker, then upload to
 `avatars/<uid>/avatar.jpg` and set `profiles.avatar_path`), view account
-email, sign out.
+email, links to `https://ohanaos.co/privacy` and `/support`, sign out, and
+**Delete account**: an alert that says what goes and what stays for the
+family on screen, then `POST /api/account/delete` on `Config.mediaAPIURL`'s
+origin (§3) and a local sign-out. "Enter an invite code" (signed in, no
+family) has Delete account too, and the welcome screen links the privacy
+policy.
 
 **Media upload:** new photos and videos go to the private Blob store (§1.10).
 Photos are JPEG (≤ 2560 px). Videos are uploaded as-is. The row sets

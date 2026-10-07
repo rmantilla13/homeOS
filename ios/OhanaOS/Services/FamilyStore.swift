@@ -381,6 +381,25 @@ final class FamilyStore {
         try? await supabase.auth.signOut()
     }
 
+    /// Deletes your account, then signs out. Your login, profile, photo and
+    /// chats go. A family where you're the only login goes too, with
+    /// everything in it; in any other family your member row stays, unlinked,
+    /// as when you leave. The server refuses the last parent of a family that
+    /// has other logins. It runs through the admin app (`/api/account/delete`),
+    /// which also clears that family's photos and videos from Blob.
+    func deleteAccount() async -> Bool {
+        do {
+            _ = try await adminAppJSON("/api/account/delete", [:], service: "the Ohana server")
+        } catch {
+            report(error)
+            return false
+        }
+        preferredFamilyId = nil
+        // The server has removed the login and its sessions; this forgets the one on the phone.
+        await signOut()
+        return true
+    }
+
     /// `ohanaos://invite/<CODE>` prefills the invite; `ohanaos://auth-callback`
     /// finishes an email confirmation or an admin's email invite.
     func handleOpenURL(_ url: URL) {
@@ -1096,20 +1115,27 @@ final class FamilyStore {
         }
     }
 
-    /// `/api/media/<name>` on the media service's origin. A path in the
-    /// configured URL is dropped, so it can't turn into `/x/api/media/...`.
-    private func mediaEndpoint(_ name: String) -> URL? {
+    /// `path` on the admin app's origin (`Config.mediaAPIURL`), which serves
+    /// `/api/media/*` and `/api/account/delete`. A path in the configured URL
+    /// is dropped, so it can't turn into `/x/api/media/...`.
+    private func adminAppEndpoint(_ path: String) -> URL? {
         let base = Config.mediaAPIURL
         var components = URLComponents()
         components.scheme = base.scheme
         components.host = base.host
         components.port = base.port
-        components.path = "/api/media/" + name
+        components.path = path
         return components.url
     }
 
     private func mediaJSON(_ name: String, _ body: [String: Any]) async throws -> [String: Any] {
-        guard let url = mediaEndpoint(name) else {
+        try await adminAppJSON("/api/media/" + name, body, service: "the media service")
+    }
+
+    /// POSTs JSON to the admin app with your session. `service` names it in
+    /// messages: "the media service at ohanaos.co".
+    private func adminAppJSON(_ path: String, _ body: [String: Any], service: String) async throws -> [String: Any] {
+        guard let url = adminAppEndpoint(path) else {
             throw MediaAPIError(message: "This build has no valid media service address (MEDIA_API_URL).")
         }
         let token = try await supabase.auth.session.accessToken
@@ -1122,21 +1148,22 @@ final class FamilyStore {
         do {
             reply = try await URLSession.shared.data(for: request)
         } catch {
-            throw Self.transferError(error, to: "the media service at \(Self.mediaHost)")
+            throw Self.transferError(error, to: "\(service) at \(Self.mediaHost)")
         }
         let json = (try? JSONSerialization.jsonObject(with: reply.0) as? [String: Any]) ?? [:]
         let status = (reply.1 as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             if status == 401 {
                 // Signed in here, refused there: an expired session, or a build
-                // whose media service belongs to another Supabase project.
-                throw MediaAPIError(message: "The media service at \(Self.mediaHost) didn't accept your sign-in. Sign out and back in, then try again.")
+                // whose admin app belongs to another Supabase project.
+                throw MediaAPIError(message: "\(service.sentenceCased) at \(Self.mediaHost) didn't accept your sign-in. Sign out and back in, then try again.")
             }
             if let message = json["error"] as? String, !message.isEmpty {
-                throw MediaAPIError(message: message)
+                // Media errors are sentences already; the edge function's are lowercase.
+                throw MediaAPIError(message: message.sentenceCased)
             }
             // Not the admin app's JSON: a wrong address, a missing route or a proxy page.
-            throw MediaAPIError(message: "The media service at \(Self.mediaHost) answered HTTP \(status). Check that the app points at the Ohana admin app, then try again.")
+            throw MediaAPIError(message: "\(service.sentenceCased) at \(Self.mediaHost) answered HTTP \(status). Check that the app points at the Ohana admin app, then try again.")
         }
         return json
     }

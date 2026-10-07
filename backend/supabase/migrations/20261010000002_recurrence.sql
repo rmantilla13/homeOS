@@ -1,11 +1,11 @@
--- Repeats worked out once, in the database. See docs/PLATFORM_SPEC.md §1.11.
+-- Repeats worked out once, in the database. See docs/PLATFORM_SPEC.md §1.12.
 --
 -- The display, the iOS app and the assistant each read `rrule` their own
 -- way: weekly and monthly-by-date at best, no INTERVAL, and repeating events
 -- showed only their first day everywhere. Now:
 --
 -- 1. rrule_occurs_on(rule, dtstart, day) answers "does this series fall on
---    this day" for the RFC 5545 subset in §1.11, and rrule_days lists those
+--    this day" for the RFC 5545 subset in §1.12, and rrule_days lists those
 --    days in a range (one parse per series, which the calendar needs).
 -- 2. event_occurrences(fid, range_start, range_end) expands repeating events
 --    in the family's time zone: one row per occurrence.

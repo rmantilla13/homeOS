@@ -1,5 +1,5 @@
 -- Repeats: rrule_occurs_on / rrule_days (the RFC 5545 subset in
--- docs/PLATFORM_SPEC.md §1.11), event_occurrences and chores_due.
+-- docs/PLATFORM_SPEC.md §1.12), event_occurrences and chores_due.
 -- Expected days are worked out by hand; most series are the examples in
 -- RFC 5545 §3.8.5.3, with dates (not times) and our UNTIL rule noted.
 \set ON_ERROR_STOP 1
@@ -18,7 +18,7 @@ set timezone = 'Asia/Tokyo';
 
 -- Safe to run again (it may have been pasted into the SQL editor before a
 -- push). The privilege checks at the end run after this second pass.
-\ir ../supabase/migrations/20261010000001_recurrence.sql
+\ir ../supabase/migrations/20261010000002_recurrence.sql
 
 -- ───────────────────────── rrule_occurs_on: single days ─────────────────────────
 
