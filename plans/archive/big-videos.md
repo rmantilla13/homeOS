@@ -1,10 +1,7 @@
 # Big videos: accept 500 MB+ clips and make a 1080p copy on the server
 
-Status: **approved for phases 0–6** (2026-10-07). Phase 7 touches production and
-needs its own go-ahead. Branch `claude/elegant-lamport-rdwcm8`, PR #40.
-
-Answers: Vercel Sandbox; the team is on **Pro**; replace originals; this PR
-is the server pipeline, iOS background/resumable uploads come next.
+Status: **done** (2026-10-07). Shipped in #40 (`5ea3b65`) and rolled out the
+same day; the execution record is at the end.
 
 ## The problem, measured
 
@@ -134,14 +131,14 @@ about 20–35 clips that size.
 
 | Phase | State | Verified by |
 |---|---|---|
-| 0 Spike | moved into Phase 7 | Connector 403 on `POST /v4/sandboxes`; replaced by `scripts/media-sandbox-check.mjs` (D3) |
+| 0 Spike | done in Phase 7 | `scripts/media-sandbox-check.mjs` on the real project: `"ok": true` (below) |
 | 1 Database | done (3e2cd54, adf6867) | `backend/tests/run.sh`: all 22 files pass, incl. `media_processing_test` and `migration_rerun_test` |
 | 2 media-jobs | done (8241c40) | `deno check` on every function; `deno test`: 83 passed |
 | 3 Worker | done (adf6867) | `worker.test.mjs` 12/12, incl. real ffmpeg jobs (4K60 HLG → 1920×1080 HEVC 8-bit bt709 AAC, index first; as-is; remux); `--self-test` ok locally |
 | 4 Routes | done (f92d1ed) | `npm run lint`, `npm run typecheck`, `npm run build` (worker.mjs traced into the routes), `npm test` 79/79 |
 | 5 iOS | done (375bb95) | tree-sitter Swift parse of the 4 files; iOS CI build on the PR |
 | 6 Docs | done | PLATFORM_SPEC §1.14, §2.6, §3, §6, §7; ADMIN, ARCHITECTURE, IOS, PLATFORM, README |
-| 7 Rollout | needs go-ahead | below |
+| 7 Rollout | done | production run below |
 
 ## Execution notes (deviations from the plan)
 
@@ -175,3 +172,41 @@ about 20–35 clips that size.
 6. Ship a TestFlight build of main, then upload one 500 MB+ clip and let
    the phone's export fail on purpose (or use an older build) to see the
    pending → done path end to end.
+
+## Execution record
+
+**Shipped:** #40, squash-merged as `5ea3b65` on 2026-10-07.
+
+**Deviations, beyond the notes above:**
+- Merging main brought in calendar sync (#38), which had taken migration
+  version `20261012000001` and PLATFORM_SPEC §1.13 and §2.5. This plan's
+  migration became `20261013000001_video_processing.sql`, and its spec
+  sections became §1.14 and §2.6.
+- The `media-jobs` function was deployed through the Supabase connector.
+  The migrations went in with `supabase db push`, run by Ricky, so the
+  version history stayed exact. Production was four migrations behind main
+  (member photos ×2, calendar sync, video processing), and all four went in
+  together.
+
+**Verified:**
+- `scripts/media-sandbox-check.mjs` on homeos-admin:
+  - the sandbox started in 0.5 s;
+  - ffmpeg was installed from BtbN master in 2.1 s, with x265 and zscale;
+  - a 4 s 4K60 10-bit HLG clip became 1080p30 8-bit BT.709 HEVC in 4.7 s on 8 vCPUs;
+  - `"ok": true`, 18.8 s in total.
+- In production, after the redeploy with `MEDIA_JOBS_SECRET` and
+  `CRON_SECRET` set, the first sweep (13:40:42 UTC) claimed 2 videos. Each
+  callback started the next, and all 5 stored videos were done by 13:41:15,
+  with no errors or retries:
+  - four became `<id>-wall.mp4` copies: 26.3→6.3, 23.4→8.5, 20.6→7.8 and 11.2→2.5 MB;
+  - one (37.2 MB) already fit and stayed as it was;
+  - all five gained a poster.
+- The cron calls the `*.vercel.app` deployment URL; the sandboxes reported
+  to `ohanaos.co` as designed (D3 and `mediaCallbackOrigin`).
+
+**Left open:**
+- The sweep deletes the four replaced originals from 19:41 UTC on
+  2026-10-07. Not checked yet.
+- A TestFlight build of main, so the phone optimizes before uploading again.
+- Next PR: iOS background and resumable uploads, so a big upload survives
+  leaving the app.
