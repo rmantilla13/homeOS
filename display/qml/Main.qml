@@ -137,7 +137,14 @@ ApplicationWindow {
             Layout.fillHeight: true
             Layout.preferredWidth: Theme.navWidth
             currentIndex: window.currentScreen
-            onSelected: index => { assistant.open = false; window.dismissKeyboard(); window.currentScreen = index }
+            onSelected: index => {
+                assistant.open = false
+                window.dismissKeyboard()
+                // Tapping Games again goes back to the list of games.
+                if (index === 6 && window.currentScreen === 6)
+                    games.close()
+                window.currentScreen = index
+            }
             onSettingsRequested: { window.dismissKeyboard(); settings.open() }
         }
 
@@ -174,6 +181,10 @@ ApplicationWindow {
                 MediaScreen { anchors.fill: parent; onOpenViewer: (items, i) => viewer.show(items, i) }
             }
             Page { anchors.fill: parent; index: 5; current: window.currentScreen; PlannerScreen { anchors.fill: parent } }
+            Page {
+                anchors.fill: parent; index: 6; current: window.currentScreen
+                GamesScreen { id: games; anchors.fill: parent; shown: window.currentScreen === 6 }
+            }
         }
     }
 

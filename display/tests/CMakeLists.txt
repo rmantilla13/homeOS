@@ -105,3 +105,31 @@ target_compile_definitions(tst_calendar PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_CUR
 target_link_libraries(tst_calendar PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
 add_test(NAME tst_calendar COMMAND tst_calendar)
 set_tests_properties(tst_calendar PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The Games tab: GamesScreen.qml and every game, with the real theme. They are
+# copied into a module directory laid out like the app's resources
+# (qrc:/HomeOS/...), so the relative paths between them are the app's.
+set(games_root ${CMAKE_CURRENT_BINARY_DIR}/games-qml/HomeOS)
+set(games_qmldir "module HomeOS\n")
+foreach(file qml/Theme.qml qml/components/Icon.qml qml/components/IconButton.qml
+             qml/components/PillButton.qml qml/components/Tag.qml qml/components/SegmentedControl.qml)
+    configure_file(${PROJECT_SOURCE_DIR}/${file} ${games_root}/${file} COPYONLY)
+    get_filename_component(type ${file} NAME_WE)
+    if(type STREQUAL "Theme")
+        string(APPEND games_qmldir "singleton ")
+    endif()
+    string(APPEND games_qmldir "${type} 1.0 ${file}\n")
+endforeach()
+file(WRITE ${games_root}/qmldir "${games_qmldir}")
+file(GLOB_RECURSE games_files RELATIVE ${PROJECT_SOURCE_DIR} CONFIGURE_DEPENDS
+    ${PROJECT_SOURCE_DIR}/games/* ${PROJECT_SOURCE_DIR}/qml/games/*)
+foreach(file ${games_files} qml/screens/GamesScreen.qml)
+    configure_file(${PROJECT_SOURCE_DIR}/${file} ${games_root}/${file} COPYONLY)
+endforeach()
+
+qt_add_executable(tst_games tst_games.cpp)
+target_compile_options(tst_games PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_games PRIVATE HOMEOS_GAMES_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/games-qml")
+target_link_libraries(tst_games PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+add_test(NAME tst_games COMMAND tst_games)
+set_tests_properties(tst_games PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
