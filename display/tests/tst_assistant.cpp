@@ -11,7 +11,9 @@
 #include "models/FamilyStore.h"
 
 // The assistant and the family store in live mode, against a small stand-in
-// for Supabase (auth, PostgREST, the assistant and pair-device functions).
+// for Supabase (auth, PostgREST and RPC, the assistant and pair-device
+// functions); and the family store's day rollover in demo mode. Media URLs
+// and colors are tst_media's.
 class TestAssistant : public QObject
 {
     Q_OBJECT
@@ -58,6 +60,15 @@ class TestAssistant : public QObject
                 out << r;
         return out;
     }
+    // POSTs to exactly this path (not, say, GETs of a URL signed under it).
+    QList<Request> postsTo(const QByteArray &path) const
+    {
+        QList<Request> out;
+        for (const Request &r : m_requests)
+            if (r.method == "POST" && r.path == path)
+                out << r;
+        return out;
+    }
 
     void serve(QTcpSocket *socket, const Request &request)
     {
@@ -92,10 +103,13 @@ class TestAssistant : public QObject
         FamilyStore store;
         Assistant ai;
     };
-    std::unique_ptr<Rig> signedIn()
+    // `setup` runs before the store starts (a clock).
+    std::unique_ptr<Rig> signedIn(const std::function<void(Rig &)> &setup = {})
     {
         auto rig = std::make_unique<Rig>(baseUrl());
         rig->client.setRefreshToken("refresh-0");
+        if (setup)
+            setup(*rig);
         rig->store.start();
         if (!QTest::qWaitFor([&]() { return rig->store.online() && rig->store.familyName() == "Test Family"; }, 5000))
             qWarning() << "the store never came online";
@@ -108,6 +122,34 @@ class TestAssistant : public QObject
         QSignalSpy finished(&ai, &Assistant::replyFinished);
         ai.ask(text);
         return finished.wait(5000) || finished.size() > 0;
+    }
+
+    // A clock that reads `local` now and runs on from there.
+    static std::function<QDateTime()> clockAt(const QDateTime &local)
+    {
+        const qint64 skew = QDateTime::currentDateTime().msecsTo(local);
+        return [skew]() { return QDateTime::currentDateTime().addMSecs(skew); };
+    }
+    static QVariantMap taskById(const FamilyStore &store, const QString &id)
+    {
+        for (const QVariant &t : store.tasks())
+            if (t.toMap().value("id").toString() == id)
+                return t.toMap();
+        return {};
+    }
+    void routeMembers()
+    {
+        route("/rest/v1/members", [](const Request &) {
+            return json("[{\"id\":\"m1\",\"display_name\":\"Emma\",\"color\":\"#F2B84B\",\"role\":\"child\"}]");
+        });
+    }
+    void routeChore(const QString &rrule = QStringLiteral("FREQ=DAILY"))
+    {
+        const QJsonObject task{{"id", "t1"}, {"title", "Feed the cat"}, {"assignee_id", "m1"}, {"points", 5},
+                               {"rrule", rrule}, {"requires_approval", true}, {"archived", false}};
+        route("/rest/v1/rpc/chores_due", [task](const Request &) {
+            return json(QJsonDocument(QJsonArray{task}).toJson(QJsonDocument::Compact));
+        });
     }
 
     static QByteArray okStream(const QString &reply, const QString &thread = "t1")
@@ -339,6 +381,232 @@ private slots:
         QTRY_VERIFY(requestsTo("/rest/v1/families").size() >= 2);
         QTest::qWait(100);
         QCOMPARE(requestsTo("/rest/v1/devices").size(), 1);
+    }
+
+    void displayRefreshesConnectedCalendars()
+    {
+        // calendar-sync copies Google and calendar-link events in; the display
+        // asks for the family's stale ones every 15 minutes and reloads when
+        // something changed.
+        QSettings().setValue("device/familyId", "fam-1");
+        route("/functions/v1/calendar-sync", [](const Request &) {
+            return json(R"({"results":[{"source_id":"s1","ok":true,"added":2,"updated":0,"removed":0,"event_count":2}]})");
+        });
+        auto rig = signedIn();
+        QTRY_COMPARE(requestsTo("/functions/v1/calendar-sync").size(), 1);
+        const Request r = requestsTo("/functions/v1/calendar-sync").first();
+        QCOMPARE(r.method, QByteArray("POST"));
+        QCOMPARE(r.auth, QByteArray("Bearer access-1"));
+        QCOMPARE(r.body.value("action").toString(), QStringLiteral("sync"));
+        QCOMPARE(r.body.value("family_id").toString(), QStringLiteral("fam-1"));
+        // New events: the family reloads.
+        QTRY_VERIFY(requestsTo("/rest/v1/rpc/event_occurrences").size() >= 2);
+
+        // Not on every load: at most every 15 minutes.
+        rig->store.refresh();
+        QTRY_VERIFY(requestsTo("/rest/v1/rpc/event_occurrences").size() >= 3);
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/functions/v1/calendar-sync").size(), 1);
+    }
+
+    // ── The family store: repeats from the server (PLATFORM_SPEC event_occurrences, chores_due) ──
+
+    void repeatsComeFromTheServer()
+    {
+        QSettings().setValue("device/familyId", "fam-1");
+        const QDate today = QDate::currentDate();
+        // A weekday that isn't today: the display must not second-guess the server.
+        const QString otherDay = QStringList{"MO", "TU", "WE", "TH", "FR", "SA", "SU"}.at(today.dayOfWeek() % 7);
+        routeMembers();
+        routeChore("FREQ=WEEKLY;BYDAY=" + otherDay);
+        route("/rest/v1/rpc/event_occurrences", [today](const Request &) {
+            // Two occurrences of one weekly event: same id, their own times.
+            QJsonArray rows;
+            for (int week : {0, 1}) {
+                const QDate day = today.addDays(7 * week);
+                rows << QJsonObject{{"id", "e1"}, {"title", "Swim"}, {"all_day", false}, {"rrule", "FREQ=WEEKLY"},
+                                    {"starts_at", QDateTime(day, QTime(16, 30)).toUTC().toString(Qt::ISODate)},
+                                    {"ends_at", QDateTime(day, QTime(17, 30)).toUTC().toString(Qt::ISODate)},
+                                    {"member_ids", QJsonArray{"m1"}}};
+            }
+            return json(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+        });
+        auto rig = signedIn();
+        QTRY_COMPARE(rig->store.events().size(), 2);
+        QTRY_COMPARE(rig->store.tasks().size(), 1);
+
+        const QVariantMap first = rig->store.events().at(0).toMap(), second = rig->store.events().at(1).toMap();
+        QCOMPARE(first.value("day").toString(), today.toString(Qt::ISODate));
+        QCOMPARE(second.value("day").toString(), today.addDays(7).toString(Qt::ISODate));
+        QTRY_COMPARE(rig->store.events().at(0).toMap().value("memberNames").toString(), QStringLiteral("Emma"));
+        QCOMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("todo"));
+
+        const Request events = requestsTo("/rest/v1/rpc/event_occurrences").first();
+        QCOMPARE(events.method, QByteArray("POST"));
+        QCOMPARE(events.body.value("fid").toString(), QStringLiteral("fam-1"));
+        const QDateTime from = QDateTime::fromString(events.body.value("range_start").toString(), Qt::ISODate);
+        const QDateTime to = QDateTime::fromString(events.body.value("range_end").toString(), Qt::ISODate);
+        QVERIFY(from.isValid() && to.isValid());
+        QVERIFY(from <= QDateTime(today.addDays(-7), QTime(0, 0)));
+        QVERIFY(to >= QDateTime(today.addDays(28), QTime(0, 0)));
+        const Request chores = requestsTo("/rest/v1/rpc/chores_due").first();
+        QCOMPARE(chores.body.value("fid").toString(), QStringLiteral("fam-1"));
+        QCOMPARE(chores.body.value("day").toString(), today.toString(Qt::ISODate));
+        // The tables themselves aren't read for these any more.
+        QVERIFY(requestsTo("/rest/v1/events").isEmpty());
+        QVERIFY(requestsTo("/rest/v1/tasks").isEmpty());
+    }
+
+    void familyIdFromAnOlderPairing()
+    {
+        // Paired before the display kept its family id: it learns it once.
+        route("/rest/v1/families", [](const Request &) { return json("[{\"id\":\"fam-2\",\"name\":\"Test Family\"}]"); });
+        auto rig = signedIn();
+        QTRY_VERIFY(!requestsTo("/rest/v1/rpc/chores_due").isEmpty());
+        QCOMPARE(requestsTo("/rest/v1/rpc/chores_due").first().body.value("fid").toString(), QStringLiteral("fam-2"));
+        QTRY_VERIFY(!requestsTo("/rest/v1/rpc/event_occurrences").isEmpty());
+        QCOMPARE(requestsTo("/rest/v1/rpc/event_occurrences").first().body.value("fid").toString(), QStringLiteral("fam-2"));
+        QCOMPARE(QSettings().value("device/familyId").toString(), QStringLiteral("fam-2"));
+    }
+
+    void turnedDownChoreExplains()
+    {
+        QSettings().setValue("device/familyId", "fam-1");
+        routeMembers();
+        routeChore();
+        route("/rest/v1/task_completions", [](const Request &) {
+            return json("[{\"task_id\":\"t1\",\"member_id\":\"m1\",\"status\":\"rejected\"}]");
+        });
+        auto rig = signedIn();
+        QTRY_COMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("rejected"));
+
+        // Tapping it says why (as the phone does) and saves nothing.
+        QSignalSpy notified(&rig->store, &FamilyStore::notify);
+        rig->store.completeTask("t1", "m1");
+        QCOMPARE(notified.size(), 1);
+        QCOMPARE(notified.first().first().toString(),
+                 QStringLiteral("A parent turned this one down today. Ask them to undo it, then try again."));
+        QTest::qWait(100);
+        QVERIFY(postsTo("/rest/v1/task_completions").isEmpty());
+        QCOMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("rejected"));
+    }
+
+    // ── A new day ──
+
+    void newDayStartsOverLive()
+    {
+        QSettings().setValue("device/familyId", "fam-1");
+        const QDate day = QDate::currentDate();
+        const QString dayIso = day.toString(Qt::ISODate), nextIso = day.addDays(1).toString(Qt::ISODate);
+        routeMembers();
+        routeChore();
+        // Done yesterday; nothing yet on the new day.
+        route("/rest/v1/task_completions", [dayIso](const Request &r) {
+            return json(r.path.contains("for_date=eq." + dayIso.toUtf8())
+                            ? "[{\"task_id\":\"t1\",\"member_id\":\"m1\",\"status\":\"approved\"}]"
+                            : "[]");
+        });
+        // The display's clock is just short of midnight.
+        auto rig = signedIn([day](Rig &r) { r.store.setClock(clockAt(QDateTime(day, QTime(23, 59, 58, 500)))); });
+        QCOMPARE(rig->store.today(), dayIso);
+        QTRY_COMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("done"));
+
+        QSignalSpy newDay(&rig->store, &FamilyStore::todayChanged);
+        QVERIFY(newDay.wait(5000));
+        QCOMPARE(rig->store.today(), nextIso);
+        QTRY_COMPARE(requestsTo("/rest/v1/rpc/chores_due").last().body.value("day").toString(), nextIso);
+        QTRY_VERIFY(requestsTo("/rest/v1/task_completions").last().path.contains("for_date=eq." + nextIso.toUtf8()));
+        QTRY_COMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("todo"));
+    }
+
+    void newDayOfflineDropsYesterdaysChores()
+    {
+        QSettings().setValue("device/familyId", "fam-1");
+        const QDate day = QDate::currentDate();
+        routeMembers();
+        routeChore();
+        auto rig = signedIn([day](Rig &r) { r.store.setClock(clockAt(QDateTime(day, QTime(23, 59, 58, 500)))); });
+        QTRY_VERIFY(!taskById(rig->store, "t1").isEmpty());
+
+        // The network goes down just before midnight.
+        route("/rest/v1/", [](const Request &) { return json("{\"message\":\"offline\"}", 503); });
+        QSignalSpy newDay(&rig->store, &FamilyStore::todayChanged);
+        QVERIFY(newDay.wait(5000));
+        // Yesterday's chores aren't today's: none until the cloud answers.
+        QVERIFY(taskById(rig->store, "t1").isEmpty());
+        QTRY_VERIFY(!rig->store.online());
+    }
+
+    void newDayStartsOverInDemo()
+    {
+        SupabaseClient client{QUrl(), QString()};
+        FamilyStore store(&client, true);
+        const QDate day = QDate::currentDate();
+        store.setClock(clockAt(QDateTime(day, QTime(23, 59, 59))));
+        store.start();
+        QCOMPARE(store.mode(), QStringLiteral("demo"));
+        QCOMPARE(store.today(), day.toString(Qt::ISODate));
+        store.completeTask("t1", "m3");
+        QCOMPARE(taskById(store, "t1").value("status").toString(), QStringLiteral("done"));
+        // "School drop-off" is a today event in the sample data.
+        auto dropOffDay = [&store]() {
+            for (const QVariant &e : store.events())
+                if (e.toMap().value("title") == QLatin1String("School drop-off"))
+                    return e.toMap().value("day").toString();
+            return QString();
+        };
+        QCOMPARE(dropOffDay(), day.toString(Qt::ISODate));
+
+        QSignalSpy newDay(&store, &FamilyStore::todayChanged);
+        QVERIFY(newDay.wait(5000));
+        const QString next = day.addDays(1).toString(Qt::ISODate);
+        QCOMPARE(store.today(), next);
+        QCOMPARE(taskById(store, "t1").value("status").toString(), QStringLiteral("todo"));
+        // The sample events are laid out around the new day.
+        QCOMPARE(dropOffDay(), next);
+    }
+
+    // ── Pairing ──
+
+    void pairingRetriesWhenAsked()
+    {
+        // No network at first; then Wi-Fi comes up and the screen asks again.
+        auto starts = std::make_shared<int>(0);
+        route("/functions/v1/pair-device", [starts](const Request &) {
+            return ++*starts == 1 ? json("{\"error\":\"offline\"}", 503) : json("{\"code\":\"ABC123\"}");
+        });
+        Rig rig(baseUrl());
+        rig.store.start();
+        QCOMPARE(rig.store.mode(), QStringLiteral("pairing"));
+        QTRY_VERIFY(!rig.store.lastError().isEmpty());
+        QCOMPARE(rig.store.pairingCode(), QString());
+        rig.store.refresh();
+        QTRY_COMPARE(rig.store.pairingCode(), QStringLiteral("ABC123")); // well before the 10 s retry
+        QCOMPARE(*starts, 2);
+    }
+
+    void lateFailedPollKeepsThePairing()
+    {
+        // The poll that pairs is slow; the next one goes out meanwhile and
+        // finds the code gone. The display must stay paired.
+        auto redeems = std::make_shared<int>(0);
+        route("/functions/v1/pair-device", [redeems](const Request &r) {
+            if (r.body.value("action").toString() == "start")
+                return json("{\"code\":\"ABC123\"}");
+            if (++*redeems == 1)
+                return json("{\"status\":\"paired\",\"familyId\":\"fam-1\",\"deviceId\":\"dev-1\","
+                            "\"session\":{\"accessToken\":\"access-1\",\"refreshToken\":\"refresh-1\"}}",
+                            200, 3500);
+            return json("{\"error\":\"invalid code\"}", 404, 800);
+        });
+        Rig rig(baseUrl());
+        rig.store.start();
+        QTRY_COMPARE_WITH_TIMEOUT(rig.store.mode(), QStringLiteral("live"), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(*redeems >= 2, 5000);
+        QTest::qWait(1200); // the second poll's answer lands
+        QCOMPARE(rig.store.mode(), QStringLiteral("live"));
+        QCOMPARE(rig.store.pairingCode(), QString());
+        QCOMPARE(QSettings().value("device/familyId").toString(), QStringLiteral("fam-1"));
     }
 
     // ── Re-pairing (Settings → Re-pair this display) ──

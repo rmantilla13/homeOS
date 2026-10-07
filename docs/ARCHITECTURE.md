@@ -27,12 +27,13 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
   family, or a family invite (from a parent) to join one. Each person has a
   `profiles` row. Platform admins can suspend families, which hides their
   data from members and displays. See [PLATFORM.md](PLATFORM.md).
-- **Storage**: new family photos and videos go to a private Vercel Blob
-  store at `<family_id>/<media_id>.<ext>` (`media_items.file_store = 'blob'`),
-  signed by the admin app. Files already in the `family-media` bucket stay
-  there, one folder deep, under a per-family quota and item cap. A row can't
-  point at another family's object, and a display can't move itself into
-  another family. Profile avatars stay in the `avatars` bucket. See
+- **Storage**: new family photos and videos go to a private Vercel Blob store
+  at `<family_id>/<media_id>.<ext>` (`media_items.file_store = 'blob'`), signed
+  by the admin app. Each one's JPEG poster sits next to it at
+  `<family_id>/<media_id>-thumb.jpg`. Files already in the `family-media`
+  bucket stay there, one folder deep, under a per-family quota and item cap. A
+  row can't point at another family's object, and a display can't move itself
+  into another family. Profile avatars stay in the `avatars` bucket. See
   [PLATFORM.md](PLATFORM.md).
 - **Realtime**: the display subscribes to row changes, so the screen updates
   as soon as a phone edits something.
@@ -44,8 +45,10 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
     the caller is a platform admin. Listing and deleting media rows stays in
     SQL; signing a thumbnail URL is the function, because admins are not
     family members and have no Storage read policy.
-  - Later: push notifications (APNs), recurring-chore generation, and
-    calendar sync with Google and iCloud.
+  - `calendar-sync` brings in connected calendars (Google, calendar links)
+    and serves the family's own calendar as a subscribable link; see
+    Connected calendars below.
+  - Later: push notifications (APNs) and recurring-chore generation.
 
 ### Data model
 
@@ -54,7 +57,9 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | `families` | One household |
 | `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member whose account has no photo of its own (usually a kid without a login) a photo |
 | `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
-| `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members` |
+| `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members`. Events copied from a connected calendar have `source_id` and are read-only |
+| `calendar_sources` / `calendar_accounts` | Connected calendars (a Google calendar or a calendar link) and the Google accounts behind them. Refresh tokens and links sit in service-only tables |
+| `calendar_feeds` | The token of the family's subscribable calendar link |
 | `tasks` | Chores and to-dos: assignee, points, recurrence, due date, and whether a parent must approve |
 | `task_completions` | A task completed on a date; when approved, it posts points |
 | `rewards` / `reward_redemptions` | The reward catalog and claims |
@@ -74,6 +79,36 @@ Guard triggers also stop non-parents from setting what a chore is worth or
 letting it skip approval, so a child (or the kitchen display) can't award
 themselves points.
 
+## Connected calendars
+
+```
+ Google Calendar ──OAuth, events.list──┐                       ┌── wall display, iPhone, assistant
+ iCloud / Outlook / school ──ICS link──┼─▶ calendar-sync ─▶ events (source_id) ─▶ event_occurrences
+                                       │    (edge function)                       │
+ Apple / Google / Outlook ◀──feed link─┴──────────────────── the family's own events
+```
+
+- **In.** A parent connects a Google account (browser sign-in, read-only
+  scope) and picks calendars, or adds a calendar link (`webcal://` or
+  `https://`: iCloud public calendars, Outlook, Google's secret address,
+  school, team and holiday calendars). `calendar-sync` reads each one,
+  expands repeats itself (ical.js for links; Google expands its own), and
+  hands one row per occurrence, 60 days back to a year ahead, to
+  `calendar_apply_sync`, which updates `events` in place. So the display, the
+  iPhone and the assistant need nothing new: imported events come through
+  `event_occurrences` with a `source_id`, in the calendar's color or its
+  person's, and can't be edited here.
+- **Fresh.** pg_cron calls `calendar-sync` every 15 minutes, a paired display
+  asks every 15 minutes, and the iPhone asks when it opens; the server skips
+  calendars refreshed in the last 10 minutes. Each calendar syncs in its own
+  request, within the edge runtime's CPU budget.
+- **Private.** Refresh tokens and links stay in service-only tables. A
+  calendar can show as "Busy" (no titles or places), and private events
+  always do. A parent's Google account leaves with them.
+- **Out.** A parent makes a secret link that serves the family's own events
+  as ICS, for Apple Calendar, Google Calendar or Outlook to subscribe to.
+  Imported events aren't in it, so nothing loops.
+
 ## Design system: dynamic color and motion
 
 - **Time-of-day moods.** `DisplayController` publishes a `mood` (morning,
@@ -81,9 +116,11 @@ themselves points.
   surfaces, text, accent, glow) and animates every token over about 2
   seconds, so the screen drifts warm → blue → violet → dark through the day.
 - **Photo-driven color.** `ColorSampler` computes a representative color for
-  each photo or video poster, off the UI thread and cached. The media page's
-  featured card, the full-screen viewer background and the photo frame's
-  shade take on the colors of what's showing.
+  each photo or video from its poster (or the photo itself when there is
+  none), decoded at about 64 px off the UI thread. It is cached by the item's
+  storage path, so signing the URL again doesn't sample it again. The media
+  page's featured card, the full-screen viewer background and the photo
+  frame's shade take on the colors of what's showing.
 - **Motion.** Pages cross-fade and settle when you switch, the navigation
   highlight springs between items, the assistant slides up, chat messages pop
   in, chores celebrate when ticked, and point totals count up or down.
@@ -93,16 +130,40 @@ themselves points.
 After two minutes without a touch (`HOMEOS_IDLE_SECONDS`), or when someone
 taps the moon, the display switches to a screen saver. The style is chosen on
 Media → Screen saver and remembered on the device (`HOMEOS_SCREENSAVER`
-overrides it):
+overrides it). A video playing in the media viewer counts as a touch, so a
+long one isn't cut off:
 
 - **Photos:** one photo at a time, cross-fading, with a slow zoom and drift.
-- **Collage:** one large and four small tiles; a random tile swaps to a new
-  photo every few seconds.
-- **Video:** family videos full screen and muted, one after another. Falls
-  back to Photos if there are no videos.
+- **Collage:** photos cropped to fill rounded tiles, in a new layout each
+  time the screen saver starts: classic (one large, four small), grid (3×2),
+  mosaic (seven tiles of mixed sizes), trio (one large, two small) and
+  columns (four tall). With fewer photos than tiles it takes a smaller
+  layout, so no tile is empty or repeats a photo. Portrait photos go to tall
+  tiles when there's a choice. Every few seconds one tile cross-fades to a
+  photo that isn't showing and hasn't been for a minute, so photos don't hop
+  between tiles.
+- **Smart frame:** like Photos, but two portrait photos share the screen
+  side by side; a portrait left without a partner stands whole over a
+  blurred copy of itself.
+- **On this day:** photos taken on this date in earlier years ("2 years ago
+  today"), then within three days of it ("this week"); with none, the newest
+  photos with their dates. It draws on the photos the display has loaded
+  (the newest 200 by date).
+- **Video:** family videos full screen and muted, one after another; a
+  single video loops. The poster shows until the first frame. A clip that
+  fails, or stops moving for 10 seconds, is skipped after a 2-second pause;
+  when every clip fails (offline, say), it tries again every 30 seconds.
+  Falls back to Photos if there are no videos.
+- **Clock:** a big clock, the date and the next three events on the
+  time-of-day gradient, no photos. It shifts a few pixels every minute.
+- **Today:** the time, today's events, a photo that changes every 15
+  seconds and how many chores each person has left, in the app's colors.
 
-Every style shows the clock, the date and the next event over a shade in the
-colors of what's on screen. The first touch only wakes the screen.
+The photo styles show the clock, the date and the next event over a shade in
+the colors of what's on screen; Clock and Today lay out their own. Photos
+are shown upright: the display applies a JPEG's EXIF orientation. Which
+photo goes where is in `qml/screensaver/Picks.js`. The first touch only
+wakes the screen.
 
 ## Media
 
@@ -111,19 +172,37 @@ grid grouped by month, filtered by All, Photos or Videos. The full-screen
 viewer is edge to edge: media fills the screen, and a blurred copy of the same
 image fills any leftover edges. The title, arrows, position dots and video
 controls float on top behind soft scrims and fade out after a few seconds; a tap
-brings them back. Video plays with QtMultimedia. On the Pi that
-runs through GStreamer, which uses hardware HEVC decode. In demo mode, sample
-media is copied next to the binary (`demo-media/`) or installed to
-`share/homeos/demo-media`.
+brings them back. Video plays with QtMultimedia. On Raspberry Pi OS Trixie
+(Qt 6.8) that is FFmpeg, and HEVC decodes on the Pi 5's HEVC block through
+Raspberry Pi's FFmpeg `drm` hwaccel; the installer checks it first
+([PI_SETUP.md](PI_SETUP.md#video-decoding)). On Bookworm (Qt 6.4) it is
+GStreamer. In demo mode, sample media is copied next to the binary
+(`demo-media/`) or installed to `share/homeos/demo-media`.
 
-Uploads from the iPhone record `byte_size`, `content_type` and a JPEG poster
-at `<family_id>/<id>-thumb.jpg`. The quota is enforced in Postgres (on the
-row and, where Storage exists, on the object), not in the app. A signed-in
-client can change a caption or whether the photo shows on the frame, and
-nothing else on the row. The display still signs `storage_path` and ignores
-the extra columns. Platform admins list media through `admin_list_media` and
-remove an item through the `admin` function, which writes the audit log and
-deletes the file and the poster.
+The iPhone app makes videos at most 1080p and 30 fps, SDR, mostly HEVC, with
+the index at the front so playback starts before the whole file arrives
+([IOS.md](IOS.md#photo-and-video-uploads)). The original goes only when that
+fails. Each photo and video also gets a JPEG poster (at most 256 KiB) at
+`<family_id>/<id>-thumb.jpg`, presigned in the same upload ticket as the file;
+a poster that fails never fails the upload. The row records `byte_size` (the
+file only; posters are not billed), `content_type` and `thumbnail_path`. The
+quota is enforced in Postgres (on the row and, where Storage exists, on the
+object), not in the app. A signed-in client can change a caption or whether
+the photo shows on the frame, and nothing else on the row, so the poster is
+set when the row is inserted.
+
+The display signs `storage_path` and `thumbnail_path` (Blob paths through the
+admin app, at most 200 per request) and reuses each signed URL for 4 hours of
+its 6, so a refresh doesn't make players and images load the file again.
+Posters are used for the grid tiles (decoded at 480 px), for a video until
+its first frame, for the viewer's blurred backdrop, and for color sampling.
+The media list has its own `mediaChanged` signal, sent only when the list
+really changes. Rows without a poster still show the photo, or a plain tile
+for a video.
+
+Platform admins list media through `admin_list_media` and remove an item
+through the `admin` function, which writes the audit log and deletes the
+file and the poster from Storage. It doesn't remove Blob objects yet.
 
 ## Family assistant
 
@@ -218,9 +297,11 @@ the project and company are OhanaOS. `xcodegen generate` replaces it.
   colors and roles; invites), also under Profile → Manage family, and the
   assistant with saved threads. Siri: say "Ask Ohana", then the question.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Vercel
-  Blob through the admin app (`Config.mediaAPIURL`), with a size and a
-  content type. They appear on the wall frame within seconds once the
-  display has `HOMEOS_MEDIA_URL`. Profile photos stay in Supabase. Files
+  Blob through the admin app (`Config.mediaAPIURL`), with a size, a content
+  type and a JPEG poster. Videos are made at most 1080p (mostly HEVC) for
+  the wall first. They appear on the wall frame within a minute; the
+  display signs them through the same admin app (`HOMEOS_MEDIA_URL`, by
+  default `https://ohanaos.co`). Profile photos stay in Supabase. Files
   already in Storage keep playing from that bucket.
 - Parents approve chore completions and manage rewards.
 - **Pair a display**: the screen shows a 6-digit code and a QR code; the app

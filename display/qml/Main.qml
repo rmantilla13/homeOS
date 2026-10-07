@@ -62,7 +62,8 @@ ApplicationWindow {
 
     Binding { target: Theme; property: "compact"; value: window.width < 1600 }
 
-    // Drop back to the home screen after the photo frame has been up.
+    // Drop back to the home screen after the photo frame has been up. Dialogs
+    // and sheets close themselves when the display goes idle (see FormDialog).
     Connections {
         target: Device
         function onIdleChanged() {
@@ -70,7 +71,6 @@ ApplicationWindow {
                 window.dismissKeyboard()
                 assistant.open = false
                 viewer.close()
-                settings.close()
                 window.currentScreen = 0
             }
         }
@@ -210,43 +210,51 @@ ApplicationWindow {
     PairingScreen {
         anchors.fill: parent
         visible: Store.mode === "pairing"
-    }
-
-    ScreenSaver {
-        anchors.fill: parent
-        visible: opacity > 0
-        opacity: Device.idle && Store.mode !== "pairing" ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
-    }
-
-    // Wake-word answers float above everything, the screen saver included.
-    QuickAnswer {
-        id: quick
-        anchors.fill: parent
-        onOpenChat: {
-            quick.dismiss(false)
-            assistant.open = true
-        }
+        onWifiRequested: { window.dismissKeyboard(); settings.openWifi() }
     }
 
     SettingsSheet { id: settings }
 
-    // Toasts from the store (reward redeemed, errors, ...).
-    Rectangle {
+    // Dialogs and sheets (Controls popups, z 0) are drawn over everything in
+    // the window. What has to stay above them sits in Layers, bottom to top:
+    // the keyboard (z 2, in KeyboardPanel), the toast (3), the screen saver
+    // (4) and the wake-word card (5).
+
+    // On-screen keyboard (QT_IM_MODULE=qtvirtualkeyboard on the device).
+    Loader {
+        id: keyboard
+        anchors.fill: parent
+        active: Qt.application.arguments.indexOf("--no-keyboard") < 0
+        source: "components/KeyboardPanel.qml"
+    }
+
+    // Toasts from the store (reward redeemed, errors, ...). The Layer is just
+    // the point at the top centre of the pill, so it takes no taps: they reach
+    // whatever is under the pill.
+    Layer {
         id: toast
-        anchors.horizontalCenter: parent.horizontalCenter
-        // Above the quick answer card's spot when that's showing.
-        y: quick.shown ? 48 : parent.height - height - 48
-        radius: height / 2
-        color: Theme.text
-        width: toastLabel.implicitWidth + 64
-        height: 72
+        z: 3
+        x: Math.round(window.width / 2)
+        // Above the quick answer card's spot when that's showing, and above
+        // the keyboard while it's up.
+        y: quick.shown ? 48 : window.height - window.keyboardHeight - pill.height - 48
+        width: 0
+        height: 0
         opacity: 0
-        Label {
-            id: toastLabel
-            anchors.centerIn: parent
-            color: Theme.background
-            font.pixelSize: Theme.fontMd
+        visible: opacity > 0
+        Rectangle {
+            id: pill
+            x: -Math.round(width / 2)
+            radius: height / 2
+            color: Theme.text
+            width: toastLabel.implicitWidth + 64
+            height: 72
+            Label {
+                id: toastLabel
+                anchors.centerIn: parent
+                color: Theme.background
+                font.pixelSize: Theme.fontMd
+            }
         }
         SequentialAnimation {
             id: toastAnim
@@ -260,13 +268,32 @@ ApplicationWindow {
         }
     }
 
-    // On-screen keyboard (QT_IM_MODULE=qtvirtualkeyboard on the device).
-    Loader {
-        id: keyboard
-        anchors.fill: parent
-        z: 1000
-        active: Qt.application.arguments.indexOf("--no-keyboard") < 0
-        source: "components/KeyboardPanel.qml"
+    // The photo frame covers everything but the wake-word card. It needs no
+    // input of its own: DisplayController swallows the waking tap app-wide.
+    Layer {
+        z: 4
+        width: window.width
+        height: window.height
+        visible: opacity > 0
+        opacity: Device.idle && Store.mode !== "pairing" ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
+        ScreenSaver { anchors.fill: parent }
+    }
+
+    // Wake-word answers float above everything, the screen saver included.
+    Layer {
+        z: 5
+        width: window.width
+        height: window.height
+        visible: quick.opacity > 0
+        QuickAnswer {
+            id: quick
+            anchors.fill: parent
+            onOpenChat: {
+                quick.dismiss(false)
+                assistant.open = true
+            }
+        }
     }
 
     // Offline indicator.

@@ -106,6 +106,8 @@ The script takes 20–30 minutes. It:
   then builds and installs the app to `/usr/local/bin/homeos-display`
 - finds the HDMI output (`/etc/homeos/kms.json`) and writes the settings file
   `/etc/homeos/display.env` (kept when you re-run it)
+- checks the Pi 5 HEVC decoder against the CPU and records the result in
+  `display.env` (see [Video decoding](#video-decoding))
 - quiets the panel for the next reboot: no rainbow splash, no kernel text,
   no Plymouth splash, and no blinking cursor or screen blanking
   (`/boot/firmware/cmdline.txt` and `config.txt`; the originals are saved
@@ -192,7 +194,8 @@ check, and the built-in clip plays from the boot after that.
 
 Tap the chores and rewards to try it. Videos under **Media** play with sound
 from the screen's speakers. After two minutes without a touch, the photo
-frame starts; a tap wakes it.
+frame starts; a tap wakes it. A video playing in the viewer counts as a
+touch, so a long one isn't cut off.
 
 ## 5. Connect it to your family
 
@@ -200,9 +203,10 @@ Until the backend is set up, the display shows sample data. Once there's a
 Supabase project (see the main README):
 
 1. Run `sudo nano /etc/homeos/display.env` and set `HOMEOS_SUPABASE_URL` and
-   `HOMEOS_SUPABASE_ANON_KEY` (remove the `#` in front of each). Set
-   `HOMEOS_MEDIA_URL` to the admin app's origin so videos stored in Blob can
-   play; photos play without it.
+   `HOMEOS_SUPABASE_ANON_KEY` (remove the `#` in front of each). Photos and
+   videos from the iOS app are signed by `https://ohanaos.co`, the app's
+   own default. Set `HOMEOS_MEDIA_URL` only if your phones use another
+   admin deployment (`MEDIA_API_URL` in their build).
 2. Run `sudo systemctl restart homeos-display`. The screen shows a 6-digit
    code.
 3. In the iOS app, go to **Family → Pair a display** and enter the code.
@@ -226,6 +230,122 @@ Once a USB mic is plugged in, say "Hey Jarvis" and ask a question. You can
 also install voice together with the display:
 `./display/deploy/install-pi.sh --with-voice` (add `--skip-models` to fetch the
 models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
+
+## On-screen keyboard
+
+Tapping a text field brings up a keyboard laid out like an iPad's in
+landscape: letters with `.?123` and `#+=` pages for numbers and symbols, a
+shift key (tap twice for caps lock) and a key that hides it. It follows the
+gear menu's **Dark mode** and the night colors. Dialogs move up to sit above
+it, and the photo frame still covers it. The keyboard is US English only.
+
+It's the Qt Virtual Keyboard (`QT_IM_MODULE=qtvirtualkeyboard` in
+`display.env`), with its look and keys in the app:
+
+- `display/qml/keyboard/style.qml`: colors (light and dark), key gaps,
+  corner radius, font sizes, the symbols drawn on delete, shift and hide, and
+  the height (`keyboardDesignWidth` and `keyboardDesignHeight`: 1280 × 310
+  gives a 310 px tall keyboard on the 1280 px wide screen).
+- `display/qml/keyboard/layouts/en_US/`: the keys. `main.qml` is the letters,
+  `symbols.qml` the `.?123` and `#+=` pages, and `digits.qml`, `numbers.qml`
+  and `dialpad.qml` the number pads for fields that ask for numbers. Widths
+  are in letter keys (`unit`); hold a letter for the accents in its
+  `alternativeKeys`.
+- `display/qml/components/KeyboardPanel.qml` picks the style (`homeos`), the
+  layouts and the language.
+
+After a change, run `./display/deploy/install-pi.sh` again to rebuild. To try
+it on a computer, run the app with `QT_IM_MODULE=qtvirtualkeyboard`. Start it
+with `--no-keyboard` to leave the keyboard out.
+
+## Video decoding
+
+On Raspberry Pi OS Trixie, Qt plays video through FFmpeg. HEVC, which the
+iPhone app uploads, decodes on the Pi 5's HEVC block through Raspberry Pi's
+FFmpeg `drm` hwaccel. H.264 always decodes on the CPU (the Pi 5 has no
+H.264 block); that is fine at 1080p. On Bookworm (Qt 6.4) video goes through
+GStreamer instead, and nothing in this section applies.
+
+The setting is `QT_FFMPEG_DECODING_HW_DEVICE_TYPES` in
+`/etc/homeos/display.env`:
+
+| Value | Effect |
+|---|---|
+| `drm` | HEVC decodes on the HEVC block. A stream it can't take (H.264, 4:2:2, 12-bit) falls back to the CPU by itself. |
+| `,` | Everything decodes on the CPU. This is the off switch. |
+| not set | The app uses `drm` when it runs on the panel. |
+
+Qt reads it once, at the first video, so restart the app after a change.
+
+**The installer's check.** On a Pi 5 running Trixie, `install-pi.sh` makes
+two 1-second HEVC test clips (8-bit and 10-bit), decodes each on the HEVC
+block and on the CPU, and compares the frames. It writes the result with a
+comment above it:
+
+```
+# set by install-pi.sh hevc self-test: drm
+QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm
+```
+
+The install output says `HEVC hardware decoding works`, or that it failed
+its check, in which case it writes `,` in place of `drm`. If it could not
+test at all (no test clip, say), it writes nothing. Each install tests again
+and replaces its own line. A value you wrote yourself, or the installer's
+line after you change its value, is kept. The check is skipped on Bookworm,
+and where there is no HEVC decoder (not a Pi 5).
+
+**Turn hardware decoding off** if videos go black, show wrong colors, or
+play worse than on the CPU:
+
+```bash
+sudo nano /etc/homeos/display.env   # set QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,
+sudo systemctl restart homeos-display
+```
+
+To hand the choice back to the installer, delete that line and the comment
+above it. The app then uses `drm`, and the next install tests again.
+
+**Check that it works.** The expected output below comes from reading the Qt
+and FFmpeg sources; it has not been confirmed on a Pi yet.
+
+1. Packages: `dpkg-query -W libavcodec61 libqt6multimedia6`. The
+   `libavcodec61` version should contain `+rpt` (Raspberry Pi's build; the
+   installer warns if it doesn't), and Qt should be 6.8.
+   `ls /usr/lib/aarch64-linux-gnu/qt6/plugins/multimedia/` should list
+   `libffmpegmediaplugin.so`.
+2. The decoder: `ffmpeg -hide_banner -hwaccels` lists `drm`.
+   `v4l2-ctl --list-devices` (the installer adds `v4l-utils`) lists the HEVC
+   decoder (`rpi-hevc-dec`) with a `/dev/videoN` and a `/dev/mediaN`.
+   `cat /sys/class/video4linux/video*/name` shows the name the installer
+   looks for.
+3. The setting: `grep QT_FFMPEG /etc/homeos/display.env` should show `drm`.
+4. The app's log, after playing a video:
+
+   ```bash
+   journalctl -u homeos-display -b -o cat | grep -E 'homeOS display:|Hwaccel V4L2 HEVC|Failed to open FFmpeg codec context|Error transferring|Cannot map a video frame'
+   ```
+
+   - `homeOS display: video decoding: drm` (`CPU only` after the off switch).
+   - `homeOS display: drawing on V3D ...`: Qt Quick draws on the GPU. A line
+     that says `in software` means it doesn't.
+   - `Hwaccel V4L2 HEVC stateless ...` once for each HEVC video opened: that
+     video decodes on the HEVC block.
+   - `Failed to open FFmpeg codec context` for an H.264 video, followed by
+     normal playback, is expected: there is no H.264 block, so it falls back
+     to the CPU.
+   - `Error transferring the data to system memory` or
+     `Cannot map a video frame` means the hardware path failed. Use the off
+     switch.
+5. CPU use: run `top -H -p $(pidof homeos-display)` while a video plays,
+   once with `drm` and once with `,`.
+
+For more detail, add this line to `display.env`, restart, and play a video.
+`Selected format 178 for hw 8` means the HEVC block is in use. Remove the
+line afterwards; it is noisy.
+
+```
+QT_LOGGING_RULES="qt.multimedia.ffmpeg.hwaccel.debug=true;qt.multimedia.playbackengine.codec.debug=true"
+```
 
 ## Everyday commands
 
@@ -265,20 +385,21 @@ journalctl -u homeos-display -b --no-pager
 | The boot video never appears, or stays up over Ohana | `journalctl -u homeos-bootscreen -b`. The app stops that service before it uses the screen. `sudo systemctl stop homeos-bootscreen` releases it if you need to. |
 | The admin's boot video does not play | `journalctl -u homeos-boot-video-sync` shows each check. `sudo systemctl start homeos-boot-video-sync` checks now; reboot after it says the video was downloaded. A file at `/etc/homeos/boot.mp4` wins over the admin video. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every second. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
+| Photos and videos from the phone never show (older ones do), or show as colored tiles | `journalctl -u homeos-display -b -o cat \| grep -E 'media service\|signing blob media'`. `media service:` should name the admin app the phones upload through (`https://ohanaos.co` unless their build sets `MEDIA_API_URL`); fix `HOMEOS_MEDIA_URL` in `/etc/homeos/display.env` if not. `signing blob media failed: ... (HTTP 401)` means that admin app uses another Supabase project than the display. New items appear within a minute. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio tty`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |
 | Hiss or noise from the screen's speakers | In the gear menu, turn **Screen speakers** off, or lower **Volume**. The screen's own volume buttons add gain on top of that, so turn those down too. Nothing playing should go quiet after about a second. |
 | No sound, or too quiet | Turn **Screen speakers** on in the gear menu and raise **Volume**. Also check the screen's own mute and volume. `speaker-test -c 2 -t wav -l 1` should say "front left, front right" through the screen. If it doesn't, `wpctl status` lists the outputs: the HDMI one should have a `*`; choose it with `wpctl set-default <number>`. |
 | No sound after turning the screen on after the Pi | Sound looks for the screen's speakers when the Pi starts, and may miss them if the screen was off. Run `systemctl --user restart wireplumber`, or `sudo reboot`. |
-| Videos stutter (often 4K iPhone clips) | On Raspberry Pi OS Trixie, Qt plays video through FFmpeg, which decodes on the Pi's CPU: fine for 1080p. Record at 1080p on the iPhone (Settings → Camera → Record Video). To try the Pi's HEVC decoder, add `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm` to `display.env` and restart the app; remove it if videos get worse or go black. |
+| Videos stutter (often 4K iPhone clips) | The iPhone app now uploads videos at 1080p or less, mostly HEVC, which the Pi decodes on its HEVC block. Clips uploaded before that are often 4K and can still stutter; add them again from the phone and delete the old copy. Check the setting and the log as in [Video decoding](#video-decoding). If videos go black or look worse with `drm`, set `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,` in `display.env` and run `sudo systemctl restart homeos-display`. |
 | `vcgencmd get_throttled` isn't `0x0`, or `dmesg` says `Undervoltage detected` | The Pi is short of power. Use the official 27 W supply, and power the screen from its own adapter. |
 | Slow or hot (`vcgencmd measure_temp` above 80 °C) | Check that the cooler's cable is in the **FAN** connector. The fan only spins above 50 °C. |
 | `homeos.local` not found, or Wi-Fi drops | Wait two minutes after power-on. Check the Wi-Fi name, password and country you set in Imager. A network cable always works. |
 | Typing lags in an SSH terminal | Re-run `./display/deploy/install-pi.sh`, or write `IPQoS cs0 cs0` and `UseDNS no` to `/etc/ssh/sshd_config.d/homeos.conf` and run `sudo systemctl reload ssh`. Stay in this session; a reboot is not required. That fixes the stutter even when the Pi is idle. If keystrokes still stutter, run `top`: a `homeos-display` restart loop pegging a core is a different problem. |
 | Wrong time | `timedatectl` should say `System clock synchronized: yes` (it needs the internet). Set the zone with `sudo timedatectl set-timezone America/New_York` (or yours). |
 | Everything too big or too small | Change `QT_SCALE_FACTOR` in `display.env`: 1.5 for this screen, 1.25 for a little more room. |
-| Wrong keyboard layout or date format | Set `LANG` in `display.env`, for example `en_US.UTF-8`. |
+| Wrong date format | Set `LANG` in `display.env`, for example `en_US.UTF-8`. The on-screen keyboard is US English either way (see [On-screen keyboard](#on-screen-keyboard)). |
 
 ## Try it without a Pi
 

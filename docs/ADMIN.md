@@ -169,8 +169,8 @@ with no Supabase values, never the production project.
    function its service role key automatically.
 7. Point the iOS app at this deployment (`MEDIA_API_URL` in
    `ios/Config/*.xcconfig`, read as `Config.mediaAPIURL`) and the display at
-   it (`HOMEOS_MEDIA_URL`). The app uses `https://ohanaos.co` when
-   `MEDIA_API_URL` is empty or still the example placeholder. Both send the
+   it (`HOMEOS_MEDIA_URL`). Both use `https://ohanaos.co` when the value
+   is empty or still the example placeholder. Both send the
    family member's Supabase access token to `/api/media/*`.
 8. Check the route from anywhere. Without a sign-in it should answer a
    clean 401 in JSON, not a login page, a 404 or a 503:
@@ -184,26 +184,35 @@ with no Supabase values, never the production project.
 
 ### How a photo or video gets to the frame
 
-1. The phone posts `{family_id, content_type, bytes}` to
-   `/api/media/upload` with `Authorization: Bearer <Supabase access token>`.
+1. The phone posts `{family_id, content_type, bytes}`, plus `thumbnail_bytes`
+   for its poster, to `/api/media/upload` with
+   `Authorization: Bearer <Supabase access token>`.
    The route checks the token and family membership and answers
-   `{id, pathname, upload_url, content_type}`. Photos go up as JPEG (at most
-   50 MB); videos keep their container (`.mov` is `video/quicktime`, at most
+   `{id, pathname, upload_url, content_type}`, plus
+   `thumbnail: {pathname, upload_url, content_type}` for the JPEG poster at
+   `<family_id>/<id>-thumb.jpg` (at most 256 KB). Photos go up as JPEG (at
+   most 50 MB). The phone makes videos at most 1080p, mostly HEVC, before
+   asking; they keep their container (`.mov` is `video/quicktime`, at most
    2 GB). `image/jpg` is signed as `image/jpeg`, the name the database
-   accepts.
-2. The phone `PUT`s the file straight to `upload_url` (Vercel Blob, valid for
-   two hours) with that `Content-Type`. Videos stream from disk.
+   accepts. A bad `thumbnail_bytes`, or a poster that can't be signed, only
+   leaves out `thumbnail`.
+2. The phone `PUT`s the poster, then the file, straight to their
+   `upload_url`s (Vercel Blob, valid for two hours) with those
+   `Content-Type`s. Videos stream from disk.
 3. The phone inserts the `media_items` row (`file_store = 'blob'`,
-   `storage_path` = `pathname`), where the database checks it. If the PUT or
-   the insert fails, the phone deletes the Blob object.
-4. Phones and displays ask `/api/media/urls` for playback URLs (up to 200
-   paths per request; they last six hours). A path outside the caller's
-   families comes back as an empty string.
+   `storage_path` = `pathname`, `thumbnail_path` when the poster went up),
+   where the database checks it. If the file's PUT or the insert fails, the
+   phone deletes the Blob object; `/api/media/delete` removes its poster
+   with it.
+4. Phones and displays ask `/api/media/urls` for playback URLs for files and
+   posters (up to 200 paths per request; they last six hours). A path
+   outside the caller's families comes back as an empty string.
 
 Every refused media request (4xx or 5xx) writes one `media <route>: <status>
 <message>` line to the runtime logs, and every signed upload writes
-`media upload: signed <type>, <bytes> bytes`. If the logs show neither while
-someone is uploading, the phone isn't reaching this deployment.
+`media upload: signed <type>, <bytes> bytes, poster <bytes> bytes` (or
+`, no poster`). If the logs show neither while someone is uploading, the
+phone isn't reaching this deployment.
 
 The production deployment also answers `POST /api/assistant-identity`. That
 is not a console page. The `assistant` edge function calls it with the
@@ -279,6 +288,7 @@ hook, the assistant).
 | The phone says the media service "didn't accept your sign-in" | The app and this deployment use different Supabase projects, or the session expired. Check `NEXT_PUBLIC_SUPABASE_URL` here against the app's `SUPABASE_URL`. |
 | The phone says the media service "answered HTTP 404" (or another status) | The app's `MEDIA_API_URL` isn't this deployment, or Deployment Protection is in front of `/api/media`. |
 | The phone says "Media storage refused the file" | Blob turned down the PUT. The HTTP status and Blob's message follow; a type or size mismatch means the app sent a different file than it asked to sign. |
+| New photos and videos upload but have no poster | The `media upload` log line ends in `, no poster`. `media poster URL failed:` gives Blob's reason; `thumbnail_bytes must be between 1 byte and 256 KB` means the app sent a bad size. Without either line, the phone's poster PUT failed; the app prints `OhanaOS poster upload:` to Xcode's console. |
 | No `media upload` lines in the runtime logs while someone uploads | The phone isn't reaching this deployment: check `MEDIA_API_URL` in the build. |
 | A banned user still has access for a while | Supabase bans block sign-in and token refresh; an access token that was already issued works until it expires (an hour by default). |
 

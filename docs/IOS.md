@@ -57,7 +57,7 @@ ios/OhanaOS/
 │   ├── FamilyStore.swift     the one @Observable store: auth, invites, profile, family data, writes, assistant,
 │   │                         account deletion
 │   ├── AssistantClient.swift `assistant` function over URLSession: SSE streaming and quick answers
-│   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, video)
+│   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, posters, video optimizing)
 │   ├── Dictation.swift       SFSpeechRecognizer push-to-talk for the assistant
 │   └── DemoData.swift        Debug only: demo mode for screenshots (sample family, photos drawn in code)
 ├── Theme/Theme.swift         tokens, Mood, GlowView, card/pill/tag styles, MemberAvatar/AvatarCircle, SegmentedPill
@@ -88,9 +88,9 @@ your **Profile**.
 |---|---|
 | **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask Ohana anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
 | **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. Before a person's first question goes out, the app asks for permission (see Assistant → AI consent). |
-| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. The **+** button adds an event. |
-| **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
-| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
+| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. A repeating event shows on every day it repeats, and editing or deleting one repeat changes them all. Events from a connected calendar say where they're from and can't be edited here. The **+** button adds an event; **↻** opens Connected calendars. |
+| **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). Parents can unfold **Other chores** at the bottom: the ones not due today (another day's repeat, or a rule that has run out), with their repeat and who they're for; long-press one to remove it. **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
+| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. While they upload, a banner shows which item is going, what it is doing and a **Cancel** button. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
 | **Family** | Members (tap to edit; parents can add one), invites (parents), lists (tap through to add, check off and clear items), meals for the next 7 days (tap a day to set breakfast, lunch and dinner), family memory (add a fact; parents can remove one), paired wall displays and **Pair a display** (parents), and Profile / Leave family. |
 
 ## Onboarding (invite-only)
@@ -155,9 +155,9 @@ the last reload, still goes; and it deletes the files it may (a kid can't
 delete files in the family's folder; those go with the family). Also
 shows your email, family and role; a family picker when you belong to more
 than one; **Manage family** (see Family management); the **Assistant** switch
-(see Assistant → AI consent); the Siri tip; **Privacy policy** and **Help and
-support** (`https://ohanaos.co/privacy` and `/support`, `Config`); and **Sign
-out**.
+(see Assistant → AI consent); **Connected calendars** (below); the Siri tip;
+**Privacy policy** and **Help and support** (`https://ohanaos.co/privacy` and
+`/support`, `Config`); and **Sign out**.
 
 **Delete account** sits below Sign out. Its alert says what happens for the
 family on screen: if nobody else in it has a login, the family is deleted
@@ -178,6 +178,45 @@ downloaded from the private bucket with the session and cached per path and
 `profiles.updated_at`, so a new photo replaces the old one on the next
 refresh. Member photos get a new file name each time, so the path alone
 versions them.
+
+## Connected calendars
+
+Profile → Connected calendars, or **↻** on the Calendar tab
+(`Views/CalendarSyncView.swift`, `Services/CalendarSync.swift`). The server
+side is the `calendar-sync` function ([PLATFORM.md](PLATFORM.md) →
+Connected calendars).
+
+- **Showing in Ohana**: each calendar with its color, where it's from
+  (Google and the account, or a link's host), its person, Busy only, how many
+  events and when it last updated, or why it didn't. Everyone sees the list;
+  parents tap a calendar to rename it, choose who it's for and its color,
+  show it as Busy, turn it off, sync it, or remove it. **Sync now** and
+  pull to refresh sync them all. When the app loads and a calendar hasn't
+  been tried for 15 minutes, it asks the server to catch up (at most every
+  10 minutes) and reloads if events changed.
+- **Connect Google Calendar** (parents): Google's sign-in opens in an
+  `ASWebAuthenticationSession` sheet through SwiftUI's
+  `webAuthenticationSession`, and the function sends it back to
+  `ohanaos://google-calendar` with a code, which the app sends to
+  `google_finish` with its own session. Then **Choose calendars** lists the
+  account's calendars with the main one ticked. The parent who connected an
+  account can choose more calendars or sign in again (when Google stopped
+  accepting Ohana); other parents see who connected it, can't turn Busy off
+  on its calendars, and can disconnect it.
+- **Add a calendar link** (parents): a `webcal://` or `https://` link, an
+  optional name, who it's for, Busy, and a color, with where to find the
+  link in iCloud, Google, Outlook and on school or team sites. The server
+  reads the calendar before saving, so a bad link stays in the form with the
+  reason.
+- **Show Ohana in other calendars** (parents): create the family's calendar
+  link, add it to Apple Calendar (`webcal://`, which opens Calendar's
+  Subscribe sheet) or Google Calendar (`calendar.google.com/calendar/r?cid=`),
+  copy it for Outlook, share it, make a new one, or stop sharing.
+
+`FamilyEvent.sourceId` (`event_occurrences.source_id`) marks an imported
+event: its details show "From <calendar>" and its description, and have no
+Edit or Delete. Loading the calendars fails quietly (a log line), so the app
+works against a server without calendar sync yet.
 
 ## Family management
 
@@ -307,8 +346,12 @@ The family is The Rivera Family. Sofia, the signed-in parent, and Marco both
 have logins. Maya (9) has a login and Leo (6) doesn't. Every date is relative
 to today: this week's school pickups, soccer, piano, a dentist visit, a
 birthday party, family dinner and an all-day apple-picking trip, plus the
-weeks around it. Today's chores are partly done, with one waiting for a
-parent's OK. There are rewards and balances with one redemption to hand out,
+weeks around it. The pickups, piano and soccer are repeating events, one
+row per repeat, as `event_occurrences` returns them. Today's chores are
+partly done, with one waiting for a parent's OK. Demo mode doesn't call
+`chores_due`: the phone works out which chores are up from their own rules
+(`demoDueTaskIds`, daily or weekly on named days), which puts every one of
+them on today. There are rewards and balances with one redemption to hand out,
 a grocery list, dinners for the next 7 days, family memory, a paired display,
 invites, two assistant chats (the open one is on the Assistant screen), and
 14 photos and 2 videos. The pictures are drawn in code and go into the same
@@ -652,11 +695,26 @@ profile screens reuse the glow header, pills and cards.
   family column, so it's filtered through its list
   (`lists!inner(family_id)`). The newest 500 items load, so a long history of
   checked-off items can't hide new ones.
-- Events load from 45 days back to 120 days ahead. Recurring events (`rrule`)
-  aren't expanded yet; only the first occurrence shows.
-- Chores count as due today from a simple read of their RRULE: `FREQ=DAILY`, or
-  `FREQ=WEEKLY;BYDAY=…`. A one-time chore stays up until it's done. Completions
-  use the phone's local date for `for_date`.
+- Events come from `event_occurrences(fid, range_start, range_end)`, 45 days
+  back to 120 days ahead. The server expands repeating events in the family's
+  time zone and returns one row per repeat, so a weekly practice shows every
+  week. PostgREST stops a response at 1000 rows, so the app reads the window a
+  page at a time (`.range`) until a page comes back short.
+  `FamilyEvent.eventId` is the stored event, and every write names it; `id`
+  (event plus start) only tells the repeats apart on screen. Editing a repeat
+  moves the whole series: its stored start goes as many calendar days as that
+  repeat did, at the new time of day, and keeps the new length, so a date moved
+  across a DST change keeps its local time and an all-day series stays at
+  midnight. Deleting one removes every repeat, past and future.
+- Chores due today come from `chores_due(fid, day)` with the phone's local
+  date. The server follows each repeating chore's rule from its due date (or
+  the day it was added); a one-time chore stays up until it's done. Only
+  today's are loaded, so on a new day the app reloads when it comes to the
+  foreground, at the significant time change (midnight), or when the network
+  comes back (`NWPathMonitor`). Until that load gets through, nothing counts as
+  due, and Home and Chores say "Today's chores haven't loaded yet" instead of
+  "No chores today". Parents find the chores that aren't due today under
+  **Other chores**. Completions use the phone's local date for `for_date`.
 - A parent marking a chore done inserts the completion and then calls
   `review_completion(approve: true)`. A rejected completion from earlier the
   same day is deleted first, because of the unique key on (task, member, date).
@@ -665,25 +723,31 @@ profile screens reuse the glow header, pills and cards.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
   `DateTimeOriginal`. New photos and videos go to the private Blob store.
-  The row records `byte_size`, `content_type` and `file_store = blob`.
-  Videos are uploaded as-is, with `duration_seconds`, size and creation date
-  read through `AVURLAsset` from the file on disk. The picker hands the app a
-  movie file; the upload streams that file to Blob
+  The row records `byte_size` (the file only), `content_type`,
+  `thumbnail_path` (when the poster went up) and `file_store = blob`.
+  Videos are optimized for the wall first (see
+  [Photo and video uploads](#photo-and-video-uploads)). `duration_seconds`
+  and the creation date are read through `AVURLAsset` from the original, and
+  the size from the file that is uploaded. The picker hands the app a movie
+  file; the upload streams the file to Blob
   (`URLSession.upload(for:fromFile:)`) instead of reading the whole clip into
   memory. `Config.mediaAPIURL` is the admin app's origin: `https://ohanaos.co`
   unless `Local.xcconfig` sets another. Photo type sent is
   `image/jpeg`. Video types are `video/quicktime` (`.mov`), `video/mp4`,
   `video/m4v`, `video/webm`, `video/x-matroska`, `video/3gpp`, and
   `video/3gpp2`. If inserting the row fails, the Blob object just uploaded is
-  removed. Deleting (one item in the viewer, or several from Select) removes
-  a Blob object through the media API, then each `media_items` row with the
+  removed, and the media API removes its poster with it. Deleting (one item
+  in the viewer, or several from Select) removes a Blob object and its
+  poster through the media API, then each `media_items` row with the
   signed-in member's session. Rows still in Storage then lose the file and
   poster from `family-media`. That is the family RLS path, not the admin
   console. Profile avatars still use the `avatars` bucket.
-- Signed URLs (1 hour) are cached per storage path. Blob files
-  (`file_store = blob`) use `POST /api/media/urls` on that same origin.
-  Rows still in Storage use a Storage signed URL. Thumbnails, average colors
-  and avatars are cached in memory for the session.
+- Signed URLs (1 hour) are cached per path, for files and posters alike.
+  Blob files (`file_store = blob`) use `POST /api/media/urls` on that same
+  origin; opening Media signs every Blob row's poster and file up front, up
+  to 200 paths per request. Rows still in Storage use a Storage signed URL.
+  Thumbnails, average colors and avatars are cached in memory for the
+  session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares
   ids as strings.
 - The app sends `family_id` (the family on screen) to the `assistant`
@@ -691,6 +755,85 @@ profile screens reuse the glow header, pills and cards.
   about the one they're looking at. The function accepts it as optional.
 - The app can't read `platform_settings`, so it always asks for an invite
   before Create account, even if an admin turns `invite_only` off.
+
+## Photo and video uploads
+
+Everything goes to the private Blob store through the admin app
+(`Config.mediaAPIURL`). The wall panel is 1920×1200 and the Pi 5 decodes HEVC
+in hardware ([HARDWARE.md](HARDWARE.md)), so videos are made right for it on
+the phone, before they upload. The code is `MediaTools.prepareVideo` and
+`MediaView.upload`.
+
+**Videos**
+
+- The picker hands over the original file
+  (`preferredItemEncoding: .current`) instead of transcoding it first.
+- A clip the wall already plays well goes as it is: HEVC or H.264, 8-bit
+  SDR, at most 1920 px on the long side, at most 31 fps and at most 16 Mb/s,
+  in a `.mov`, `.mp4` or `.m4v`. If its index (`moov`) comes after the
+  media, it is first copied into a new `.mov` with the index first (no
+  re-encode), so the wall can start playing before the whole file has
+  arrived.
+- Anything else is exported with `AVAssetExportPresetHEVC1920x1080` to an
+  `.mp4` with the index first: HEVC, at most 1080p. HDR and 10-bit clips are
+  rendered as SDR Rec. 709. Clips above 31 fps are capped at 30 fps.
+- If the HEVC export fails, the app tries H.264 1080p
+  (`AVAssetExportPreset1920x1080`). It does the same when the HEVC file
+  still comes out HDR.
+- If the export is at least 90% of the original's size and the original
+  plays well on the wall, the original goes instead (with its index moved
+  first if needed).
+- If optimizing fails in any other way, the original is uploaded as it is.
+- One file is stored per item: the optimized file takes the original's
+  place, and no copy of the original is kept. Blob items uploaded before
+  this keep their original file and have no poster; adding a clip again
+  gives it both.
+- Every export, the index-first copy included, drops location metadata
+  (`.forSharing()`); the date was read before.
+- iOS stops exports in the background, so an export only starts while Ohana
+  is the active app. An export that fails while Ohana isn't active, or with
+  `AVError.operationInterrupted`, fails that item with "A video stopped
+  optimizing when Ohana left the screen. Keep Ohana open while videos
+  upload, then add it again." There is no fallback for that item: a large
+  original couldn't upload in the background either.
+- Debug builds print one line per video: what was done, the codec, bit
+  depth, transfer function, size, frame rate, bitrate, file size before and
+  after, and the time it took.
+
+**Posters**
+
+- Each upload carries a JPEG poster of at most 256 KiB
+  (`MediaTools.posterMaxBytes`, the admin app's `THUMB_MAX_BYTES`). A
+  photo's is 480 px. A video's is up to 960 px, from the file that is
+  uploaded: the first of a few early frames that isn't nearly black. If the
+  JPEG is too big, the quality steps down, and for a video then the size
+  (to 640 px).
+- The upload request sends `thumbnail_bytes`. The poster is `PUT` to the
+  ticket's `thumbnail.upload_url` before the file, and `thumbnail_path` is
+  set in the insert: the database doesn't let a member set it later. A
+  poster that isn't signed or doesn't go up never fails the upload; that row
+  just has no poster.
+- The grid shows the poster when the row has one, and otherwise the photo
+  or a frame from the video, as before. The viewer shows a video's poster
+  under a spinner until its player is ready.
+
+**Order, progress and Cancel**
+
+- Items upload one at a time; the next item is fetched from Photos and
+  optimized while the current one uploads.
+- The banner shows "Uploading 2 of 5", what the current item is doing
+  ("Getting the video from Photos…", "Optimizing for the wall display…
+  40%", "Uploading 12 MB of 48 MB", "Saving…"), and the next item's
+  optimizing progress. The bar counts an optimized video's export as 40% of
+  the item and its bytes as the rest. Bytes sent are reported at most every
+  100 ms.
+- **Cancel** stops the export or upload in progress and the one being
+  prepared, and deletes their temp files. A file that is already up still
+  gets its row. The grid then refreshes, and the "N of M didn't upload"
+  message is not shown.
+- At the start of each batch, `.mov`, `.mp4` and `.m4v` files left in the
+  temp folder for more than a day (after a crash or a force quit) are
+  deleted.
 
 ## Unverified
 
@@ -710,10 +853,16 @@ if CI breaks: `FunctionsError.httpError` in `FamilyStore.message(for:)`,
 `auth.currentSession` plus `try await auth.session` with `catch is URLError`
 in `FamilyStore.start()`, `auth.currentSession` in `completeAuthCallback`, the
 `lists!inner(family_id)` filter on `list_items` in `refresh()`, and
-`if case .error = event` at the end of `AssistantClient.stream`. Demo mode
-(`Services/DemoData.swift` and its `#if DEBUG` hooks) has not been compiled
-or run yet. Check first: `nonisolated private static func mood(at:)` in
-`MoodProvider`, `await DemoMedia.fullImage(for:)` in `MediaPage`, and that
+`if case .error = event` at the end of `AssistantClient.stream`. Added with
+server-side repeats: `.range(from:to:)` after `rpc(_:params:)` in
+`FamilyStore.eventOccurrences` (2.55.3 defines it on
+`PostgrestTransformBuilder`, which `rpc`'s `PostgrestFilterBuilder`
+inherits), and the `NWPathMonitor` feeding an `AsyncStream<Void>` in
+`App/OhanaOSApp.swift`. Demo mode (`Services/DemoData.swift` and its
+`#if DEBUG` hooks) has not been compiled or run yet. Check first:
+`nonisolated private static func mood(at:)` in `MoodProvider`,
+`await DemoMedia.fullImage(for:)` in `MediaPage`, the local `Series` struct
+in `DemoFamily` and the `FamilyEvent(eventId:…)` initializer, and that
 `-OhanaScreen assistant` opens the chat over Home. The AI consent gate
 (`AIConsentSheet`, `FamilyStore.hasAIConsent`, the check in
 `AskOhanaOSIntent.perform`) has not been compiled either. The riskiest
@@ -745,10 +894,38 @@ calls from the first build:
   `Dictation`), the `AVAsyncProperty` loads in `MediaTools.videoMetadata(at:)`,
   and `nonisolated init()` on the `@Observable @MainActor` `Dictation` class.
 
+Connected calendars came after those builds too (both new files pass the
+tree-sitter parse). Calls to check first if CI breaks:
+`@Environment(\.webAuthenticationSession)` and
+`authenticate(using:callbackURLScheme:)` with `catch let error as
+ASWebAuthenticationSessionError where error.code == .canceledLogin` in
+`ConnectedCalendarsView.connectGoogle`; `if` around `ToolbarItem` in
+`.toolbar` (`ConnectedCalendarsView`, `EventDetailView`); and
+`supabase.functions.invoke` decoding into local `Decodable` structs (2.55.3's
+`invoke<T: Decodable>(_:options:decoder:)` with a plain `JSONDecoder`). On a
+device: connect a Google account (and cancel once), add an iCloud public
+calendar link, turn Busy on and off, and subscribe to the family link in
+Apple Calendar.
+
+Video optimizing, posters and upload progress came after those builds and
+have not run on an iPhone yet. Calls to check first if CI breaks:
+`PhotosPicker(...preferredItemEncoding: .current)`
+(`Views/MediaView.swift:71`); `track.load` with three keys and
+`format.extensions[.transferFunction]?.propertyListRepresentation`
+(`Services/MediaTools.swift:338`–`:344`);
+`AVMutableVideoComposition.videoComposition(withPropertiesOf:)` (`:476`);
+`metadataItemFilter = .forSharing()` (`:531`); `await session.export()`
+with `cancelExport()` in a cancellation handler (`:544`); and
+`URLSession.upload(for:from:delegate:)` and `upload(for:fromFile:delegate:)`
+(`Services/FamilyStore.swift:1274` and `:1294`). On a device, try a 4K60 HDR
+portrait clip, a 1080p SDR clip, a Slo-Mo clip, an H.264 clip, photos,
+Cancel during an export, and leaving Ohana during an export. The debug line
+for each video shows whether the HEVC preset writes 8-bit, the size of a
+portrait clip, and the bitrate.
+
 ## Next
 
 - Realtime subscriptions for live updates while the app is open.
 - Sign in with Apple.
-- RRULE expansion for recurring events.
 - Scanning the pairing QR code with `DataScannerViewController`.
 - A unit-test target (SSE parsing, invite code formatting) once CI runs tests.

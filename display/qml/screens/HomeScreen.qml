@@ -16,7 +16,7 @@ Item {
     property bool shown: true
 
     property date now: new Date()
-    readonly property string todayIso: Qt.formatDate(now, "yyyy-MM-dd")
+    readonly property string todayIso: Store.today
     readonly property var dinner: Store.meals.find(m => m.date === todayIso && m.meal === "dinner")
     readonly property var upcoming: Store.events
         .filter(e => (e.all_day ? e.day >= todayIso : e.startMs >= now.getTime() - 30 * 60000))

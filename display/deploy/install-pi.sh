@@ -51,8 +51,9 @@ step "Installing packages"
 sudo dpkg --configure -a
 # Video: Qt 6.8 (Raspberry Pi OS Trixie) plays it with the FFmpeg backend that
 # comes with libqt6multimedia6. Qt 6.4 (Bookworm) uses GStreamer instead.
+codename="$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)"
 media=()
-if [ "$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)" = bookworm ]; then
+if [ "$codename" = bookworm ]; then
     media=(gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
            gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-alsa)
 fi
@@ -60,6 +61,7 @@ fi
 # PipeWire provides it. libasound2-plugins lets ALSA programs use it too.
 # Boot video: the ffmpeg package includes ffplay, which draws on the KMS/DRM
 # screen before the app starts. ffmpeg itself is the framebuffer fallback.
+# v4l-utils: v4l2-ctl shows the HEVC decoder when checking video by hand.
 sudo apt-get update
 sudo apt-get install -y \
     build-essential cmake git \
@@ -73,8 +75,17 @@ sudo apt-get install -y \
     qml6-module-qtquick-particles qml6-module-qtquick-localstorage libqt6sql6-sqlite \
     pipewire pipewire-pulse wireplumber libasound2-plugins alsa-utils \
     fonts-inter fonts-noto-color-emoji \
-    ffmpeg curl \
+    ffmpeg curl v4l-utils \
     "${media[@]}"
+# Only Raspberry Pi's FFmpeg build (+rpt) can use the Pi 5 HEVC decoder.
+# Trixie only: Bookworm's Qt 6.4 plays video through GStreamer.
+if [ "$codename" = trixie ]; then
+    avc="$(dpkg-query -W -f='${Version}' libavcodec61 2>/dev/null || true)"
+    case "$avc" in
+        *+rpt*) ;;
+        *) echo "Warning: libavcodec61 '${avc:-missing}' is not Raspberry Pi's build (+rpt); videos will decode on the CPU." >&2 ;;
+    esac
+fi
 
 step "Building homeos-display"
 cmake -S "$repo/display" -B "$repo/build/display" -DCMAKE_BUILD_TYPE=Release -DHOMEOS_BUILD_TESTS=OFF
@@ -183,7 +194,8 @@ QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
 QT_QPA_EGLFS_HIDECURSOR=1
 QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 QT_IM_MODULE=qtvirtualkeyboard
-# Keyboard layout, date and time formats (Raspberry Pi OS defaults to en_GB).
+# Date and time formats (Raspberry Pi OS defaults to en_GB). The on-screen
+# keyboard is US English either way.
 LANG=en_US.UTF-8
 # 1.5 suits the 10.1" 1920x1200 panel; use 1.0 for ~21" 1080p screens.
 QT_SCALE_FACTOR=1.5
@@ -193,14 +205,26 @@ HOMEOS_IDLE_SECONDS=120
 # Uncomment to connect to your Supabase project (otherwise it runs with demo data):
 #HOMEOS_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 #HOMEOS_SUPABASE_ANON_KEY=YOUR-ANON-KEY
-# Admin app that signs private video playback URLs (Vercel Blob).
+# Admin app that signs private photo and video URLs (Vercel Blob). Unset, it
+# is https://ohanaos.co, the same as the iOS app. Set it only if your phones
+# use another deployment.
 #HOMEOS_MEDIA_URL=https://YOUR-ADMIN.vercel.app
 # The on-device voice service (install with install-pi.sh --with-voice).
 #HOMEOS_VOICE_URL=ws://127.0.0.1:8765
+# Video decoding: drm = the Pi 5 HEVC decoder, "," = CPU only. install-pi.sh
+# checks the decoder and sets this; a value you write or change is kept.
+#QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm
 ENV
 else
     echo "Keeping existing /etc/homeos/display.env"
 fi
+# Lines are appended below. A hand-edited file may not end in a newline, and
+# the new line would then run into its last value.
+end_with_newline() {
+    if [ -s "$1" ] && [ -n "$(sudo tail -c 1 "$1")" ]; then
+        echo | sudo tee -a "$1" >/dev/null
+    fi
+}
 # A file left by an older install can omit the KMS lines. Qt then never opens
 # HDMI and the service stays up on a text console. Fill those keys in place
 # and leave scale, language and Supabase settings alone.
@@ -209,6 +233,7 @@ ensure_display_env() {
     if sudo grep -qE "^${key}=" "$file"; then
         sudo sed -i "s|^${key}=.*|${key}=${value}|" "$file"
     else
+        end_with_newline "$file"
         printf '%s=%s\n' "$key" "$value" | sudo tee -a "$file" >/dev/null
     fi
 }
@@ -217,6 +242,119 @@ ensure_display_env QT_QPA_EGLFS_INTEGRATION eglfs_kms
 ensure_display_env QT_QPA_EGLFS_KMS_CONFIG /etc/homeos/kms.json
 ensure_display_env QT_QPA_EGLFS_HIDECURSOR 1
 ensure_display_env QT_QPA_EGLFS_ALWAYS_SET_MODE 1
+
+step "Checking the Pi 5 HEVC decoder"
+# hevc-selftest-begin
+# Written above the key, with the value, when the installer chose it. Later
+# installs test again and replace it. A value without this line, or changed
+# since, is the owner's and is kept.
+hevc_marker='# set by install-pi.sh hevc self-test'
+hevc_key=QT_FFMPEG_DECODING_HW_DEVICE_TYPES
+
+# 1 s HEVC clips (8- and 10-bit), decoded on the HEVC block and on the CPU
+# through the same FFmpeg libraries Qt uses. HEVC decoding is bit-exact, so
+# the frames must match. Returns 0 = works, 1 = broken, 2 = could not test.
+hevc_hw_selftest() {
+    local dir bits fmt sw hw rc=0
+    dir="$(mktemp -d)"
+    for bits in 8 10; do
+        fmt=yuv420p
+        if [ "$bits" = 10 ]; then
+            fmt=yuv420p10le
+        fi
+        if ! timeout -k 5 60 ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=30 -t 1 \
+                -c:v libx265 -x265-params log-level=error -pix_fmt "$fmt" "$dir/$bits.mp4" \
+            || ! sw="$(timeout -k 5 60 ffmpeg -nostdin -hide_banner -loglevel error -i "$dir/$bits.mp4" -map 0:v \
+                -pix_fmt "$fmt" -f framemd5 -)"; then
+            rc=2
+            break
+        fi
+        # sudo: this login may not be in the video group yet; the service is.
+        # A hang (a stuck decoder) counts as broken. -k: ffmpeg waits for its
+        # decoder thread after one SIGTERM, so a stuck one needs SIGKILL.
+        if ! hw="$(sudo timeout -k 5 60 ffmpeg -nostdin -hide_banner -loglevel info -hwaccel drm -i "$dir/$bits.mp4" \
+                -map 0:v -pix_fmt "$fmt" -f framemd5 - 2>"$dir/$bits.log")"; then
+            # A format the ffmpeg tool can't convert says nothing about the decoder.
+            if grep -q 'Impossible to convert' "$dir/$bits.log"; then
+                rc=2
+            else
+                rc=1
+            fi
+            break
+        fi
+        # Frame hashes only (the last column): timestamps may differ.
+        sw="$(printf '%s\n' "$sw" | awk -F', *' '!/^#/ && NF { print $NF }')"
+        hw="$(printf '%s\n' "$hw" | awk -F', *' '!/^#/ && NF { print $NF }')"
+        if ! grep -q 'Hwaccel V4L2 HEVC stateless' "$dir/$bits.log" || [ -z "$hw" ] || [ "$hw" != "$sw" ]; then
+            rc=1
+            break
+        fi
+    done
+    rm -rf "$dir"
+    return "$rc"
+}
+
+# Prints "own" when display.env sets the key without the marker above it, or
+# with another value than the marker's (edited in place), "installer" when
+# only the installer set it, and nothing when it's unset. systemd allows
+# blanks before a key.
+hevc_env_owner() {
+    sudo awk -v marker="$hevc_marker" -v key="$hevc_key=" '
+        { line = $0; sub(/^[ \t]+/, "", line) }
+        index(line, key) == 1 {
+            if (prev == marker ": " substr(line, length(key) + 1)) mine = 1; else own = 1
+        }
+        { prev = $0 }
+        END { if (own) print "own"; else if (mine) print "installer" }' "$1"
+}
+
+# Writes the self-test result ($2) to display.env ($1): drm when it works, ","
+# when it doesn't. "Could not test" changes nothing; the app turns drm on by
+# itself. A value the owner set is never touched.
+hevc_record() {
+    local file="$1" rc="$2" value kept
+    case "$rc" in
+        0) value=drm ;;
+        1) value=, ;;
+        *) return 0 ;;
+    esac
+    if [ "$(hevc_env_owner "$file")" = own ]; then
+        return 0
+    fi
+    # Everything but the previous result (the marker and the key under it).
+    # If the file can't be read, leave it alone rather than rewrite it.
+    kept="$(sudo awk -v marker="$hevc_marker" -v key="$hevc_key=" '
+        { line = $0; sub(/^[ \t]+/, "", line) }
+        index($0, marker) == 1 { mine = 1; next }
+        mine && index(line, key) == 1 { mine = 0; next }
+        { mine = 0; print }' "$file")" || return 0
+    # tee rewrites the file in place, so its owner and mode stay.
+    {
+        if [ -n "$kept" ]; then
+            printf '%s\n' "$kept"
+        fi
+        printf '%s: %s\n%s=%s\n' "$hevc_marker" "$value" "$hevc_key" "$value"
+    } | sudo tee "$file" >/dev/null
+}
+# hevc-selftest-end
+
+# Not a Pi 5 (or a container): there is no decoder to test.
+if ! grep -qsiE 'hevc|rpivid' /sys/class/video4linux/video*/name; then
+    echo "No HEVC decoder found (not a Pi 5?); skipping the check"
+elif [ "$codename" = bookworm ]; then
+    echo "Qt 6.4 plays video through GStreamer here; skipping the check"
+elif [ "$(hevc_env_owner /etc/homeos/display.env)" = own ]; then
+    echo "Keeping $hevc_key from display.env"
+else
+    hevc_rc=0
+    hevc_hw_selftest || hevc_rc=$?
+    case "$hevc_rc" in
+        0) echo "HEVC hardware decoding works" ;;
+        1) echo "HEVC hardware decoding failed its check; videos will decode on the CPU" >&2 ;;
+        *) echo "Could not test HEVC hardware decoding; leaving the setting as it was" >&2 ;;
+    esac
+    hevc_record /etc/homeos/display.env "$hevc_rc"
+fi
 
 step "Configuring the console"
 # Hide the rainbow splash and the kernel log, and keep the console from

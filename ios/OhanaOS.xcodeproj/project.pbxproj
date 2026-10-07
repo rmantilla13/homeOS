@@ -30,6 +30,8 @@
 		EBE9C967FBD99362A5C02D2E /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 520275F8A3A93386F9928922 /* DemoData.swift */; };
 		D508E2E5EC37859B37B90023 /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F2A1118DA1BFE3651416505 /* Dictation.swift */; };
 		EEDB74178D211DC52F642826 /* CalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2ECD4ADB41A1A6EA44E638C /* CalendarView.swift */; };
+		DEB53F612D55F2A0FAEEBDC4 /* CalendarSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6CFFB22BA9087398831B84 /* CalendarSync.swift */; };
+		EEDBAA35772D9DC953769AE0 /* CalendarSyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696873F60EB6C38300591C8F /* CalendarSyncView.swift */; };
 		F80147A1A35420C0E7AEEBC7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 866CCE6D2C75E85CE576E03A /* Assets.xcassets */; };
 		D5F9B2C18E304B7F0A4D6E22 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C4E8A1B07D2F4A6E9B3C5D11 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
@@ -58,6 +60,8 @@
 		CA0CBC26D42FD8055A96BE91 /* OhanaOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhanaOSApp.swift; sourceTree = "<group>"; };
 		CFB416FD34C67C69B866D03D /* MediaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTools.swift; sourceTree = "<group>"; };
 		D2ECD4ADB41A1A6EA44E638C /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
+		BB6CFFB22BA9087398831B84 /* CalendarSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSync.swift; sourceTree = "<group>"; };
+		696873F60EB6C38300591C8F /* CalendarSyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSyncView.swift; sourceTree = "<group>"; };
 		DE3AA1D2D43BC54BC4028927 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		DE93E19DAAE8CF0D5CDD8A1B /* FamilyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyStore.swift; sourceTree = "<group>"; };
 		F3FF80350CF6DCDDF5A376D6 /* OnboardingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViews.swift; sourceTree = "<group>"; };
@@ -97,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				5CFB5C923443FB790593CC2B /* AssistantClient.swift */,
+				BB6CFFB22BA9087398831B84 /* CalendarSync.swift */,
 				520275F8A3A93386F9928922 /* DemoData.swift */,
 				6F2A1118DA1BFE3651416505 /* Dictation.swift */,
 				DE93E19DAAE8CF0D5CDD8A1B /* FamilyStore.swift */,
@@ -149,6 +154,7 @@
 			isa = PBXGroup;
 			children = (
 				FA059AAD8BEB82BC6F8525A5 /* AssistantView.swift */,
+				696873F60EB6C38300591C8F /* CalendarSyncView.swift */,
 				D2ECD4ADB41A1A6EA44E638C /* CalendarView.swift */,
 				474CC51F00365E63B593DC48 /* ChoresView.swift */,
 				97FA5C72D74AE5FF374E80C7 /* FamilyView.swift */,
@@ -273,6 +279,8 @@
 				6F5215A0742BB9CE03312D2B /* AskOhanaOSIntent.swift in Sources */,
 				A68DEA62F60E95A10E890A3B /* AssistantClient.swift in Sources */,
 				A835C41CCFD1F9C0F7838860 /* AssistantView.swift in Sources */,
+				EEDBAA35772D9DC953769AE0 /* CalendarSyncView.swift in Sources */,
+				DEB53F612D55F2A0FAEEBDC4 /* CalendarSync.swift in Sources */,
 				EEDB74178D211DC52F642826 /* CalendarView.swift in Sources */,
 				9EF3E7571F3B452809E75146 /* ChoresView.swift in Sources */,
 				3BD8F827578B9D97A5B9A66A /* Components.swift in Sources */,

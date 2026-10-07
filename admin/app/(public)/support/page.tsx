@@ -38,6 +38,11 @@ export default function SupportPage() {
           <strong>Add photos and videos:</strong> open Media and tap +.
         </li>
         <li>
+          <strong>Bring in other calendars:</strong> parents tap the ↻ button on Calendar (or Profile, then Connected
+          calendars) to connect Google Calendar or add a calendar link from iCloud, Outlook, a school or a team. The
+          same screen makes a link that shows the family calendar in Apple Calendar, Google Calendar or Outlook.
+        </li>
+        <li>
           <strong>Ask Siri:</strong> say &ldquo;Ask Ohana Display&rdquo;, then your question.
         </li>
         <li>

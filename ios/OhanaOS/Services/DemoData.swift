@@ -94,6 +94,7 @@ extension FamilyStore {
         events = sample.events
         tasks = sample.tasks
         completions = sample.completions
+        markDemoChoresDue()
         rewards = sample.rewards
         redemptions = sample.redemptions
         points = sample.points
@@ -107,6 +108,24 @@ extension FamilyStore {
         currentThreadId = DemoFamily.weekThreadId
         chat = demoTranscript(for: DemoFamily.weekThreadId)
         phase = .ready
+    }
+
+    /// The sample chores up on `day`. On the server `chores_due` decides; the
+    /// sample chores only repeat daily or weekly on named days, so that is
+    /// all this reads. A chore with no rule is up until someone finishes it.
+    func demoDueTaskIds(on day: Date) -> Set<UUID> {
+        let codes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+        let code = codes[Calendar.current.component(.weekday, from: day) - 1]
+        let key = DayKey.string(day)
+        let due = tasks.filter { task in
+            guard let rule = task.rrule?.uppercased(), !rule.isEmpty else {
+                return !completions.contains { $0.taskId == task.id && $0.forDate < key && $0.status != "rejected" }
+            }
+            guard rule.contains("FREQ=WEEKLY"),
+                  let byDay = rule.components(separatedBy: "BYDAY=").dropFirst().first else { return true }
+            return byDay.split(separator: ";").first?.split(separator: ",").contains { $0 == code } ?? true
+        }
+        return Set(due.map(\.id))
     }
 
     /// A demo thread's conversation, written from the sample data on screen.
@@ -259,40 +278,54 @@ private struct DemoFamily {
         func startTime(_ day: Date, _ hour: Int, _ minute: Int = 0) -> Date {
             calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) ?? day
         }
+        /// A repeating event: one stored row, so each of its repeats has the
+        /// same `eventId` and series start, as `event_occurrences` returns them.
+        struct Series {
+            let id = UUID()
+            let rrule: String
+            let firstStart: Date
+        }
         var calendarEvents: [FamilyEvent] = []
         func event(_ title: String, _ start: Date, minutes: Int, at location: String?,
-                   for people: [Member], color: String? = nil) {
+                   for people: [Member], color: String? = nil, repeating series: Series? = nil) {
+            let length = TimeInterval(minutes * 60)
             calendarEvents.append(FamilyEvent(
-                id: UUID(), familyId: fid, title: title, location: location,
-                startsAt: start, endsAt: start.addingTimeInterval(TimeInterval(minutes * 60)),
-                allDay: false, color: color, rrule: nil,
-                members: people.map { EventMemberRef(memberId: $0.id) }))
+                eventId: series?.id ?? UUID(), familyId: fid, title: title, location: location,
+                startsAt: start, endsAt: start.addingTimeInterval(length),
+                allDay: false, color: color, rrule: series?.rrule,
+                seriesStartsAt: series?.firstStart, seriesEndsAt: series.map { $0.firstStart.addingTimeInterval(length) },
+                memberIds: people.map(\.id)))
         }
         func allDay(_ title: String, _ first: Date, days: Int = 1, at location: String?,
                     for people: [Member], color: String? = nil) {
             let start = calendar.startOfDay(for: first)
             let lastDay = calendar.date(byAdding: .day, value: days - 1, to: start) ?? start
             calendarEvents.append(FamilyEvent(
-                id: UUID(), familyId: fid, title: title, location: location,
+                eventId: UUID(), familyId: fid, title: title, location: location,
                 startsAt: start, endsAt: lastDay.addingTimeInterval(dayLength - 1),
                 allDay: true, color: color, rrule: nil,
-                members: people.map { EventMemberRef(memberId: $0.id) }))
+                memberIds: people.map(\.id)))
         }
 
         // The weekly routine, five weeks either side, so any month view is full.
+        // Each is a repeating event that started five weeks ago.
+        let pickupMonFri = Series(rrule: "FREQ=WEEKLY;BYDAY=MO,FR", firstStart: startTime(weekday(2, week: -5), 15))
+        let pickupWed = Series(rrule: "FREQ=WEEKLY;BYDAY=WE", firstStart: startTime(weekday(4, week: -5), 15))
+        let piano = Series(rrule: "FREQ=WEEKLY;BYDAY=MO", firstStart: startTime(weekday(2, week: -5), 16))
+        let soccer = Series(rrule: "FREQ=WEEKLY;BYDAY=TU,TH", firstStart: startTime(weekday(3, week: -5), 16, 30))
         for week in -5...5 {
             event("School pickup", startTime(weekday(2, week: week), 15), minutes: 30, at: "Lincoln Elementary",
-                  for: [marco, maya, leo])
+                  for: [marco, maya, leo], repeating: pickupMonFri)
             event("Piano lesson", startTime(weekday(2, week: week), 16), minutes: 45, at: "Harmony Music School",
-                  for: [leo])
+                  for: [leo], repeating: piano)
             event("Soccer practice", startTime(weekday(3, week: week), 16, 30), minutes: 75, at: "Riverside Park, field 3",
-                  for: [maya])
+                  for: [maya], repeating: soccer)
             event("School pickup", startTime(weekday(4, week: week), 15), minutes: 30, at: "Lincoln Elementary",
-                  for: [sofia, maya, leo])
+                  for: [sofia, maya, leo], repeating: pickupWed)
             event("Soccer practice", startTime(weekday(5, week: week), 16, 30), minutes: 75, at: "Riverside Park, field 3",
-                  for: [maya])
+                  for: [maya], repeating: soccer)
             event("School pickup", startTime(weekday(6, week: week), 15), minutes: 30, at: "Lincoln Elementary",
-                  for: [marco, maya, leo])
+                  for: [marco, maya, leo], repeating: pickupMonFri)
         }
 
         // Last week.

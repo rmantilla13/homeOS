@@ -13,6 +13,7 @@ struct CalendarView: View {
     #endif
     @State private var focusDate = Date.now
     @State private var showingAdd = false
+    @State private var showingCalendars = false
     @State private var selectedEvent: FamilyEvent?
 
     private let calendar = Calendar.current
@@ -22,8 +23,19 @@ struct CalendarView: View {
             VStack(spacing: 14) {
                 VStack(spacing: 14) {
                     ScreenHeader(title: "Calendar", subtitle: store.family?.name) {
-                        CircleIconButton(systemName: "plus") { showingAdd = true }
-                            .accessibilityLabel("Add event")
+                        HStack(spacing: 10) {
+                            Button { showingCalendars = true } label: {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(Theme.text)
+                                    .frame(width: 44, height: 44)
+                                    .background(Theme.surface, in: Circle())
+                            }
+                            .buttonStyle(PressableStyle())
+                            .accessibilityLabel("Connected calendars")
+                            CircleIconButton(systemName: "plus") { showingAdd = true }
+                                .accessibilityLabel("Add event")
+                        }
                     }
                     SegmentedPill(CalendarMode.allCases, selection: $mode) { $0.rawValue }
                     navigator
@@ -49,6 +61,9 @@ struct CalendarView: View {
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAdd) { AddEventView(day: mode == .month ? nil : focusDate) }
             .sheet(item: $selectedEvent) { EventDetailView(event: $0) }
+            .sheet(isPresented: $showingCalendars) {
+                NavigationStack { ConnectedCalendarsView(inSheet: true) }
+            }
             .showsStoreErrors()
         }
     }
@@ -458,7 +473,7 @@ enum EventLayout {
         var lanes: Int
         let top: CGFloat
         let height: CGFloat
-        var id: UUID { event.id }
+        var id: String { event.id }
     }
 
     static func place(_ events: [FamilyEvent], on day: Date, hourHeight: CGFloat) -> [Placed] {
@@ -501,9 +516,16 @@ struct EventDetailView: View {
     @State private var confirmingDelete = false
     @State private var showingEdit = false
 
-    /// The row after a save, so the sheet shows the new time and people.
+    /// The row after a save, so the sheet shows the new time and people: the
+    /// series' repeat nearest to where this one went, as an edit moves the
+    /// series start with it. Unchanged, that's this repeat. Not found by `id`:
+    /// after a move by whole weeks, another repeat sits at the old start.
     private var live: FamilyEvent {
-        store.events.first { $0.id == event.id } ?? event
+        let distance = { (other: FamilyEvent) -> TimeInterval in
+            let moved = event.startsAt.addingTimeInterval(other.seriesStartsAt.timeIntervalSince(event.seriesStartsAt))
+            return abs(other.startsAt.timeIntervalSince(moved))
+        }
+        return store.events.filter { $0.eventId == event.eventId }.min { distance($0) < distance($1) } ?? event
     }
 
     var body: some View {
@@ -519,12 +541,25 @@ struct EventDetailView: View {
                         if let location = live.location, !location.isEmpty {
                             Label(location, systemImage: "mappin.and.ellipse")
                         }
-                        if live.rrule != nil {
+                        if live.isRecurring {
                             Label("Repeats", systemImage: "repeat")
+                        }
+                        if live.isImported {
+                            Label("From \(store.calendarSource(live.sourceId)?.name ?? "a connected calendar")",
+                                  systemImage: "arrow.triangle.2.circlepath")
                         }
                     }
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
+
+                    if let description = live.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+                        Text(description)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.text)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .card(padding: 14, radius: Theme.radiusSm)
+                    }
 
                     let members = live.memberIds.compactMap { store.member($0) }
                     if !members.isEmpty {
@@ -544,21 +579,37 @@ struct EventDetailView: View {
             }
             .screenBackground()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Edit") { showingEdit = true } }
+                if !live.isImported {
+                    ToolbarItem(placement: .cancellationAction) { Button("Edit") { showingEdit = true } }
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .safeAreaInset(edge: .bottom) {
-                Button("Delete event", role: .destructive) { confirmingDelete = true }
-                    .buttonStyle(.pill(.destructive))
-                    .padding(.bottom, 8)
+                if live.isImported {
+                    // Copied from another calendar: the next sync would undo a change made here.
+                    Text("To change this event, change it in the calendar it comes from.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Theme.page)
+                        .padding(.bottom, 8)
+                } else {
+                    Button("Delete event", role: .destructive) { confirmingDelete = true }
+                        .buttonStyle(.pill(.destructive))
+                        .padding(.bottom, 8)
+                }
             }
             .sheet(isPresented: $showingEdit) { AddEventView(event: live) }
             .confirmationDialog("Delete “\(live.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
+                Button(live.isRecurring ? "Delete every repeat" : "Delete", role: .destructive) {
                     Task {
                         await store.deleteEvent(live)
                         dismiss()
                     }
+                }
+            } message: {
+                if live.isRecurring {
+                    Text("This event repeats. Deleting it removes every repeat, past and future.")
                 }
             }
         }
@@ -619,6 +670,10 @@ struct AddEventView: View {
                     DatePicker("Starts", selection: $start, displayedComponents: allDay ? .date : [.date, .hourAndMinute])
                     if !allDay {
                         DatePicker("Ends", selection: $end, in: start..., displayedComponents: [.date, .hourAndMinute])
+                    }
+                } footer: {
+                    if existing?.isRecurring == true {
+                        Text("Changes apply to every repeat.")
                     }
                 }
                 Section("Who") {

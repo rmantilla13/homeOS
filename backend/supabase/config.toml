@@ -16,3 +16,8 @@ verify_jwt = false
 
 [functions.delete-account]
 verify_jwt = false
+
+# Also answers Google's sign-in redirect and calendar apps fetching the
+# family's feed link, neither of which carries a Supabase token.
+[functions.calendar-sync]
+verify_jwt = false

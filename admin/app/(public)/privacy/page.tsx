@@ -39,6 +39,11 @@ export default function PrivacyPage() {
           the wall display, and its replies.
         </li>
         <li>
+          <strong>Connected calendars:</strong> if a parent connects a calendar, a copy of its events from two months
+          ago to a year ahead. For a calendar link, the link itself, which we keep on our servers and never show again.
+          For a Google account, its email address and the access Google grants us to read its calendars.
+        </li>
+        <li>
           <strong>Wall displays:</strong> each paired display&apos;s name and when it last checked in.
         </li>
         <li>
@@ -57,6 +62,17 @@ export default function PrivacyPage() {
         and in the app, to let the assistant answer questions about them, and to keep the service secure. We
         don&apos;t use your family&apos;s content to train AI models.
       </p>
+      <p>
+        Connected calendars are read-only: we read them to show their events to your family, and never change them.
+        Ohana Display&apos;s use and transfer of information received from Google APIs adheres to the{" "}
+        <a href="https://developers.google.com/terms/api-services-user-data-policy">
+          Google API Services User Data Policy
+        </a>
+        , including the Limited Use requirements. We don&apos;t use Google data for ads, sell it, or use it to train AI
+        models. Events from connected calendars are part of your family&apos;s calendar, so your family sees them, and
+        when someone asks the assistant a question they can be among the family details sent to Anthropic to answer
+        it, as described below. A calendar shown as Busy shares only its times.
+      </p>
 
       <h2>Who can see it</h2>
       <ul>
@@ -64,6 +80,11 @@ export default function PrivacyPage() {
           <strong>Your family:</strong> everything your family adds is shared with the people in that family and its
           paired wall displays. Your assistant chats in the app and through Siri are visible only to you; questions
           asked at the wall display stay on that display.
+        </li>
+        <li>
+          <strong>A shared calendar link:</strong> if a parent creates a link to show the family calendar in other
+          calendar apps, anyone with that link can see your family&apos;s events (not those from connected calendars).
+          A parent can replace the link or turn it off at any time.
         </li>
         <li>
           <strong>Our administrators:</strong> a small number of people who run the service can see account and
@@ -114,6 +135,12 @@ export default function PrivacyPage() {
           If you are the last parent in a family where others have logins, make someone else a parent first.
         </li>
       </ul>
+      <p>
+        A parent can remove a connected calendar at any time, which removes its events from Ohana. Disconnecting a
+        Google account also tells Google to withdraw our access, unless the same Google account is still connected in
+        another family on Ohana. When a parent leaves a family or deletes their account, the Google accounts they
+        connected go with them.
+      </p>
       <p>
         You can also email us to delete your account, a family, or particular data, or to get a copy of your data.
         Deleted data may remain in encrypted backups for a short time before it is overwritten.

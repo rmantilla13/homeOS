@@ -43,6 +43,10 @@ target_compile_options(homeos-display PRIVATE ${HOMEOS_WARNINGS})
 target_compile_definitions(homeos-display PRIVATE HOMEOS_VERSION="${PROJECT_VERSION}")
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# Imported by relative path only. As a module script (a qmldir entry, which a
+# capitalized .js gets), Qt 6.8's per-folder qmldirs make "HomeOS" ambiguous
+# and Main.qml fails to load.
+set_source_files_properties(qml/screensaver/Picks.js PROPERTIES QT_QML_SKIP_QMLDIR_ENTRY TRUE)
 
 # Open-source games kept as their authors wrote them (display/games/README.md).
 # GamesScreen.qml loads them from the resources when one is opened.
@@ -77,6 +81,8 @@ qt_add_qml_module(homeos-display
         qml/components/VoiceOrb.qml
         qml/components/FormDialog.qml
         qml/components/FormField.qml
+        qml/components/FocusFlickable.qml
+        qml/components/Layer.qml
         qml/screens/HomeScreen.qml
         qml/screens/CalendarScreen.qml
         qml/screens/TasksScreen.qml
@@ -88,6 +94,11 @@ qt_add_qml_module(homeos-display
         qml/screensaver/SlideshowSaver.qml
         qml/screensaver/CollageSaver.qml
         qml/screensaver/VideoSaver.qml
+        qml/screensaver/SmartFrameSaver.qml
+        qml/screensaver/MemoriesSaver.qml
+        qml/screensaver/ClockSaver.qml
+        qml/screensaver/TodaySaver.qml
+        qml/screensaver/Picks.js
         qml/screensaver/ScreenSaverOptions.qml
         qml/screensaver/ScreenSaverPicker.qml
         qml/screens/PairingScreen.qml
@@ -103,8 +114,25 @@ qt_add_qml_module(homeos-display
         games/traffic/puzzles.js
     RESOURCES
         resources/demo/family.json
-        qml/components/KeyboardPanel.qml
         ${homeos_vendored_games}
+        # The on-screen keyboard is optional at run time, so these are not
+        # compiled: KeyboardPanel loads them only when the module is there.
+        qml/components/KeyboardPanel.qml
+        qml/keyboard/layouts/en_US/main.qml
+        qml/keyboard/layouts/en_US/symbols.qml
+        qml/keyboard/layouts/en_US/digits.qml
+        qml/keyboard/layouts/en_US/numbers.qml
+        qml/keyboard/layouts/en_US/dialpad.qml
+)
+
+# The keyboard's look, where VirtualKeyboardSettings.styleName finds it:
+# QtQuick/VirtualKeyboard/Styles/<name>/style.qml under an import path
+# (qrc:/keyboard, added in main.cpp).
+set_source_files_properties(qml/keyboard/style.qml
+    PROPERTIES QT_RESOURCE_ALIAS QtQuick/VirtualKeyboard/Styles/homeos/style.qml)
+qt_add_resources(homeos-display "keyboard_style"
+    PREFIX /keyboard
+    FILES qml/keyboard/style.qml
 )
 
 # ShaderEffect fragment shaders, baked to .qsb at build time (qrc:/HomeOS/shaders/).

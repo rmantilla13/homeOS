@@ -1,22 +1,39 @@
 #include "ColorSampler.h"
 
+#include <QBuffer>
 #include <QFutureWatcher>
 #include <QImage>
+#include <QImageReader>
 #include <QNetworkReply>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
 namespace {
+constexpr int kRetryAfterMs = 10 * 60 * 1000;
+constexpr int kTimeoutMs = 30 * 1000;
+
+// Decodes at about 64 px: the color is an average anyway, and JPEG scales
+// while it decodes, so a 2560 px photo costs little memory or time.
+QColor sampleReader(QImageReader &reader)
+{
+    const QSize size = reader.size();
+    if (size.isValid() && (size.width() > 64 || size.height() > 64))
+        reader.setScaledSize(size.scaled(64, 64, Qt::KeepAspectRatioByExpanding));
+    const QImage image = reader.read();
+    return image.isNull() ? QColor() : ColorSampler::representative(image);
+}
 QColor sampleFile(const QString &path)
 {
-    QImage image(path);
-    return image.isNull() ? QColor() : ColorSampler::representative(image);
+    QImageReader reader(path);
+    return sampleReader(reader);
 }
 QColor sampleBytes(const QByteArray &bytes)
 {
-    QImage image;
-    image.loadFromData(bytes);
-    return image.isNull() ? QColor() : ColorSampler::representative(image);
+    QBuffer buffer;
+    buffer.setData(bytes);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    return sampleReader(reader);
 }
 } // namespace
 
@@ -43,24 +60,30 @@ QColor ColorSampler::representative(const QImage &image)
     return QColor::fromHslF(h < 0 ? 0 : h, qBound(0.35f, s * 1.7f, 0.85f), qBound(0.40f, l, 0.60f));
 }
 
-void ColorSampler::sample(const QString &url)
+void ColorSampler::sample(const QString &key, const QString &url)
 {
-    if (url.isEmpty() || m_cache.contains(url) || m_pending.contains(url))
+    if (key.isEmpty() || url.isEmpty() || m_cache.contains(key) || m_pending.contains(key))
         return;
-    m_pending.insert(url);
+    const auto retry = m_retry.constFind(key);
+    if (retry != m_retry.cend() && retry->url == url && !retry->at.hasExpired())
+        return;
+    m_pending.insert(key);
+    const int generation = m_generation;
 
     const QUrl u(url);
     if (u.scheme() == "http" || u.scheme() == "https") {
-        QNetworkReply *reply = m_nam.get(QNetworkRequest(u));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
+        QNetworkRequest request(u);
+        request.setTransferTimeout(kTimeoutMs);
+        QNetworkReply *reply = m_nam.get(request);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, key, url, generation]() {
             reply->deleteLater();
             if (reply->error() != QNetworkReply::NoError) {
-                finish(url, QColor());
+                finish(key, url, QColor(), generation);
                 return;
             }
             auto *watcher = new QFutureWatcher<QColor>(this);
-            connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, url]() {
-                finish(url, watcher->result());
+            connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, key, url, generation]() {
+                finish(key, url, watcher->result(), generation);
                 watcher->deleteLater();
             });
             watcher->setFuture(QtConcurrent::run(sampleBytes, reply->readAll()));
@@ -70,17 +93,31 @@ void ColorSampler::sample(const QString &url)
 
     const QString path = u.isLocalFile() ? u.toLocalFile() : (u.scheme() == "qrc" ? ":" + u.path() : url);
     auto *watcher = new QFutureWatcher<QColor>(this);
-    connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, url]() {
-        finish(url, watcher->result());
+    connect(watcher, &QFutureWatcher<QColor>::finished, this, [this, watcher, key, url, generation]() {
+        finish(key, url, watcher->result(), generation);
         watcher->deleteLater();
     });
     watcher->setFuture(QtConcurrent::run(sampleFile, path));
 }
 
-void ColorSampler::finish(const QString &url, const QColor &color)
+void ColorSampler::clear()
 {
-    m_pending.remove(url);
-    m_cache.insert(url, color);
-    if (color.isValid())
-        emit sampled(url, color);
+    ++m_generation;
+    m_cache.clear();
+    m_pending.clear();
+    m_retry.clear();
+}
+
+void ColorSampler::finish(const QString &key, const QString &url, const QColor &color, int generation)
+{
+    if (generation != m_generation)
+        return; // cleared meanwhile
+    m_pending.remove(key);
+    if (!color.isValid()) {
+        m_retry.insert(key, Retry{url, QDeadlineTimer(kRetryAfterMs)});
+        return;
+    }
+    m_retry.remove(key);
+    m_cache.insert(key, color);
+    emit sampled(key, color);
 }

@@ -10,7 +10,11 @@ Rectangle {
     property var photo: null
     property bool showCaption: true
     property int fillMode: Image.PreserveAspectCrop
-    readonly property string source: photo ? (photo.imageUrl || (photo.kind === "video" ? "" : photo.url) || "") : ""
+    // Small grid tiles: the item's poster when it has one, decoded small.
+    property bool thumbnail: false
+    readonly property string source: !photo ? ""
+        : (thumbnail && photo.tileUrl) ? photo.tileUrl
+        : (photo.imageUrl || (photo.kind === "video" ? "" : photo.url) || "")
 
     color: photo && photo.tint ? photo.tint : Theme.surfaceAlt
     gradient: photo && !image.visible ? placeholder : null
@@ -28,7 +32,10 @@ Rectangle {
         visible: status === Image.Ready
         fillMode: tile.fillMode
         asynchronous: true
-        sourceSize.width: 1920
+        // Upright as the phone shows it: a JPEG can keep its pixels sideways
+        // with an EXIF orientation, which Qt ignores unless asked.
+        autoTransform: true
+        sourceSize.width: tile.thumbnail ? 480 : 1920
         opacity: status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.smooth } }
     }

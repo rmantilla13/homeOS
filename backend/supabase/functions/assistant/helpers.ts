@@ -1,7 +1,7 @@
 // Pure helpers for the assistant function: request parsing, SSE encoding,
-// time-zone math, tool input validation, thread titles, reply assembly and
-// usage accounting. Nothing here does I/O, so it's all covered by
-// helpers.test.ts.
+// time-zone math, tool input validation, thread titles, snapshot formatting,
+// reply assembly and usage accounting. Nothing here does I/O, so it's all
+// covered by helpers.test.ts.
 
 import type Anthropic from "npm:@anthropic-ai/sdk@^0.131.0";
 import { isUuid } from "../_shared/http.ts";
@@ -365,6 +365,51 @@ export function matchMemories<R extends { content: string }>(rows: R[], needle: 
   const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
   const n = norm(needle);
   return n ? rows.filter((r) => norm(r.content).includes(n)) : [];
+}
+
+// ───────────────────────────── Family snapshot ─────────────────────────────
+
+export interface ChoreRow {
+  id: string;
+  title: string;
+  assignee_id: string | null;
+  points: number;
+  rrule: string | null;
+  due_date: string | null; // YYYY-MM-DD
+}
+
+// The chores section of the family snapshot. `due` is what chores_due says is
+// due today, each with today's status; the other active chores follow with
+// their recurrence so Claude can still say what's on another day. A null `due`
+// (the lookup failed) lists every chore with today's status, which is better
+// than calling them all not due.
+export function choreLines(
+  chores: ChoreRow[],
+  due: ChoreRow[] | null,
+  today: string,
+  nameOf: (memberId: string) => string,
+  statusOf: (chore: ChoreRow) => string,
+): string[] {
+  const describe = (t: ChoreRow) =>
+    `${oneLine(t.title, 100)} — ${t.assignee_id ? nameOf(t.assignee_id) : "anyone"}, ${t.points} pts, ` +
+    (t.rrule ? oneLine(t.rrule, 60) : "one-time");
+  if (!due) return ["\nChores (today's status; recurrence in RRULE form):", ...chores.map((t) => `- ${describe(t)}: ${statusOf(t)}`)];
+
+  const lines = ["\nChores due today (today's status; recurrence in RRULE form):"];
+  for (const t of due) lines.push(`- ${describe(t)}: ${statusOf(t)}`);
+  if (!due.length) lines.push("- none");
+
+  const dueIds = new Set(due.map((t) => t.id));
+  const others = chores.filter((t) => !dueIds.has(t.id));
+  if (others.length) lines.push("\nOther chores (not due today):");
+  for (const t of others) {
+    // Not due today means it starts later or, for a one-time chore, someone
+    // already finished it on an earlier day.
+    const later = t.due_date != null && t.due_date > today;
+    const note = later ? `, ${t.rrule ? "starts" : "due"} ${t.due_date}` : t.rrule ? "" : ", done before today";
+    lines.push(`- ${describe(t)}${note}`);
+  }
+  return lines;
 }
 
 // ───────────────────────────── Replies ─────────────────────────────

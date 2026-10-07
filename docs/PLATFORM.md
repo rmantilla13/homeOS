@@ -230,14 +230,17 @@ is skipped.
 
 Set a family's overrides with `admin_set_family_limits`. Pass
 `use_platform_storage_limit => true` (or the matching flag for the assistant
-limit or the item cap) to clear an override. The iPhone writes `byte_size`,
-`content_type` and a thumbnail path; an older app that omits `byte_size` can
-still upload, and the object size is what gets billed once Storage is
-present. A file that isn't an image or video the app uploads, a path outside
-`<family_id>/<file>`, or an upload past the quota is refused by the database.
-Removing an item is `admin_delete_media` plus the `admin` function's
-`delete_media`, which also deletes the file and the thumbnail and writes
-`delete_media` and `delete_media_files` to the audit log.
+limit or the item cap) to clear an override. The iPhone writes `byte_size`
+(the file only; posters are not billed), `content_type` and a thumbnail
+path; an older app that omits `byte_size` can still upload, and the object
+size is what gets billed once Storage is present. A file that isn't an
+image or video the app uploads, a path outside `<family_id>/<file>`, or an
+upload past the quota is refused by the database. Removing an item is
+`admin_delete_media` plus the `admin` function's `delete_media`, which also
+deletes the file and the thumbnail from Storage and writes `delete_media`
+and `delete_media_files` to the audit log. For a Blob row it doesn't touch
+the Blob store: the file and poster stay there until the family is
+deleted.
 
 ## Revoking a display
 
@@ -296,6 +299,90 @@ live.
   append-only and at most 100,000 characters each; deleting a thread deletes
   its messages. Usage rows stay, for
   the numbers.
+
+## Connected calendars
+
+Families can bring other calendars onto the family calendar, and show the
+family calendar in other apps (PLATFORM_SPEC.md §1.13, §2.5). Calendar links
+work as soon as the `calendar-sync` function is deployed; Google sign-in and
+the 15-minute schedule need the setup below.
+
+| | What happens |
+|---|---|
+| **Calendar link** (iCloud public calendar, Outlook published calendar, Google's secret iCal address, school, team or holiday calendars) | A parent pastes the `webcal://` or `https://` link in the iOS app. The function reads it before saving it, so a page that isn't a calendar is refused with a reason. The link itself is never shown again or sent to phones or displays (anyone with it can read that calendar); parents see its host. |
+| **Google Calendar** | A parent signs in to Google in a browser sheet (read-only calendar access) and picks calendars; the app finishes the sign-in with that parent's own session, so only the person who started it can. Ohana stores the account's email and a refresh token, and can't change anything in Google Calendar. Only that parent can add more of its calendars or turn Busy off on them; any parent can **Disconnect** it, which revokes Ohana's access at Google unless the same Google account is connected in another family. |
+| **What families see** | Imported events on the wall display, in the app and to the assistant, in the calendar's color (or its person's), 60 days back to a year ahead, at most 5,000 per calendar. They can't be edited or deleted in Ohana. A calendar can show as **Busy** only (times without titles or places); events marked private in their own calendar always do. |
+| **Out** | A parent makes a secret link for Apple Calendar, Google Calendar or Outlook to subscribe to. It carries the family's own events, not imported ones. **Make a new link** stops the old one working. Those apps refresh it on their own schedule (Google can take several hours). |
+| **When a parent leaves** | Their Google accounts, and those calendars' events, leave the family with them (leaving, or deleting their account). Calendar links and the shared link stay with the family. |
+
+### Setup
+
+1. Apply `20261012000001_calendar_sync.sql` (`supabase db push`, see
+   Applying these migrations) and deploy the function:
+   `supabase functions deploy calendar-sync`. `config.toml` already sets
+   `verify_jwt = false` for it: Google's redirect and calendar apps don't
+   send a Supabase token, and the function checks every caller itself.
+2. **Google sign-in** (optional; links work without it). In the Google Cloud
+   console, in a project for Ohana:
+   1. Enable the **Google Calendar API** (APIs & Services → Library).
+   2. Google Auth Platform → **Branding**: app name Ohana Display, support
+      email, home page `https://ohanaos.co`, privacy policy
+      `https://ohanaos.co/privacy`. **Data access**: add the scope
+      `https://www.googleapis.com/auth/calendar.readonly` (plus `openid` and
+      `email`, which are non-sensitive).
+   3. **Clients** → Create client → **Web application**. Authorized redirect
+      URI: `https://<project-ref>.supabase.co/functions/v1/calendar-sync/google/callback`.
+   4. `supabase secrets set GOOGLE_CLIENT_ID=<client id> GOOGLE_CLIENT_SECRET=<client secret>`.
+      Behind a custom domain, also set `GOOGLE_REDIRECT_URI` to the URI you
+      registered. `CALENDAR_APP_REDIRECT` (default `ohanaos://google-calendar`)
+      is where the browser goes back to the app.
+   5. **Audience.** While the app is in *Testing*, only the Google accounts
+      listed as test users (up to 100) can connect, and Google expires their
+      refresh tokens after 7 days, so those parents see "Google needs you to
+      connect this account again" weekly. `calendar.readonly` is a sensitive
+      scope: publishing to everyone needs Google's verification (the privacy
+      policy already carries the Limited Use statement Google asks for).
+3. **Every 15 minutes.** Without this, calendars still refresh when a paired
+   display is on (it asks every 15 minutes) or someone opens the app. With it:
+   1. `supabase secrets set CALENDAR_CRON_SECRET=$(openssl rand -hex 32)`
+      (at least 16 characters).
+   2. Dashboard → Database → Extensions: enable `pg_cron` and `pg_net`.
+   3. In the SQL editor, with your project URL and the same secret:
+
+      ```sql
+      select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
+      select vault.create_secret('<CALENDAR_CRON_SECRET>', 'calendar_cron_secret');
+      select cron.schedule('calendar-sync', '*/15 * * * *', $$
+        select net.http_post(
+          url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+                 || '/functions/v1/calendar-sync',
+          headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets
+                                           where name = 'calendar_cron_secret')),
+          body := '{"action": "sync_due"}'::jsonb,
+          timeout_milliseconds := 150000);
+      $$);
+      ```
+
+      Each run syncs up to 50 calendars that haven't been tried for 14
+      minutes, each in its own function request. `select * from
+      cron.job_run_details order by start_time desc limit 5` shows the runs;
+      `net._http_response` the answers (`{"synced": n, "failed": n}`).
+
+### When a calendar doesn't sync
+
+The app shows the reason under the calendar (`calendar_sources.last_error`)
+and keeps its last good events:
+
+| Message | Meaning |
+|---|---|
+| That calendar link doesn't exist anymore. | 404 or 410: the calendar was unpublished, or the link was replaced (iCloud and Outlook do that when sharing is turned off and on). Add the new link. |
+| The calendar link needs a sign-in. Use a public or secret link instead. | 401 or 403: a link that only works signed in. |
+| That link didn't return a calendar. | A web page, not ICS. Look for the Subscribe / iCal link. |
+| That calendar is too big to sync (over 5 MB). / … Try a link to a smaller calendar. | Over 5 MB, or more than about a second of work to read. |
+| Google needs you to connect this account again. | Google refused the token: revoked in the Google account, password changed, or a Testing-mode token over 7 days old. Sign in again from the app; the same account row is reused. |
+| Something went wrong syncing this calendar. Ohana will try again soon. | Anything unexpected; Dashboard → Edge Functions → calendar-sync → Logs has the detail. |
 
 ## Claude authentication
 
@@ -416,8 +503,9 @@ server-side jobs. Called that way there's no `auth.uid()`, so the row's
 
 ## Applying these migrations
 
-Production already has the `20261006` and `20261007` migrations. Apply the
-new ones in order, and don't edit them in place:
+Production has the `20261006` and `20261007` migrations and items 1 to 9
+below (checked with `supabase migration list` on 2026-10-07); item 10 isn't
+applied yet. Apply the new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
 2. `backend/supabase/migrations/20261008000002_media_storage.sql`
@@ -429,11 +517,18 @@ new ones in order, and don't edit them in place:
 8. `backend/supabase/migrations/20261010000001_account_deletion.sql`, then
    `supabase functions deploy delete-account` and redeploy the admin app
    (`/api/account/delete`, `/privacy`, `/support`). Safe to run again.
-9. `backend/supabase/migrations/20261011000001_member_photos.sql` and
-   `20261011000002_storage_member_photos.sql`, then redeploy the `admin` and
-   `delete-account` functions, so deleting a family also empties its member
-   photos. An app build with member photos gets an error when saving one
-   until these are live; everything else keeps working.
+9. `backend/supabase/migrations/20261010000002_recurrence.sql`. Safe to run again.
+10. `backend/supabase/migrations/20261011000001_member_photos.sql` and
+    `20261011000002_storage_member_photos.sql`, then redeploy the `admin` and
+    `delete-account` functions, so deleting a family also empties its member
+    photos. An app build with member photos gets an error when saving one
+    until these are live; everything else keeps working.
+11. `backend/supabase/migrations/20261012000001_calendar_sync.sql`, then
+    `supabase functions deploy calendar-sync` and the setup under Connected
+    calendars. It replaces `event_occurrences` (one more column,
+    `source_id`); older app and display builds read it as before. An app
+    build with connected calendars shows none until this is live, without
+    an error.
 
 `supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
@@ -469,7 +564,8 @@ bills that object. New uploads go to Blob and send `byte_size`.
 `backend/tests/run.sh` starts a throwaway Postgres, applies every migration
 on top of a stand-in for Supabase Auth (`tests/stub_auth.sql`), and runs each
 `tests/*_test.sql` in a fresh copy of the database. The storage migrations
-run only for `storage_test`, which adds `tests/stub_storage.sql`. Run one
+run only for the tests in `supabase_tests` (`storage_test`, `boot_video_test`
+and `member_photos_test`), on top of `tests/stub_storage.sql`. Run one
 file with `run.sh invites`, and add `VERBOSE=1` to see its output.
 `concurrency_test` races two sessions for the same invite through `dblink`
 (Postgres contrib, part of the `postgresql-16` package); it's skipped when

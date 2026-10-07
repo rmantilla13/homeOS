@@ -16,9 +16,8 @@ pages as of 2026-10-07 (Sources, at the bottom).
 
 Things the copy deliberately doesn't claim, because the app doesn't do
 them: notifications, widgets, live updates (changes show after a refresh),
-syncing with Google or Apple calendars, repeating events beyond the first
-date, offline use, an iPad or Android app, a web app for families, or
-end-to-end encryption.
+writing to other calendars (connected calendars are read-only), offline use, an iPad or Android
+app, a web app for families, or end-to-end encryption.
 
 ## 1. TestFlight → Test Information
 
@@ -85,7 +84,7 @@ You need an invite code to sign up. Ask whoever invited you to this beta, or wri
 
 Please try:
 1. Sign up with your code, then join your family or create one.
-2. Calendar: add an event, edit it, and switch between Day, Week and Month.
+2. Calendar: add an event, edit it, and switch between Day, Week and Month. Parents: tap ↻ to bring in a Google, iCloud or school calendar.
 3. Chores: check one off. If the chore needs a parent's OK, a kid's check-off waits for it. Parents can add chores with +.
 4. Rewards: redeem points for a reward. Parents can add rewards with +.
 5. Media: add a few photos and a short video, then open the viewer.
@@ -94,7 +93,7 @@ Please try:
 8. Siri: say "Ask Ohana Display", then your question.
 9. Parents with a wall display: pair it from Family > Pair a display.
 
-Known gaps: a repeating event shows only its first date, and other people's changes appear after you pull to refresh.
+Known gap: other people's changes appear after you pull to refresh.
 
 Send feedback from the TestFlight app, or email support@ohanaos.co.
 ```
@@ -159,6 +158,8 @@ CALENDAR
 • Month, week and day views, color-coded by person
 • Add events with a place, times and who's going
 • Tap any event to change or delete it
+• Bring in Google, iCloud, Outlook, school and team calendars, or show them as Busy
+• See the family calendar in Apple Calendar, Google Calendar or Outlook
 
 CHORES AND POINTS
 • A card for each person with today's chores and progress
@@ -288,10 +289,10 @@ policy.
 | Data type (group) | What it is in Ohana Display | Linked to the user | Used for tracking | Purposes |
 |---|---|---|---|---|
 | Name (Contact Info) | Your display name; names of family members on the family screen | Yes | No | App Functionality |
-| Email Address (Contact Info) | Your sign-in email; an invite can name the invitee's email | Yes | No | App Functionality |
+| Email Address (Contact Info) | Your sign-in email; an invite can name the invitee's email; the email of a Google account a parent connects for calendars | Yes | No | App Functionality |
 | User ID (Identifiers) | Your account id | Yes | No | App Functionality |
 | Photos or Videos (User Content) | Photos and videos you add to Media, and your profile photo | Yes | No | App Functionality |
-| Other User Content (User Content) | Events, chores, rewards, lists, meals, family memory, and your assistant chats | Yes | No | App Functionality |
+| Other User Content (User Content) | Events (including copies from calendars a parent connects), chores, rewards, lists, meals, family memory, and your assistant chats | Yes | No | App Functionality |
 | Other Usage Data (Usage Data) | One row per assistant request (who asked, token counts), kept to enforce each family's daily limit | Yes | No | App Functionality |
 
 The last row is `NSPrivacyCollectedDataTypeOtherUsageData` in
@@ -492,7 +493,7 @@ shorter.
 |---|---|---|---|
 | Beta App Description | 4,000 chars (assumed) | 595 | 595 |
 | TestFlight Review Notes | 4,000 bytes (assumed) | 1,019 | 1,019 |
-| What to Test | 4,000 chars (assumed) | 1,086 | 1,086 |
+| What to Test | 4,000 chars (assumed) | 1,036 | 1,036 |
 | App Name | 30 chars | 13 | 13 |
 | App Name, fallback 1 | 30 chars | 29 | 29 |
 | App Name, fallback 2 | 30 chars | 24 | 24 |
