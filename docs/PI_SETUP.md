@@ -102,18 +102,19 @@ drops, the command stops part-way. Then log in again, run
 the command that was cut off again. Everything here is safe to re-run.
 
 The script takes 20–30 minutes. It:
-- installs Qt 6, ffmpeg (for the boot video), PipeWire (for sound) and fonts,
-  then builds and installs the app to `/usr/local/bin/homeos-display`
+- installs Qt 6, ffmpeg (for the HEVC decoder check), PipeWire (for sound) and
+  fonts, then builds and installs the app to `/usr/local/bin/homeos-display`
 - finds the HDMI output (`/etc/homeos/kms.json`) and writes the settings file
   `/etc/homeos/display.env` (kept when you re-run it)
 - checks the Pi 5 HEVC decoder against the CPU and records the result in
   `display.env` (see [Video decoding](#video-decoding))
-- quiets the panel for the next reboot: no rainbow splash, no kernel text,
-  no Plymouth splash, and no blinking cursor or screen blanking
-  (`/boot/firmware/cmdline.txt` and `config.txt`; the originals are saved
-  as `cmdline.txt.homeos-backup` and `config.txt.homeos-backup`), and sends
-  cloud-init's boot notes to its log instead of the screen. A short silent
-  video plays until the app takes the screen. SSH is unchanged
+- quiets the panel for the next reboot: no rainbow splash, no Plymouth
+  splash, no blinking cursor or screen blanking, and no boot text. Kernel
+  messages, disk checks and anything else written to the console go to
+  `tty3`, which is never on the panel (`/boot/firmware/cmdline.txt` and
+  `config.txt`; the originals are saved as `cmdline.txt.homeos-backup` and
+  `config.txt.homeos-backup`). Cloud-init's boot notes go to its log. The
+  panel stays black until Ohana draws its boot screen. SSH is unchanged
 - sends sound to the screen's speakers at half volume (full volume on this
   panel is mostly hiss; the gear menu turns the speakers off or up, and the
   screen's own buttons still work), and turns off Wi-Fi power saving, which
@@ -132,14 +133,17 @@ Check with `systemctl is-active homeos-display`. A healthy service prints
 `active`. Reboot once after that. The reboot applies quiet boot, and it is
 the check that a later power-on brings Ohana back by itself.
 
-After the reboot, the panel does not scroll kernel text or sit on a login
-prompt. Cloud-init's line `Completed socket interaction for boot stage final`
-goes to the log instead of the HDMI console. A short silent video plays
-until the app is ready, then Ohana fills the screen with sample data. The
-app stops that video before it opens the screen, so the two don't share it.
-Ohana does not wait for Wi-Fi before painting (it connects when the network
-is up), and SSH works the whole time. The console login on the panel is
-masked; **Everyday commands** below shows how to get it back.
+After the reboot, the panel shows no text at all: it stays black while the
+Pi starts, then the boot screen (the logo) fades in. The logo stays at least
+5 seconds, and longer while Ohana fetches the family's first data (up to 15
+seconds, if Wi-Fi is slow to connect), then fades into the app. Ohana draws
+the boot screen itself, so nothing hands the screen over in the middle and
+no console shows in between. SSH works the whole time. The console login on
+the panel is masked; **Everyday commands** below shows how to get it back.
+
+To change how long the logo stays, set `HOMEOS_BOOT_SECONDS` in
+`/etc/homeos/display.env` (`0` turns the boot screen off) and run
+`sudo systemctl restart homeos-display`.
 
 `journalctl -u homeos-display -f` only shows logs. It does not start Ohana.
 If the panel is showing a terminal, put Ohana on HDMI with:
@@ -172,12 +176,12 @@ is up but it did not open the HDMI device. The same journal command shows
 `cat /etc/homeos/kms.json` against `ls -l /dev/dri/by-path/` and re-run
 `./display/deploy/install-pi.sh` so it points Qt at the HDMI port.
 
-The video shipped with Ohana is `display/deploy/boot/boot.mp4`. The installer
-copies it to `/usr/local/share/homeos/boot.mp4`. To play your own file, copy
-it to `/etc/homeos/boot.mp4` and reboot. That file is kept when you re-run
-the installer. Remove it to go back to the built-in video. 1920×1200 (or
-1920×1080), a few seconds, silent or very quiet: the screen's speakers hiss
-if a soundtrack plays at boot.
+The boot screen is drawn from `display/resources/boot/` (regenerate it with
+`make-boot-screen.py` there). To play a video in its place, copy it to
+`/etc/homeos/boot.mp4` and reboot. That file is kept when you re-run the
+installer; remove it to go back to the logo. 1920×1200 (or 1920×1080), a few
+seconds. It plays muted, through to the end at least once, and loops if
+Ohana needs longer. A file that does not play falls back to the logo.
 
 The admin console (Settings → Boot video) can set one short silent MP4 for
 every display. If `/etc/homeos/display.env` has `HOMEOS_SUPABASE_URL` and
@@ -188,9 +192,9 @@ network is up, and every six hours after that. A new video is downloaded to
 waits for Wi-Fi. To check right away, run
 `sudo systemctl start homeos-boot-video-sync`. A file you copied to
 `/etc/homeos/boot.mp4` still wins, and the download does not overwrite it.
-Until the first download, the built-in clip plays. A failed check keeps the
-last video. Removing the video in admin deletes the cached copy at the next
-check, and the built-in clip plays from the boot after that.
+Until the first download, the logo shows. A failed check keeps the last
+video. Removing the video in admin deletes the cached copy at the next
+check, and the logo shows from the boot after that.
 
 Tap the chores and rewards to try it. Videos under **Media** play with sound
 from the screen's speakers. After two minutes without a touch, the photo
@@ -332,7 +336,8 @@ QT_LOGGING_RULES="qt.multimedia.ffmpeg.hwaccel.debug=true;qt.multimedia.playback
 | Change app settings | `sudo nano /etc/homeos/display.env`, then restart the app |
 | Update to the latest code | `cd ~/homeOS && git pull && ./display/deploy/install-pi.sh` (updates the voice service too, if installed) |
 | Get a login prompt on the screen | `sudo systemctl stop homeos-display && sudo systemctl unmask getty@tty1.service autovt@tty1.service && sudo systemctl start getty@tty1` (install masks those units so a boot cannot stick on the console; re-run `install-pi.sh` or `preview.sh off` to mask them again) |
-| Use your own boot video | Set it under **Settings → Boot video** in the admin console. The Pi downloads it within six hours (or now: `sudo systemctl start homeos-boot-video-sync`) and plays it from the next reboot. Or `sudo cp my-video.mp4 /etc/homeos/boot.mp4` and reboot; that file wins over the admin video. Delete it to use the admin video, or remove the admin video to use the built-in clip |
+| Use your own boot video | Set it under **Settings → Boot video** in the admin console. The Pi downloads it within six hours (or now: `sudo systemctl start homeos-boot-video-sync`) and plays it from the next reboot. Or `sudo cp my-video.mp4 /etc/homeos/boot.mp4` and reboot; that file wins over the admin video. Delete it to use the admin video, or remove the admin video to go back to the logo |
+| Change how long the boot logo stays | `HOMEOS_BOOT_SECONDS=8` in `/etc/homeos/display.env` (default 5, `0` turns the boot screen off), then restart the app |
 | Check power and temperature | `vcgencmd get_throttled` (`0x0` is good) and `vcgencmd measure_temp` |
 
 ## Troubleshooting
@@ -353,9 +358,11 @@ journalctl -u homeos-display -b --no-pager
 |---|---|
 | A terminal or login prompt is on the screen | `journalctl` will not change the picture. Run `sudo systemctl enable --now homeos-display`. `systemctl is-active homeos-display` should print `active`, and `systemctl is-enabled homeos-display` should print `enabled`. If the unit could not be found, or a login prompt comes back after a reboot, re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. It enables and starts `homeos-display`, masks `getty@tty1` / `autovt@tty1` (`systemctl is-enabled getty@tty1` should say `masked`), and applies quiet boot. If it stays inactive, `journalctl -u homeos-display -b --no-pager` shows why. |
 | The service is `active` but the panel is still a terminal | The app did not open the HDMI device. `journalctl -u homeos-display -b --no-pager` and `cat /etc/homeos/kms.json`. The device should be one of `ls -l /dev/dri/by-path/`, and the output name should be `HDMI1` for the HDMI0 port (kernel name `HDMI-A-1`). Re-run `./display/deploy/install-pi.sh`. |
-| Boot text, the rainbow square, or `Completed socket interaction for boot stage final` stays on the screen, or Ohana appears only after Wi-Fi connects | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. Quiet boot is in `/boot/firmware/cmdline.txt`, `disable_splash=1` is in `/boot/firmware/config.txt`, cloud-init is sent to the log (`/etc/cloud/cloud.cfg.d/99-homeos-quiet.cfg`), and the display service no longer waits for the network. The cloud-init line is a successful boot note, not a hang. |
-| The boot video never appears, or stays up over Ohana | `journalctl -u homeos-bootscreen -b`. The app stops that service before it uses the screen. `sudo systemctl stop homeos-bootscreen` releases it if you need to. |
-| The admin's boot video does not play | `journalctl -u homeos-boot-video-sync` shows each check. `sudo systemctl start homeos-boot-video-sync` checks now; reboot after it says the video was downloaded. A file at `/etc/homeos/boot.mp4` wins over the admin video. |
+| Boot text, the rainbow square, or `Completed socket interaction for boot stage final` stays on the screen | Re-run `./display/deploy/install-pi.sh`, then `sudo reboot`. `/boot/firmware/cmdline.txt` should have `console=tty3` (not `console=tty1`) and `quiet`, `disable_splash=1` is in `/boot/firmware/config.txt`, and cloud-init is sent to the log (`/etc/cloud/cloud.cfg.d/99-homeos-quiet.cfg`). The cloud-init line is a successful boot note, not a hang. Boot text lands on `tty3`: with a keyboard, Ctrl+Alt+F3 shows it (an emergency shell opens there too) and Ctrl+Alt+F1 goes back. |
+| The panel stays black after boot | The boot screen is drawn by the app, so black means the app has not started yet or keeps exiting. `systemctl is-active homeos-display`, then `journalctl -u homeos-display -b --no-pager`. A black panel that never shows the logo is the same check as a terminal on the screen (above). |
+| The boot logo stays up for a long time | It waits up to 15 seconds for the family's first data. If Wi-Fi is down it gives up then and shows Ohana with **Offline — reconnecting…**. |
+| A boot video from an older install stays up over Ohana | Re-run `./display/deploy/install-pi.sh`. It removes the old `homeos-bootscreen` player, which nothing stops any more. Right now: `sudo systemctl disable --now homeos-bootscreen`. |
+| The admin's boot video does not play | `journalctl -u homeos-boot-video-sync` shows each check. `sudo systemctl start homeos-boot-video-sync` checks now; restart the app or reboot after it says the video was downloaded. A file at `/etc/homeos/boot.mp4` wins over the admin video. A video that does not play shows the logo instead; `journalctl -u homeos-display -b` has the player's error. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every second. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio tty`. Re-run the install script, then `sudo reboot`. |

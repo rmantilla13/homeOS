@@ -184,7 +184,7 @@ export async function saveDemoBootVideoAction(byteSize: number, durationMs: numb
 export async function removeBootVideoAction(): Promise<ActionResult> {
   return mutate(async () => {
     await data.removeBootVideo();
-    return { ok: true, message: "Boot video removed. Displays play the built-in clip on the next reboot." };
+    return { ok: true, message: "Boot video removed. Displays show the Ohana logo from the next reboot." };
   });
 }
 

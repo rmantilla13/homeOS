@@ -1,5 +1,5 @@
 # Downloads the boot video set in the admin console to /var/lib/homeos/boot.mp4,
-# where homeos-bootscreen plays it from the next boot. Started by
+# where the app's boot screen plays it from the next boot. Started by
 # homeos-boot-video-sync.timer after the network is up, so the boot itself
 # never waits on Wi-Fi. Installed by install-pi.sh.
 [Unit]
@@ -9,9 +9,9 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/libexec/homeos-bootscreen --sync
+ExecStart=/usr/local/libexec/homeos-boot-video-sync
 # A background download: stay out of the app's way. It gives up on its own
-# when the transfer stalls (see homeos-bootscreen).
+# when the transfer stalls (see homeos-boot-video-sync).
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=15min

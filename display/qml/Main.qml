@@ -287,4 +287,14 @@ ApplicationWindow {
             font.pixelSize: Theme.fontXs
         }
     }
+
+    // The boot screen covers everything, the keyboard included, until the
+    // app has something to show.
+    BootScreen {
+        anchors.fill: parent
+        z: 2000
+        appReady: Store.mode === "demo"
+                  || (Store.mode === "pairing" && Store.pairingCode !== "")
+                  || Store.familyName !== "" || Store.members.length > 0
+    }
 }

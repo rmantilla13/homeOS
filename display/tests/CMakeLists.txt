@@ -126,3 +126,22 @@ target_compile_definitions(tst_games PRIVATE HOMEOS_GAMES_QML_DIR="${CMAKE_CURRE
 target_link_libraries(tst_games PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
 add_test(NAME tst_games COMMAND tst_games)
 set_tests_properties(tst_games PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The boot screen: which video it plays, and how long BootScreen.qml holds.
+# The QML is loaded from the source tree; its images are compiled in.
+qt_add_executable(tst_bootscreen tst_bootscreen.cpp
+    ../src/hardware/BootScreen.h
+    ../src/hardware/BootScreen.cpp)
+qt_add_resources(tst_bootscreen "boot_images"
+    PREFIX /HomeOS
+    BASE ${PROJECT_SOURCE_DIR}
+    FILES
+        ${PROJECT_SOURCE_DIR}/resources/boot/background.png
+        ${PROJECT_SOURCE_DIR}/resources/boot/highlight.png
+        ${PROJECT_SOURCE_DIR}/resources/boot/mark.png)
+target_include_directories(tst_bootscreen PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_compile_options(tst_bootscreen PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_bootscreen PRIVATE HOMEOS_TEST_QML_DIR="${PROJECT_SOURCE_DIR}/qml")
+target_link_libraries(tst_bootscreen PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Multimedia Qt6::Test)
+add_test(NAME tst_bootscreen COMMAND tst_bootscreen)
+set_tests_properties(tst_bootscreen PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

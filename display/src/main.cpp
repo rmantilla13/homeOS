@@ -12,6 +12,7 @@
 #endif
 
 #include "backend/SupabaseClient.h"
+#include "hardware/BootScreen.h"
 #include "hardware/DisplayController.h"
 #include "hardware/SystemController.h"
 #include "models/Assistant.h"
@@ -148,6 +149,7 @@ int main(int argc, char *argv[])
     VoiceClient voice{QUrl(voiceUrl)};
 
     Assistant assistant(&client, &store, &voice);
+    BootScreen boot(client.isConfigured());
     DisplayController display;
     app.installEventFilter(&display);
     SystemController system;
@@ -158,6 +160,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "System", &system);
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "AI", &assistant);
     qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Voice", &voice);
+    qmlRegisterSingletonInstance("HomeOS.Core", 1, 0, "Boot", &boot);
     qmlRegisterUncreatableType<ChatModel>("HomeOS.Core", 1, 0, "ChatModel", "Owned by AI");
 
     QQmlApplicationEngine engine;

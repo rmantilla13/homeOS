@@ -36,6 +36,7 @@ qt_add_executable(homeos-display
     src/models/ColorSampler.h      src/models/ColorSampler.cpp
     src/hardware/DisplayController.h src/hardware/DisplayController.cpp
     src/hardware/SystemController.h src/hardware/SystemController.cpp
+    src/hardware/BootScreen.h      src/hardware/BootScreen.cpp
 )
 
 target_include_directories(homeos-display PRIVATE src)
@@ -94,6 +95,7 @@ qt_add_qml_module(homeos-display
         qml/screens/AssistantPanel.qml
         qml/screens/QuickAnswer.qml
         qml/screens/SettingsSheet.qml
+        qml/screens/BootScreen.qml
         qml/screens/GamesScreen.qml
         qml/games/Game2048.qml
         qml/games/TrafficJam.qml
@@ -103,6 +105,9 @@ qt_add_qml_module(homeos-display
         games/traffic/puzzles.js
     RESOURCES
         resources/demo/family.json
+        resources/boot/background.png
+        resources/boot/highlight.png
+        resources/boot/mark.png
         qml/components/KeyboardPanel.qml
         ${homeos_vendored_games}
 )

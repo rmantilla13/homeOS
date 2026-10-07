@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Makes a Raspberry Pi boot straight to the Ohana panel: no rainbow splash,
-# no kernel log on the console, no Plymouth logo. The kiosk service then
-# paints as soon as the screen and the user session exist. Safe to re-run.
-# Originals are kept once, as <file>.homeos-backup.
+# no boot text, no Plymouth logo, no cursor. The panel stays black until the
+# app draws its boot screen. Safe to re-run. Originals are kept once, as
+# <file>.homeos-backup.
 #
 #   quiet-boot.sh [cmdline.txt] [config.txt]
 set -euo pipefail
@@ -35,8 +35,13 @@ backup_once() {
     fi
 }
 
-# tty1 stays the kernel console. It is the foreground VT the panel shows,
-# and the kiosk binds that same VT. These options leave it blank.
+# The kernel console (/dev/console) goes to tty3, which is never on screen.
+# tty1 is the VT the panel shows and the kiosk binds. quiet and loglevel only
+# cover kernel messages: the initramfs fsck, systemd-fsck, cloud-init and
+# anything else with StandardOutput=console write to /dev/console directly,
+# and an emergency shell opens there too (Ctrl+Alt+F3 with a keyboard).
+# Serial consoles are left alone.
+console_vt=console=tty3
 keep_options=(
     quiet
     loglevel=3
@@ -69,6 +74,22 @@ apply_cmdline() {
         done
         [ "$drop" -eq 0 ] && filtered+=("$word")
     done
+    words=("${filtered[@]+"${filtered[@]}"}")
+
+    # Every VT console becomes tty3, once, where the first one was. The last
+    # console= is /dev/console, so with serial0 first the VT still gets it.
+    # No VT console at all would mean the kernel default, tty1.
+    filtered=()
+    seen=0
+    for word in "${words[@]+"${words[@]}"}"; do
+        if [[ "$word" =~ ^console=tty[0-9]+$ ]]; then
+            [ "$seen" -eq 0 ] && filtered+=("$console_vt")
+            seen=1
+        else
+            filtered+=("$word")
+        fi
+    done
+    [ "$seen" -eq 1 ] || filtered+=("$console_vt")
     words=("${filtered[@]+"${filtered[@]}"}")
 
     for option in "${keep_options[@]}"; do

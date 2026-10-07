@@ -123,10 +123,9 @@ if printf '%s\n' "$block" | grep -q 'is-active'; then
     fail "boot block still starts the kiosk only when it is already active"
 fi
 grep -q 'mask getty@tty1.service' "$preview" || fail "preview off does not remask getty"
-grep -q 'disable --now homeos-bootscreen' "$preview" || fail "preview on leaves the boot video enabled"
-grep -qE 'systemctl enable homeos-bootscreen( |$)' "$preview" || fail "preview off does not bring the boot video back"
-if grep -q 'enable --now homeos-bootscreen' "$preview"; then
-    fail "preview off starts the boot video over the app"
+# The app draws the boot screen; the old ffplay player must never come back.
+if grep -Eq 'systemctl (enable|unmask|start)[^|]*homeos-bootscreen' "$preview"; then
+    fail "preview brings back the old boot video player"
 fi
 
 # preview_on: is-enabled homeos-preview succeeds. restart_rc: what `restart` returns.
@@ -167,9 +166,8 @@ grep -qx 'mask getty@tty1.service autovt@tty1.service' "$tmp/log" || fail "fresh
 grep -qx 'enable --now homeos-display' "$tmp/log" || fail "fresh install did not enable and start"
 grep -qx 'restart homeos-display' "$tmp/log" || fail "fresh install did not reload the kiosk"
 grep -qx 'enable homeos-display' "$tmp/log" || fail "fresh install did not enable the kiosk for boot"
-grep -qx 'enable homeos-bootscreen' "$tmp/log" || fail "fresh install did not enable the boot video"
-if grep -qx 'enable --now homeos-bootscreen' "$tmp/log"; then
-    fail "fresh install started the boot video over the app"
+if grep -q 'homeos-bootscreen' "$tmp/log"; then
+    fail "the kiosk block still manages the old boot video player"
 fi
 if grep -qx 'disable --now homeos-display' "$tmp/log"; then
     fail "fresh install disabled the kiosk"
@@ -205,7 +203,6 @@ grep -qx 'mask getty@tty1.service autovt@tty1.service' "$tmp/log" || fail "a hun
 # Preview mode is what was enabled: leave the kiosk off.
 run_block "$tmp/log" 1 0
 grep -qx 'disable --now homeos-display' "$tmp/log" || fail "preview mode did not keep the kiosk off"
-grep -qx 'disable --now homeos-bootscreen' "$tmp/log" || fail "preview mode left the boot video on"
 if grep -q 'enable --now homeos-display' "$tmp/log"; then
     fail "preview mode enabled the kiosk"
 fi
@@ -416,7 +413,11 @@ printf '%s\n' "$stock" >"$tmp/cmdline.txt"
 printf '%s\n' '# comments stay' 'disable_splash=0' 'boot_delay=1' >"$tmp/config.txt"
 "$quiet" "$tmp/cmdline.txt" "$tmp/config.txt" >"$tmp/quiet.out"
 got="$(cat "$tmp/cmdline.txt")"
-printf '%s\n' "$got" | grep -q 'console=tty1' || fail "quiet boot moved off tty1, which the kiosk owns"
+# Boot text goes to tty3. tty1 is the VT the panel shows.
+printf '%s\n' "$got" | grep -q 'console=serial0,115200 console=tty3 ' || fail "kernel console did not move to tty3 in place"
+if printf '%s\n' "$got" | grep -Eq '(^| )console=tty1( |$)'; then
+    fail "boot text still goes to tty1, the panel"
+fi
 printf '%s\n' "$got" | grep -q 'console=serial0,115200' || fail "serial console was dropped"
 printf '%s\n' "$got" | grep -q 'root=PARTUUID=abcd-02' || fail "root device was dropped"
 for opt in quiet loglevel=3 logo.nologo systemd.show_status=false plymouth.enable=0 consoleblank=0 vt.global_cursor_default=0; do
@@ -477,6 +478,17 @@ for key in disable_splash=1 boot_delay=0 boot_delay_ms=0; do
     [ -n "$key_at" ] && [ "$key_at" -lt "$filter_at" ] || fail "$key landed inside a model filter"
 done
 grep -qx '\[all\]' "$tmp/config4.txt" || fail "config.txt filters were dropped"
+
+# No VT console means the kernel default, tty1: add tty3. Several VT consoles
+# become one, and a serial console named tty-something is not a VT.
+printf '%s\n' 'root=/dev/sda2 rootwait' >"$tmp/cmdline5.txt"
+"$quiet" "$tmp/cmdline5.txt" "$tmp/missing-config.txt" >/dev/null
+grep -Eq '(^| )console=tty3( |$)' "$tmp/cmdline5.txt" || fail "a cmdline with no console= kept boot text on tty1"
+printf '%s\n' 'console=tty1 console=tty0 console=ttyAMA0,115200 quiet' >"$tmp/cmdline6.txt"
+"$quiet" "$tmp/cmdline6.txt" "$tmp/missing-config.txt" >/dev/null
+got6="$(cat "$tmp/cmdline6.txt")"
+[ "$(printf '%s\n' "$got6" | tr ' ' '\n' | grep -c '^console=tty[0-9]')" -eq 1 ] || fail "VT consoles were not merged into one"
+printf '%s\n' "$got6" | grep -q '^console=tty3 console=ttyAMA0,115200 ' || fail "serial console ttyAMA0 was treated as a VT"
 
 # No firmware files: the installer still finishes (a container, or not a Pi).
 "$quiet" "$tmp/missing-cmdline.txt" "$tmp/missing-config.txt" >"$tmp/missing.out"

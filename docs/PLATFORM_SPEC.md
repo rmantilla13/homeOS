@@ -612,7 +612,7 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `get_boot_video` | — | Reads `platform_boot_video` with the service role and, when a row exists, signs `boot-video/current.mp4` for 10 minutes. Returns `{ video: null }` or `{ video: { byte_size, duration_ms, updated_at, preview_url } }`. Not audited. |
 | `create_boot_video_upload` | — | Returns `{ path, signed_url, token }` for a new `boot-video/pending/<uuid>.mp4`. The browser PUTs the file there. The service role key stays in the function. |
 | `commit_boot_video` | `path` | `path` must be that pending object. Downloads it, requires a silent MP4 of 0.5–12 seconds and at most 20 MB, copies it to `current.mp4`, and upserts `platform_boot_video`. Anything else is deleted and answered 400. Audits `set_boot_video`. |
-| `remove_boot_video` | — | Deletes `current.mp4` and the row. Displays fall back to the built-in clip. Audits `remove_boot_video`. |
+| `remove_boot_video` | — | Deletes `current.mp4` and the row. Displays fall back to the Ohana logo. Audits `remove_boot_video`. |
 
 Every action except `sign_media` and `get_boot_video` writes `admin_audit_log` with the service
 role (`delete_family` writes `delete_family_files`, `delete_media` writes

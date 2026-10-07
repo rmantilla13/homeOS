@@ -54,7 +54,7 @@ export default async function SettingsPage() {
               ? "The console could not read the current clip."
               : video
                 ? "Displays download it within six hours and play it from their next reboot."
-                : "Displays are using the built-in clip."
+                : "Displays are showing the Ohana logo."
           }
         >
           {boot.error ? <Message tone="error">{boot.error}</Message> : <BootVideoForm video={video} demo={demo} />}
