@@ -7,6 +7,9 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 namespace {
+constexpr int kFetchTimeoutMs = 30 * 1000;
+constexpr qint64 kRetryFailedMs = 10 * 60 * 1000;
+
 QColor sampleFile(const QString &path)
 {
     QImage image(path);
@@ -20,7 +23,10 @@ QColor sampleBytes(const QByteArray &bytes)
 }
 } // namespace
 
-ColorSampler::ColorSampler(QObject *parent) : QObject(parent) {}
+ColorSampler::ColorSampler(QObject *parent) : QObject(parent)
+{
+    m_clock.start();
+}
 
 QColor ColorSampler::representative(const QImage &image)
 {
@@ -45,15 +51,21 @@ QColor ColorSampler::representative(const QImage &image)
 
 void ColorSampler::sample(const QString &key, const QString &url)
 {
-    if (key.isEmpty() || url.isEmpty() || m_cache.contains(key) || m_pending.contains(key)
-        || m_failed.value(key) == url)
+    if (key.isEmpty() || url.isEmpty() || m_cache.contains(key) || m_pending.contains(key))
+        return;
+    // Signed URLs now last hours, so one network blip mustn't leave a photo
+    // untinted that long: try a failed URL again after a while.
+    const auto failed = m_failed.constFind(key);
+    if (failed != m_failed.cend() && failed->url == url && m_clock.elapsed() - failed->at < kRetryFailedMs)
         return;
     m_pending.insert(key);
     const int generation = m_generation;
 
     const QUrl u(url);
     if (u.scheme() == "http" || u.scheme() == "https") {
-        QNetworkReply *reply = m_nam.get(QNetworkRequest(u));
+        QNetworkRequest request(u);
+        request.setTransferTimeout(kFetchTimeoutMs); // a stalled fetch would block this key for good
+        QNetworkReply *reply = m_nam.get(request);
         connect(reply, &QNetworkReply::finished, this, [this, reply, key, url, generation]() {
             reply->deleteLater();
             if (generation != m_generation)
@@ -95,7 +107,7 @@ void ColorSampler::finish(const QString &key, const QString &url, const QColor &
 {
     m_pending.remove(key);
     if (!color.isValid()) {
-        m_failed.insert(key, url);
+        m_failed.insert(key, {url, m_clock.elapsed()});
         return;
     }
     m_failed.remove(key);

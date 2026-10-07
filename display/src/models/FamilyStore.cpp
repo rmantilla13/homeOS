@@ -130,13 +130,15 @@ void FamilyStore::setOnline(bool online, const QString &error)
 
 void FamilyStore::refresh()
 {
-    // Each sync re-checks the date too, in case the clock jumped past midnight.
-    if (rollDay())
-        return; // already reloaded for the new day
-    if (m_mode == "live")
-        loadLive();
-    else if (m_mode == "pairing" && m_pairRetryTimer.isActive())
+    // Each sync re-checks the date too, in case the clock jumped past midnight
+    // (a live display reloads for the new day there).
+    const bool rolled = rollDay();
+    if (m_mode == "live") {
+        if (!rolled)
+            loadLive();
+    } else if (m_mode == "pairing" && m_pairRetryTimer.isActive()) {
         startPairing(); // the last try failed: don't wait for the next one
+    }
 }
 
 // Reads the clock: sets `today` and arms the timer for the next check, just
@@ -155,7 +157,8 @@ bool FamilyStore::updateToday()
 }
 
 // A new day: demo data is laid out around the new date again; live data is
-// fetched again, starting with no chores done. True if the date changed.
+// fetched again, starting with no chores at all (yesterday's list isn't
+// today's, even while offline). True if the date changed.
 bool FamilyStore::rollDay()
 {
     if (!updateToday())
@@ -163,6 +166,7 @@ bool FamilyStore::rollDay()
     if (m_mode == "demo") {
         loadDemo();
     } else if (m_mode == "live") {
+        m_rawTasks.clear();
         m_completedToday.clear();
         rebuild();
         loadLive();
@@ -256,16 +260,18 @@ void FamilyStore::loadLive()
     if (m_mode != "live")
         return;
     withSession([this]() {
-        // Rows that arrive after a re-pair belong to the old family: drop them.
+        // Rows that arrive after a re-pair belong to the old family, and rows
+        // asked for before midnight to the old day: drop them.
         const int generation = m_generation;
+        const QDate base = m_today;
         auto onError = [this](const QString &what, const QString &error) {
             qWarning() << "load" << what << "failed:" << error;
             setOnline(false, error);
         };
         using Apply = std::function<void(const QJsonDocument &)>;
-        auto handler = [this, onError, generation](const QString &what, Apply apply) {
-            return [this, what, apply, onError, generation](const QJsonDocument &doc, const QString &error) {
-                if (generation != m_generation)
+        auto handler = [this, onError, generation, base](const QString &what, Apply apply) {
+            return [this, what, apply, onError, generation, base](const QJsonDocument &doc, const QString &error) {
+                if (generation != m_generation || base != m_today)
                     return;
                 if (!error.isEmpty())
                     return onError(what, error);
@@ -283,7 +289,6 @@ void FamilyStore::loadLive()
 
         checkIn();
 
-        const QDate base = m_today;
         const QDate weekStart = base.addDays(1 - base.dayOfWeek());
 
         // The database works out repeats (PLATFORM_SPEC): one row per event

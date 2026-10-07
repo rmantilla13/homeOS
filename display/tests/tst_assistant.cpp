@@ -585,6 +585,24 @@ private slots:
         QTRY_COMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("todo"));
     }
 
+    void newDayOfflineDropsYesterdaysChores()
+    {
+        QSettings().setValue("device/familyId", "fam-1");
+        const QDate day = QDate::currentDate();
+        routeMembers();
+        routeChore();
+        auto rig = signedIn([day](Rig &r) { r.store.setClock(clockAt(QDateTime(day, QTime(23, 59, 58, 500)))); });
+        QTRY_VERIFY(!taskById(rig->store, "t1").isEmpty());
+
+        // The network goes down just before midnight.
+        route("/rest/v1/", [](const Request &) { return json("{\"message\":\"offline\"}", 503); });
+        QSignalSpy newDay(&rig->store, &FamilyStore::todayChanged);
+        QVERIFY(newDay.wait(5000));
+        // Yesterday's chores aren't today's: none until the cloud answers.
+        QVERIFY(taskById(rig->store, "t1").isEmpty());
+        QTRY_VERIFY(!rig->store.online());
+    }
+
     void newDayStartsOverInDemo()
     {
         SupabaseClient client{QUrl(), QString()};
@@ -596,6 +614,14 @@ private slots:
         QCOMPARE(store.today(), day.toString(Qt::ISODate));
         store.completeTask("t1", "m3");
         QCOMPARE(taskById(store, "t1").value("status").toString(), QStringLiteral("done"));
+        // "School drop-off" is a today event in the sample data.
+        auto dropOffDay = [&store]() {
+            for (const QVariant &e : store.events())
+                if (e.toMap().value("title") == QLatin1String("School drop-off"))
+                    return e.toMap().value("day").toString();
+            return QString();
+        };
+        QCOMPARE(dropOffDay(), day.toString(Qt::ISODate));
 
         QSignalSpy newDay(&store, &FamilyStore::todayChanged);
         QVERIFY(newDay.wait(5000));
@@ -603,8 +629,7 @@ private slots:
         QCOMPARE(store.today(), next);
         QCOMPARE(taskById(store, "t1").value("status").toString(), QStringLiteral("todo"));
         // The sample events are laid out around the new day.
-        const QVariantList events = store.events();
-        QVERIFY(std::any_of(events.begin(), events.end(), [&](const QVariant &e) { return e.toMap().value("day") == next; }));
+        QCOMPARE(dropOffDay(), next);
     }
 
     // ── Pairing ──

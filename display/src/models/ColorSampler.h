@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
@@ -18,8 +19,8 @@ public:
 
     // Cached color, or an invalid QColor if not sampled yet.
     QColor cached(const QString &key) const { return m_cache.value(key); }
-    // Samples the image at `url` once per key. A URL that failed isn't tried
-    // again; a new URL for the same key is.
+    // Samples the image at `url` once per key. A URL that failed is tried
+    // again after a few minutes; a new URL for the same key right away.
     void sample(const QString &key, const QString &url);
     // Forgets every color (another family's photos after re-pairing).
     void clear();
@@ -36,7 +37,12 @@ private:
 
     QNetworkAccessManager m_nam;
     QHash<QString, QColor> m_cache;
-    QHash<QString, QString> m_failed; // key -> URL that gave no color
+    struct Failure {
+        QString url;
+        qint64 at = 0; // m_clock time
+    };
+    QHash<QString, Failure> m_failed; // key -> URL that gave no color, and when
+    QElapsedTimer m_clock;
     QSet<QString> m_pending;           // keys being sampled
     int m_generation = 0;              // bumped by clear(); late results are dropped
 };
