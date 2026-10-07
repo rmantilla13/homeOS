@@ -272,12 +272,22 @@ ApplicationWindow {
 
     // The photo frame covers everything but the wake-word card. It needs no
     // input of its own: DisplayController swallows the waking tap app-wide.
+    // When the screen goes off it stays up only if it was already showing,
+    // until the black has faded in over it, so the page under it never shows
+    // through on the way to dark.
+    property bool saverUnderSleep: false
+    Connections {
+        target: Device
+        function onScreenOffChanged() { window.saverUnderSleep = Device.screenOff && saverLayer.opacity > 0 }
+    }
     Layer {
+        id: saverLayer
         z: 4
         width: window.width
         height: window.height
         visible: opacity > 0
-        opacity: Device.idle && !Device.screenOff && Store.mode !== "pairing" ? 1 : 0
+        opacity: Device.idle && Store.mode !== "pairing"
+                 && (!Device.screenOff || (window.saverUnderSleep && !sleepCover.covering)) ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
         ScreenSaver { anchors.fill: parent }
     }
