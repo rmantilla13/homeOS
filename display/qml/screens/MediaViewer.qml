@@ -71,7 +71,9 @@ Rectangle {
             Image {
                 id: backdrop
                 anchors.fill: parent
-                source: slide.imageSource
+                // The small poster is plenty under a blur, and saves loading
+                // the full photo a second time.
+                source: slide.modelData.tileUrl || slide.imageSource
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 sourceSize.width: 480
@@ -89,7 +91,8 @@ Rectangle {
             // The media itself, edge to edge.
             Image {
                 anchors.fill: parent
-                visible: !slide.isVideo || !player.item
+                // A video's poster stays up until its first frame.
+                visible: !slide.isVideo || !(player.item && player.item.started)
                 source: slide.imageSource
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true

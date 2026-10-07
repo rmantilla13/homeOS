@@ -57,7 +57,7 @@ ios/OhanaOS/
 │   ├── FamilyStore.swift     the one @Observable store: auth, invites, profile, family data, writes, assistant,
 │   │                         account deletion
 │   ├── AssistantClient.swift `assistant` function over URLSession: SSE streaming and quick answers
-│   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, video)
+│   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, posters, video optimizing)
 │   ├── Dictation.swift       SFSpeechRecognizer push-to-talk for the assistant
 │   └── DemoData.swift        Debug only: demo mode for screenshots (sample family, photos drawn in code)
 ├── Theme/Theme.swift         tokens, Mood, GlowView, card/pill/tag styles, MemberAvatar/AvatarCircle, SegmentedPill
@@ -90,7 +90,7 @@ your **Profile**.
 | **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. Before a person's first question goes out, the app asks for permission (see Assistant → AI consent). |
 | **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. The **+** button adds an event. |
 | **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
-| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
+| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. While they upload, a banner shows which item is going, what it is doing and a **Cancel** button. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
 | **Family** | Members (tap to edit; parents can add one), invites (parents), lists (tap through to add, check off and clear items), meals for the next 7 days (tap a day to set breakfast, lunch and dinner), family memory (add a fact; parents can remove one), paired wall displays and **Pair a display** (parents), and Profile / Leave family. |
 
 ## Onboarding (invite-only)
@@ -648,25 +648,31 @@ profile screens reuse the glow header, pills and cards.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
   `DateTimeOriginal`. New photos and videos go to the private Blob store.
-  The row records `byte_size`, `content_type` and `file_store = blob`.
-  Videos are uploaded as-is, with `duration_seconds`, size and creation date
-  read through `AVURLAsset` from the file on disk. The picker hands the app a
-  movie file; the upload streams that file to Blob
+  The row records `byte_size` (the file only), `content_type`,
+  `thumbnail_path` (when the poster went up) and `file_store = blob`.
+  Videos are optimized for the wall first (see
+  [Photo and video uploads](#photo-and-video-uploads)). `duration_seconds`
+  and the creation date are read through `AVURLAsset` from the original, and
+  the size from the file that is uploaded. The picker hands the app a movie
+  file; the upload streams the file to Blob
   (`URLSession.upload(for:fromFile:)`) instead of reading the whole clip into
   memory. `Config.mediaAPIURL` is the admin app's origin: `https://ohanaos.co`
   unless `Local.xcconfig` sets another. Photo type sent is
   `image/jpeg`. Video types are `video/quicktime` (`.mov`), `video/mp4`,
   `video/m4v`, `video/webm`, `video/x-matroska`, `video/3gpp`, and
   `video/3gpp2`. If inserting the row fails, the Blob object just uploaded is
-  removed. Deleting (one item in the viewer, or several from Select) removes
-  a Blob object through the media API, then each `media_items` row with the
+  removed, and the media API removes its poster with it. Deleting (one item
+  in the viewer, or several from Select) removes a Blob object and its
+  poster through the media API, then each `media_items` row with the
   signed-in member's session. Rows still in Storage then lose the file and
   poster from `family-media`. That is the family RLS path, not the admin
   console. Profile avatars still use the `avatars` bucket.
-- Signed URLs (1 hour) are cached per storage path. Blob files
-  (`file_store = blob`) use `POST /api/media/urls` on that same origin.
-  Rows still in Storage use a Storage signed URL. Thumbnails, average colors
-  and avatars are cached in memory for the session.
+- Signed URLs (1 hour) are cached per path, for files and posters alike.
+  Blob files (`file_store = blob`) use `POST /api/media/urls` on that same
+  origin; opening Media signs every Blob row's poster and file up front, up
+  to 200 paths per request. Rows still in Storage use a Storage signed URL.
+  Thumbnails, average colors and avatars are cached in memory for the
+  session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares
   ids as strings.
 - The app sends `family_id` (the family on screen) to the `assistant`
@@ -674,6 +680,85 @@ profile screens reuse the glow header, pills and cards.
   about the one they're looking at. The function accepts it as optional.
 - The app can't read `platform_settings`, so it always asks for an invite
   before Create account, even if an admin turns `invite_only` off.
+
+## Photo and video uploads
+
+Everything goes to the private Blob store through the admin app
+(`Config.mediaAPIURL`). The wall panel is 1920×1200 and the Pi 5 decodes HEVC
+in hardware ([HARDWARE.md](HARDWARE.md)), so videos are made right for it on
+the phone, before they upload. The code is `MediaTools.prepareVideo` and
+`MediaView.upload`.
+
+**Videos**
+
+- The picker hands over the original file
+  (`preferredItemEncoding: .current`) instead of transcoding it first.
+- A clip the wall already plays well goes as it is: HEVC or H.264, 8-bit
+  SDR, at most 1920 px on the long side, at most 31 fps and at most 16 Mb/s,
+  in a `.mov`, `.mp4` or `.m4v`. If its index (`moov`) comes after the
+  media, it is first copied into a new `.mov` with the index first (no
+  re-encode), so the wall can start playing before the whole file has
+  arrived.
+- Anything else is exported with `AVAssetExportPresetHEVC1920x1080` to an
+  `.mp4` with the index first: HEVC, at most 1080p. HDR and 10-bit clips are
+  rendered as SDR Rec. 709. Clips above 31 fps are capped at 30 fps.
+- If the HEVC export fails, the app tries H.264 1080p
+  (`AVAssetExportPreset1920x1080`). It does the same when the HEVC file
+  still comes out HDR.
+- If the export is at least 90% of the original's size and the original
+  plays well on the wall, the original goes instead (with its index moved
+  first if needed).
+- If optimizing fails in any other way, the original is uploaded as it is.
+- One file is stored per item: the optimized file takes the original's
+  place, and no copy of the original is kept. Blob items uploaded before
+  this keep their original file and have no poster; adding a clip again
+  gives it both.
+- Every export, the index-first copy included, drops location metadata
+  (`.forSharing()`); the date was read before.
+- iOS stops exports in the background, so an export only starts while Ohana
+  is the active app. An export that fails while Ohana isn't active, or with
+  `AVError.operationInterrupted`, fails that item with "A video stopped
+  optimizing when Ohana left the screen. Keep Ohana open while videos
+  upload, then add it again." There is no fallback for that item: a large
+  original couldn't upload in the background either.
+- Debug builds print one line per video: what was done, the codec, bit
+  depth, transfer function, size, frame rate, bitrate, file size before and
+  after, and the time it took.
+
+**Posters**
+
+- Each upload carries a JPEG poster of at most 256 KiB
+  (`MediaTools.posterMaxBytes`, the admin app's `THUMB_MAX_BYTES`). A
+  photo's is 480 px. A video's is up to 960 px, from the file that is
+  uploaded: the first of a few early frames that isn't nearly black. If the
+  JPEG is too big, the quality steps down, and for a video then the size
+  (to 640 px).
+- The upload request sends `thumbnail_bytes`. The poster is `PUT` to the
+  ticket's `thumbnail.upload_url` before the file, and `thumbnail_path` is
+  set in the insert: the database doesn't let a member set it later. A
+  poster that isn't signed or doesn't go up never fails the upload; that row
+  just has no poster.
+- The grid shows the poster when the row has one, and otherwise the photo
+  or a frame from the video, as before. The viewer shows a video's poster
+  under a spinner until its player is ready.
+
+**Order, progress and Cancel**
+
+- Items upload one at a time; the next item is fetched from Photos and
+  optimized while the current one uploads.
+- The banner shows "Uploading 2 of 5", what the current item is doing
+  ("Getting the video from Photos…", "Optimizing for the wall display…
+  40%", "Uploading 12 MB of 48 MB", "Saving…"), and the next item's
+  optimizing progress. The bar counts an optimized video's export as 40% of
+  the item and its bytes as the rest. Bytes sent are reported at most every
+  100 ms.
+- **Cancel** stops the export or upload in progress and the one being
+  prepared, and deletes their temp files. A file that is already up still
+  gets its row. The grid then refreshes, and the "N of M didn't upload"
+  message is not shown.
+- At the start of each batch, `.mov`, `.mp4` and `.m4v` files left in the
+  temp folder for more than a day (after a crash or a force quit) are
+  deleted.
 
 ## Unverified
 
@@ -727,6 +812,22 @@ calls from the first build:
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
   `Dictation`), the `AVAsyncProperty` loads in `MediaTools.videoMetadata(at:)`,
   and `nonisolated init()` on the `@Observable @MainActor` `Dictation` class.
+
+Video optimizing, posters and upload progress came after those builds and
+have not run on an iPhone yet. Calls to check first if CI breaks:
+`PhotosPicker(...preferredItemEncoding: .current)`
+(`Views/MediaView.swift:71`); `track.load` with three keys and
+`format.extensions[.transferFunction]?.propertyListRepresentation`
+(`Services/MediaTools.swift:329`–`:336`);
+`AVMutableVideoComposition.videoComposition(withPropertiesOf:)` (`:467`);
+`metadataItemFilter = .forSharing()` (`:522`); `await session.export()`
+with `cancelExport()` in a cancellation handler (`:535`); and
+`URLSession.upload(for:from:delegate:)` and `upload(for:fromFile:delegate:)`
+(`Services/FamilyStore.swift:998` and `:1018`). On a device, try a 4K60 HDR
+portrait clip, a 1080p SDR clip, a Slo-Mo clip, an H.264 clip, photos,
+Cancel during an export, and leaving Ohana during an export. The debug line
+for each video shows whether the HEVC preset writes 8-bit, the size of a
+portrait clip, and the bitrate.
 
 ## Next
 

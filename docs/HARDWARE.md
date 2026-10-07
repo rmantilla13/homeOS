@@ -22,11 +22,17 @@ Setup steps: [PI_SETUP.md](PI_SETUP.md).
 - **Software support:** Raspberry Pi OS ships the Qt 6 packages the app is
   built and tested against, and Pi documentation and community support are
   the best available.
-- **Video:** iPhone videos are HEVC. The Pi 5 has an HEVC hardware decoder
-  (and none for H.264), but on Raspberry Pi OS Trixie the app's video player
-  (Qt 6.8 with FFmpeg) doesn't use it by default, so the CPU decodes it. That's
-  fine at 1080p; 4K clips may stutter (see the troubleshooting in
-  [PI_SETUP.md](PI_SETUP.md#troubleshooting)).
+- **Video:** the Pi 5 has a hardware decoder for HEVC and none for H.264.
+  On Raspberry Pi OS Trixie the app (Qt 6.8 with FFmpeg) decodes HEVC on
+  that block through Raspberry Pi's FFmpeg `drm` hwaccel. The app turns it
+  on, and `install-pi.sh` checks it and turns it off if it gives wrong
+  pictures. Qt then copies each frame once through the CPU into a GPU
+  texture (there is no zero-copy path). That should be comfortable at
+  1080p; 4K and 10-bit clips can still drop frames. H.264 always decodes
+  on the CPU, which is fine at 1080p. Qt Quick draws on the V3D GPU. This
+  is why the iPhone app uploads videos at 1080p, mostly HEVC (see
+  [IOS.md](IOS.md#photo-and-video-uploads)). Checks and the off switch:
+  [PI_SETUP.md](PI_SETUP.md#video-decoding).
 - **Room to grow:** GPIO, I²C and UART connect the sensors below, the AI HAT+
   adds local AI if needed, and the Compute Module 5 is the path to a custom
   board.

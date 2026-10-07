@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtMultimedia
 import HomeOS
+import HomeOS.Core
 
 // Edge-to-edge video with overlay controls (play/pause and a seek bar) that
 // follow the viewer's chrome. Tapping the picture toggles the chrome.
@@ -9,15 +10,19 @@ Item {
     id: video
     property alias source: player.source
     property bool controlsVisible: true
+    // A frame has played; the viewer keeps the poster up until then.
+    readonly property bool started: player.position > 0
     signal tapped()
     signal interacted()
 
     MediaPlayer {
         id: player
+        objectName: "viewerPlayer"
         videoOutput: output
         audioOutput: AudioOutput { volume: 0.8 }
         Component.onCompleted: play()
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.EndOfMedia) { position = 0; pause() }
+        onErrorOccurred: (error, message) => console.warn("video failed:", message)
     }
     VideoOutput {
         id: output
@@ -28,6 +33,19 @@ Item {
     TapHandler { onTapped: video.tapped() }
 
     readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
+
+    // Watching counts as using the screen: without this the idle timer
+    // closes the viewer partway through a longer video. Often enough for a
+    // short HOMEOS_IDLE_SECONDS too. It never wakes a sleeping screen.
+    Timer {
+        interval: Math.min(30000, Device.idleTimeoutSec * 500)
+        repeat: true
+        triggeredOnStart: true
+        running: video.playing
+        onTriggered: Device.keepAwake()
+    }
+    // Pausing or reaching the end gives the full idle time from then.
+    onPlayingChanged: Device.keepAwake()
 
     // Centre play/pause: always shown while paused, otherwise with the chrome.
     Rectangle {

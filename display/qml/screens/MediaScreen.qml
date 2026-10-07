@@ -151,6 +151,7 @@ Item {
                                 radius: Theme.radiusSm
                                 photo: cellItem.modelData.item
                                 showCaption: false
+                                thumbnail: true
                             }
                             // Video badge: play button and duration.
                             Rectangle {

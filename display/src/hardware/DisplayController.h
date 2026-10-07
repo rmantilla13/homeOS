@@ -46,6 +46,9 @@ public:
 
     Q_INVOKABLE void wake();
     Q_INVOKABLE void sleepNow();
+    // Counts as a touch while the screen is awake (a video playing in the
+    // viewer). Never wakes a sleeping screen.
+    Q_INVOKABLE void keepAwake();
 
     // Hook for the presence sensor (LD2410 over UART, M2).
     Q_INVOKABLE void presenceDetected() { wake(); }

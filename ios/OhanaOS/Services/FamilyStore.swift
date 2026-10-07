@@ -34,6 +34,30 @@ private struct EventPatch: Encodable {
     }
 }
 
+/// Passes on how much of an upload's body has gone out. At most every
+/// 100 ms, plus the last one: a long video calls this thousands of times.
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let report: @Sendable (Int64, Int64) -> Void
+    private let lock = NSLock()
+    private var lastReport: UInt64 = 0
+
+    init(_ report: @escaping @Sendable (Int64, Int64) -> Void) {
+        self.report = report
+        super.init()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let isLast = totalBytesExpectedToSend > 0 && totalBytesSent >= totalBytesExpectedToSend
+        lock.lock()
+        let due = isLast || now &- lastReport >= 100_000_000
+        if due { lastReport = now }
+        lock.unlock()
+        if due { report(totalBytesSent, totalBytesExpectedToSend) }
+    }
+}
+
 /// Whether a person allowed their questions to go to the AI assistant on this
 /// iPhone. One answer per account, kept in UserDefaults. Siri reads it too.
 enum AIConsent {
@@ -1144,22 +1168,26 @@ final class FamilyStore {
     private static var mediaHost: String { Config.mediaAPIURL.host ?? "the media service" }
 
     /// Uploads a photo or video and records it. Both go to the private Blob
-    /// store through the admin app. Returns false on failure. Call
-    /// `refreshMedia()` after a batch. Photos are small JPEGs. Videos stream
-    /// from a file (`upload(file:)`) so a long clip isn't held in memory.
+    /// store through the admin app, with `metadata.thumbnail` as the poster.
+    /// Returns false on failure. Call `refreshMedia()` after a batch. Photos
+    /// are small JPEGs. Videos stream from a file (`upload(file:)`) so a long
+    /// clip isn't held in memory. `progress` gets (bytes sent, bytes in all).
     @discardableResult
-    func upload(data: Data, isVideo: Bool, fileExtension: String, metadata: MediaMetadata) async -> Bool {
+    func upload(data: Data, isVideo: Bool, fileExtension: String, metadata: MediaMetadata,
+                progress: (@Sendable (Int64, Int64) -> Void)? = nil) async -> Bool {
         guard let family else { return false }
         let contentType = isVideo ? Self.videoContentType(fileExtension) : Self.photoContentType(fileExtension)
         return await uploadToBlob(bytes: data.count, contentType: contentType, kind: isVideo ? "video" : "photo",
                                   metadata: metadata, familyId: family.id) { request in
-            try await URLSession.shared.upload(for: request, from: data)
+            try await URLSession.shared.upload(for: request, from: data,
+                                               delegate: progress.map { UploadProgressDelegate($0) })
         }
     }
 
     /// Streams a video file to Blob. The caller deletes `file` afterwards.
     @discardableResult
-    func upload(file: URL, fileExtension: String, metadata: MediaMetadata) async -> Bool {
+    func upload(file: URL, fileExtension: String, metadata: MediaMetadata,
+                progress: (@Sendable (Int64, Int64) -> Void)? = nil) async -> Bool {
         guard let family else { return false }
         let bytes: Int
         do {
@@ -1171,7 +1199,8 @@ final class FamilyStore {
         let contentType = Self.videoContentType(fileExtension)
         return await uploadToBlob(bytes: bytes, contentType: contentType, kind: "video",
                                   metadata: metadata, familyId: family.id) { request in
-            try await URLSession.shared.upload(for: request, fromFile: file)
+            try await URLSession.shared.upload(for: request, fromFile: file,
+                                               delegate: progress.map { UploadProgressDelegate($0) })
         }
     }
 
@@ -1185,13 +1214,17 @@ final class FamilyStore {
 
     private func uploadToBlob(bytes: Int, contentType: String, kind: String, metadata: MediaMetadata, familyId: UUID,
                               put: (URLRequest) async throws -> (Data, URLResponse)) async -> Bool {
+        // Asked for only when it fits; the service then signs a PUT for it too.
+        let poster = metadata.thumbnail.flatMap { (1...MediaTools.posterMaxBytes).contains($0.count) ? $0 : nil }
         var uploadedPath: String?
         do {
-            let ticket = try await mediaJSON("upload", [
+            var body: [String: Any] = [
                 "family_id": familyId.uuidString.lowercased(),
                 "content_type": contentType,
                 "bytes": bytes,
-            ])
+            ]
+            if let poster { body["thumbnail_bytes"] = poster.count }
+            let ticket = try await mediaJSON("upload", body)
             guard let idString = ticket["id"] as? String, let id = UUID(uuidString: idString),
                   let path = ticket["pathname"] as? String,
                   let uploadString = ticket["upload_url"] as? String, let uploadURL = URL(string: uploadString) else {
@@ -1201,6 +1234,8 @@ final class FamilyStore {
             // against it, and the row records the same one.
             let signedType = (ticket["content_type"] as? String) ?? contentType
             uploadedPath = path
+            // Small, so it goes first. Never fatal: without it the row has no poster.
+            let thumbnailPath = await putPoster(poster, ticket: ticket["thumbnail"] as? [String: Any])
             var request = URLRequest(url: uploadURL)
             request.httpMethod = "PUT"
             request.setValue(signedType, forHTTPHeaderField: "Content-Type")
@@ -1217,19 +1252,51 @@ final class FamilyStore {
             guard (200..<300).contains(status) else {
                 throw MediaAPIError(message: Self.storageRefusal(status: status, body: reply.0))
             }
-            // byte_size is what the family quota counts. Blob objects are not in Storage.
+            // byte_size is what the family quota counts: the file only, not the
+            // poster. Blob objects are not in Storage. The poster can only be
+            // set here; the database doesn't let members change it later.
             let row = NewMediaItem(id: id, familyId: familyId, storagePath: path, kind: kind,
                                    width: metadata.width, height: metadata.height,
                                    durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt,
-                                   uploadedBy: me?.id, byteSize: bytes, contentType: signedType, fileStore: "blob")
-            try await supabase.from("media_items").insert(row).execute()
+                                   uploadedBy: me?.id, byteSize: bytes, contentType: signedType,
+                                   thumbnailPath: thumbnailPath, fileStore: "blob")
+            // Its own task, so Cancel can't land between the file and its row.
+            try await Task { () async throws -> Void in
+                _ = try await supabase.from("media_items").insert(row).execute()
+            }.value
+            if thumbnailPath != nil, let poster { MediaCache.shared.remember(poster, for: path) }
             return true
         } catch {
             if let uploadedPath {
-                _ = try? await mediaJSON("delete", ["pathname": uploadedPath])
+                // Its own task too: a cancelled batch would cancel the cleanup.
+                // The media service deletes the poster along with the file.
+                Task { _ = try? await self.mediaJSON("delete", ["pathname": uploadedPath]) }
             }
             report(error)
             return false
+        }
+    }
+
+    /// PUTs the poster with the ticket the media service signed for it.
+    /// Returns its pathname, or nil when there's no ticket or it failed.
+    private func putPoster(_ poster: Data?, ticket: [String: Any]?) async -> String? {
+        guard let poster, let ticket, let pathname = ticket["pathname"] as? String,
+              let urlString = ticket["upload_url"] as? String, let url = URL(string: urlString) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue((ticket["content_type"] as? String) ?? "image/jpeg", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+        do {
+            let reply = try await URLSession.shared.upload(for: request, from: poster)
+            let status = (reply.1 as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                print("OhanaOS poster upload: HTTP \(status)")
+                return nil
+            }
+            return pathname
+        } catch {
+            print("OhanaOS poster upload:", error)
+            return nil
         }
     }
 
@@ -1419,43 +1486,58 @@ final class FamilyStore {
     /// Blob files come from the media service. Rows still in Storage use a
     /// Storage signed URL.
     func signedURL(for item: MediaItem) async -> URL? {
+        await signedURL(path: item.storagePath, inBlob: item.inBlob, reportErrors: true)
+    }
+
+    /// The row's poster, a small JPEG; nil when it has none. Quiet on
+    /// failure: the grid then falls back to the file itself.
+    func posterURL(for item: MediaItem) async -> URL? {
+        guard let path = item.thumbnailPath, !path.isEmpty else { return nil }
+        return await signedURL(path: path, inBlob: item.inBlob, reportErrors: false)
+    }
+
+    private func signedURL(path: String, inBlob: Bool, reportErrors: Bool) async -> URL? {
         #if DEBUG
         // Demo images are drawn on the phone (DemoMedia); there is nothing to sign.
         if DemoMode.isOn { return nil }
         #endif
-        if let cached = signedURLs[item.storagePath], cached.expires > Date.now.addingTimeInterval(300) {
+        if let cached = signedURLs[path], cached.expires > Date.now.addingTimeInterval(300) {
             return cached.url
         }
-        if item.inBlob {
+        if inBlob {
             do {
-                let json = try await mediaJSON("urls", ["paths": [item.storagePath]])
+                let json = try await mediaJSON("urls", ["paths": [path]])
                 guard let urlString = (json["urls"] as? [String])?.first, let url = URL(string: urlString), !urlString.isEmpty else {
                     return nil
                 }
-                signedURLs[item.storagePath] = (url: url, expires: Date.now.addingTimeInterval(3600))
+                signedURLs[path] = (url: url, expires: Date.now.addingTimeInterval(3600))
                 return url
             } catch {
-                report(error)
+                if reportErrors { report(error) } else { print("OhanaOS media URL:", error) }
                 return nil
             }
         }
         guard let url = try? await supabase.storage.from(Config.mediaBucket)
-            .createSignedURL(path: item.storagePath, expiresIn: 3600) else { return nil }
-        signedURLs[item.storagePath] = (url: url, expires: Date.now.addingTimeInterval(3600))
+            .createSignedURL(path: path, expiresIn: 3600) else { return nil }
+        signedURLs[path] = (url: url, expires: Date.now.addingTimeInterval(3600))
         return url
     }
 
     /// Fills the URL cache for Blob rows, up to 200 paths per request (the
     /// media service's limit), so opening Media doesn't sign once per tile.
-    /// A failure is only logged: each tile then asks on its own and reports.
+    /// Posters for the grid, and files too, so the viewer opens without
+    /// another round trip. A failure is only logged: each tile then asks on
+    /// its own and reports.
     private func prefetchSignedURLs(for items: [MediaItem]) async {
         let soon = Date.now.addingTimeInterval(300)
         var paths: [String] = []
         var seen = Set<String>()
         for item in items where item.inBlob {
-            guard seen.insert(item.storagePath).inserted else { continue }
-            if let cached = signedURLs[item.storagePath], cached.expires > soon { continue }
-            paths.append(item.storagePath)
+            for path in [item.thumbnailPath, item.storagePath].compactMap({ $0 }) where !path.isEmpty {
+                guard seen.insert(path).inserted else { continue }
+                if let cached = signedURLs[path], cached.expires > soon { continue }
+                paths.append(path)
+            }
         }
         var start = 0
         while start < paths.count {
