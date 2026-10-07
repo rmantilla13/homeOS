@@ -149,10 +149,10 @@ to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
 policy), and `profiles.avatar_path` is set. The header and the photo buttons
 go by the photo that shows for you: yours, else the family's photo a parent
 set on your member row. **Remove photo** clears both in one write and one
-reload, so nothing else shows in between (the row is cleared even when the
-phone shows no family photo there, so a retry after a failure still reaches
-the server), and deletes the files it may (a kid can't delete files in the
-family's folder; those go with the family). Also
+reload, so nothing else shows in between. It clears both whatever the phone
+shows, so a retry after a failure, or a photo set on another device since
+the last reload, still goes; and it deletes the files it may (a kid can't
+delete files in the family's folder; those go with the family). Also
 shows your email, family and role; a family picker when you belong to more
 than one; **Manage family** (see Family management); the **Assistant** switch
 (see Assistant → AI consent); the Siri tip; **Privacy policy** and **Help and

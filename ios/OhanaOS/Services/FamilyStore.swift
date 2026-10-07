@@ -634,27 +634,29 @@ final class FamilyStore {
 
     /// Removes your photo: your profile photo, and the one a parent set on your
     /// member row, which would otherwise show in its place. Both go in one
-    /// write and one reload, so nothing else shows in between. The row is
-    /// cleared even when this phone shows no family photo there: a try that
-    /// failed offline, or another phone, may have left one on the server.
+    /// write and one reload, so nothing else shows in between. Both are
+    /// cleared whatever this phone shows: a try that failed offline, or
+    /// another device, may have left a photo on the server. Clearing an empty
+    /// one, or removing a file that isn't there, does nothing.
     @discardableResult
     func removeAvatar() async -> Bool {
         let me = self.me
         let familyPhoto = me?.avatarPath
         let uid = currentUserId
-        let profilePhoto = myProfile?.avatarPath
+        // uploadAvatar always writes here.
+        let profileFile = uid.map { myProfile?.avatarPath ?? "\($0.uuidString.lowercased())/avatar.jpg" }
         if let me, let i = members.firstIndex(where: { $0.id == me.id }) { members[i].avatarPath = nil }
         let ok = await perform {
             let clear: [String: AnyJSON] = ["avatar_path": .null]
             if let me {
                 try await supabase.from("members").update(clear).eq("id", value: me.id.uuidString).execute()
             }
-            if let uid, let profilePhoto {
+            if let uid, let profileFile {
                 try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
-                _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [profilePhoto])
+                _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [profileFile])
             }
         }
-        if let profilePhoto { AvatarCache.shared.forget(path: profilePhoto) }
+        if let profileFile { AvatarCache.shared.forget(path: profileFile) }
         if ok, let me, let familyPhoto { await removeMemberPhotoFile(familyPhoto, in: me.familyId) }
         if family == nil { await loadProfiles() }
         return ok
