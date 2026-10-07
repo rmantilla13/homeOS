@@ -10,8 +10,20 @@ Item {
     property int view: 1                  // 0 day, 1 week, 2 month
     property date focusDate: today()
     property var selectedMembers: ({})
+    // The day that was today when last checked. Past midnight the view moves
+    // on with it, unless someone had moved it to another day.
+    property string knownToday: ""
+    Component.onCompleted: knownToday = Store.today
+    Connections {
+        target: Store
+        function onTodayChanged() {
+            if (Qt.formatDate(cal.focusDate, "yyyy-MM-dd") === cal.knownToday)
+                cal.focusDate = cal.today()
+            cal.knownToday = Store.today
+        }
+    }
 
-    function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()) }
+    function today() { const p = Store.today.split("-"); return new Date(+p[0], p[1] - 1, +p[2]) }
     function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
     function weekStart(d) { return addDays(d, -((d.getDay() + 6) % 7)) }
     function step(dir) {
@@ -33,20 +45,18 @@ Item {
         return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
             + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":00"
     }
-    function roundUpHour(base) {
-        const d = new Date(base.getTime())
-        d.setMinutes(0, 0, 0)
-        if (base.getMinutes() > 0 || base.getSeconds() > 0)
-            d.setHours(d.getHours() + 1)
-        return d
+    // A new event starts on `day` at 9:00 or, if that's today, at the next
+    // whole hour: never before 9 AM, never past 11 PM.
+    function newEventStart(day, now) {
+        let hour = 9
+        if (day.getFullYear() === now.getFullYear() && day.getMonth() === now.getMonth()
+                && day.getDate() === now.getDate())
+            hour = Math.min(23, Math.max(9, now.getHours() + (now.getMinutes() > 0 || now.getSeconds() > 0 ? 1 : 0)))
+        return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0)
     }
     function openAdd() {
-        const day = cal.view === 2 ? cal.focusDate : (cal.visibleDays[0] || cal.today())
-        const base = new Date(day.getFullYear(), day.getMonth(), day.getDate())
-        const now = new Date()
-        const sameDay = base.getFullYear() === now.getFullYear()
-            && base.getMonth() === now.getMonth() && base.getDate() === now.getDate()
-        const start = sameDay ? roundUpHour(now) : new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9, 0, 0)
+        // The focus day is in every view's range: today, unless someone stepped away.
+        const start = newEventStart(cal.focusDate, new Date())
         eventTitle.text = ""
         eventPlace.text = ""
         eventAllDay = false

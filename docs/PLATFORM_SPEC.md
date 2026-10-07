@@ -45,13 +45,15 @@ Migrations are added after the existing ones, never edited in place:
 - `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
 - `20261010000001_account_deletion.sql`: `delete_my_account()`, deleting your
   own account from the iOS app (§1.11). Safe to run again
+- `20261010000002_recurrence.sql`: `rrule_occurs_on`, `rrule_days`,
+  `event_occurrences` and `chores_due` (§1.12). Safe to run again
 - `20261011000001_member_photos.sql`: `members.avatar_url` becomes
   `avatar_path`, kept in the family's folder by `members_avatar_guard`;
   `can_read_avatar` also reads family folders; `can_write_member_photo` (§1.7)
 - `20261011000002_storage_member_photos.sql`: the member photo policies on
   the `avatars` bucket (Supabase-only, like 000005)
 
-The last three were `20261008000001` to `20261008000003`. Two of those
+`20261009000002` to `20261009000004` were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
 keys migrations by version, so they moved after the others in the same order.
 They are safe to run again on a database where they were pasted into the SQL
@@ -489,6 +491,135 @@ Returns `{ families_deleted: uuid[], device_users: uuid[], auth_user_removed }`.
 `delete-account` function (§2.4) then deletes them through Auth. Calling it
 again after that is harmless.
 
+### 1.12 Repeats: events and chores
+
+`events.rrule` and `tasks.rrule` are worked out in one place, the database.
+The display, the iOS app and the assistant call these functions instead of
+reading RRULEs themselves. The two demo modes, which call no server, are the
+only exceptions: the display's, whose chores are all `FREQ=DAILY`, and the
+iOS app's (Debug builds only), whose chores repeat daily or weekly on named
+days.
+
+| Function | Returns |
+|---|---|
+| `rrule_occurs_on(rule text, dtstart date, day date, dtstart_is_instance boolean default true)` | `boolean`: whether `day` is an occurrence of the series anchored at the local date `dtstart`. Immutable, reads no tables. |
+| `rrule_days(rule text, dtstart date, from_day date, to_day date, dtstart_is_instance boolean default true)` | `setof date`: the occurrences in `[from_day, to_day]`, in order. Same rules as `rrule_occurs_on`, which is `exists (rrule_days(rule, dtstart, day, day, …))`. It parses the rule once per call, which is why `event_occurrences` uses it. |
+| `event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)` | `table(id uuid, family_id uuid, title text, description text, location text, starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text, created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz, member_ids uuid[])`, ordered by `starts_at`, then `all_day` desc, then `id` |
+| `chores_due(fid uuid, day date)` | `setof tasks`, ordered by `created_at` |
+
+All four can be executed by `authenticated` only. `event_occurrences` and
+`chores_due` are `stable` and security invoker, so RLS on `events`,
+`event_members`, `tasks`, `task_completions` and `families` applies:
+another family's id returns no rows.
+
+**`dtstart_is_instance`:** with `true` (events: the stored start really is
+the first instance, as in RFC 5545) `dtstart` always occurs, even when it
+doesn't match BYDAY and the like, and it counts toward COUNT. With `false`
+(chores: the anchor is only a creation or due date) just the days that
+match the pattern occur and count. Everything else is the same: a day before
+`dtstart` never occurs, and INTERVAL counts from dtstart's day, week, month
+or year.
+
+**Supported RRULE subset.** An optional leading `RRULE:`, then
+`;`-separated `KEY=VALUE` parts, case-insensitive, whitespace ignored.
+
+- No rule, a blank rule, or a missing or unknown `FREQ`: `dtstart` only.
+- `FREQ`: `DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`. `HOURLY`, `MINUTELY` and
+  `SECONDLY` count as every day (INTERVAL is ignored; the BY parts still
+  filter).
+- `INTERVAL` (default 1): DAILY, days since dtstart; WEEKLY, whole weeks
+  between the WKST-aligned week starts of dtstart and the day; MONTHLY,
+  months; YEARLY, years. The difference must be a multiple of INTERVAL.
+- `WKST` (default `MO`): only matters for WEEKLY with an INTERVAL.
+- `BYDAY`: `MO` to `SU`, optionally with a signed ordinal (`2TU`, `-1FR`,
+  `+1MO`). DAILY and WEEKLY: a list of weekdays, ordinals ignored; WEEKLY
+  without BYDAY uses dtstart's weekday. MONTHLY: a bare weekday is every
+  such day of the month, `n` the nth, `-n` the nth from the end. YEARLY: the
+  same, within the BYMONTH months (or dtstart's month).
+- `BYMONTHDAY`: day numbers, negative from the end of the month (`-1` is the
+  last day). MONTHLY and YEARLY with neither BYDAY nor BYMONTHDAY use
+  dtstart's day of the month and skip months without it (a series on the
+  31st skips 30-day months; Feb 29 happens only in leap years). With both
+  BYDAY and BYMONTHDAY a day must match both (`BYDAY=FR;BYMONTHDAY=13`).
+- `BYMONTH`: 1 to 12, a filter for any FREQ. YEARLY without BYMONTH stays in
+  dtstart's month.
+- `UNTIL`: `YYYYMMDD` or `YYYYMMDDTHHMMSS[Z]`. The date as written is the
+  last day that can occur; the time and `Z` are ignored.
+- `COUNT`: only the first COUNT occurrences, counted from dtstart. Counting
+  stops at the COUNTth, at the day asked about, or 200 years after dtstart
+  (later occurrences of a COUNT series don't happen).
+- Not supported, and ignored: `BYSETPOS`, `BYYEARDAY`, `BYWEEKNO`, `BYHOUR`,
+  `BYMINUTE`, `BYSECOND` and any other part. There are no EXDATE or RDATE
+  columns.
+- A bad value in a known part (`INTERVAL=abc`, `COUNT=0`, `UNTIL=20261340`,
+  `BYDAY=MO,XX`, `BYMONTH=13`) never raises; that part counts as absent. An
+  INTERVAL below 1 is 1.
+- A dtstart outside the years 1 to 9999, or an infinite one, has no days.
+  `rrule_days` raises `range can't be longer than 3660 days` when asked
+  about more days than that at once.
+
+Where this differs from RFC 5545: YEARLY with BYDAY or BYMONTHDAY but no
+BYMONTH stays in dtstart's month (RFC: the whole year), and UNTIL compares
+dates, so `UNTIL=20261020T000000Z` still includes Oct 20.
+
+**`event_occurrences`**
+
+- Raises `range_end must be after range_start` (also for a missing bound)
+  and `range can't be longer than 400 days`.
+- One row per occurrence that overlaps the window: `starts_at < range_end
+  and (ends_at > range_start or starts_at >= range_start)`, so a zero-length
+  event counts when it starts inside the window.
+- `id` is the stored event; updates, deletes and `event_members` use it.
+  `starts_at` and `ends_at` are this occurrence; `series_starts_at` and
+  `series_ends_at` are the stored row (what an edit changes). `member_ids` is
+  the event's `event_members` in the members' `sort_order`, `{}` when none.
+- A non-repeating event (null or blank `rrule`) is its stored row.
+- A repeating event is expanded in the family's time zone
+  (`families.timezone`; a zone Postgres doesn't know falls back to UTC). The
+  local date of the stored start is dtstart. Each local day `d` with
+  `rrule_occurs_on(rrule, dtstart, d, true)` gives an occurrence that starts
+  on `d` at the stored local start time and lasts the stored local
+  (wall-clock) length. A 4:30pm practice stays at 4:30pm across DST, an
+  all-day event that ends at 23:59:59 still ends at 23:59:59 on the day the
+  clocks change, and the first occurrence is exactly the stored row. An
+  occurrence that began before `range_start` and is still going is included
+  (looking back at most 800 days).
+- Local times the clocks skip or repeat follow RFC 5545: a repeat whose start
+  falls in the skipped hour starts when the clocks jump and keeps its length
+  (02:00–03:00 on the spring-forward day becomes 03:00–04:00), and a time
+  that happens twice is the first of the two (01:15 on the fall-back day is
+  01:15 daylight time).
+- A repeating event with an infinite `starts_at` or `ends_at` is left out
+  rather than failing the call.
+- Past one-off events are filtered out before the per-row RLS check, so the
+  cost follows the window and the repeating events, not the family's whole
+  history.
+
+**`chores_due`**
+
+- The family's non-archived chores that are due on `day`, a family-local
+  date. Raises `day is required`.
+- One-time chore (null or blank `rrule`): due once `due_date` is null or
+  `<= day`, until a completion with `for_date < day` that isn't `rejected`
+  exists. A finished chore still shows on the day it was done, then
+  disappears; a rejected try leaves it up.
+- Repeating chore: `rrule_occurs_on(rrule, coalesce(due_date, local date of
+  created_at), day, false)`. A weekends chore added on a Wednesday isn't due
+  that Wednesday. One with an infinite due date is never due.
+
+**Clients**
+
+- Display (live mode): `event_occurrences` over its calendar window, and
+  `chores_due(fid, today)` as today's chores.
+- iOS: `event_occurrences` from 45 days back to 120 days ahead, paged past
+  PostgREST's 1000-row cap. An occurrence is identified by `id` and
+  `starts_at`; editing one occurrence of a repeating event moves the whole
+  series by the same number of calendar days, to the edited local time,
+  keeping its local length. `chores_due(fid, today)` decides what's due
+  today.
+- Assistant: `event_occurrences` from a day ago to 14 days ahead, and
+  `chores_due` for the family's today.
+
 ---
 
 ## 2. Edge functions
@@ -902,7 +1033,9 @@ says which (`media service:`).
 - Posters: grid tiles use the poster (`tileUrl`, decoded at 480 px); a
   video shows its poster until its first frame, in the viewer and the screen
   saver; the viewer's blurred backdrop and `ColorSampler` use it too. Colors
-  are cached by `storage_path`; a failed sample is retried after 10 minutes.
+  are cached by `storage_path` (demo media, which has none, by its file
+  URL). A failed sample is retried after 10 minutes, or at once when the row
+  gets a different URL (signed again, or a poster at last).
 - `photos` and `media` notify on `mediaChanged`, sent only when the
   decorated list changes, so reloading other tables doesn't rebuild the
   grid.

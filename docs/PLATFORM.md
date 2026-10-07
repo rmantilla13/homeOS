@@ -418,8 +418,9 @@ server-side jobs. Called that way there's no `auth.uid()`, so the row's
 
 ## Applying these migrations
 
-Production already has the `20261006` and `20261007` migrations. Apply the
-new ones in order, and don't edit them in place:
+Production has the `20261006` and `20261007` migrations and items 1 to 9
+below (checked with `supabase migration list` on 2026-10-07); item 10 isn't
+applied yet. Apply the new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
 2. `backend/supabase/migrations/20261008000002_media_storage.sql`
@@ -431,11 +432,12 @@ new ones in order, and don't edit them in place:
 8. `backend/supabase/migrations/20261010000001_account_deletion.sql`, then
    `supabase functions deploy delete-account` and redeploy the admin app
    (`/api/account/delete`, `/privacy`, `/support`). Safe to run again.
-9. `backend/supabase/migrations/20261011000001_member_photos.sql` and
-   `20261011000002_storage_member_photos.sql`, then redeploy the `admin` and
-   `delete-account` functions, so deleting a family also empties its member
-   photos. An app build with member photos gets an error when saving one
-   until these are live; everything else keeps working.
+9. `backend/supabase/migrations/20261010000002_recurrence.sql`. Safe to run again.
+10. `backend/supabase/migrations/20261011000001_member_photos.sql` and
+    `20261011000002_storage_member_photos.sql`, then redeploy the `admin` and
+    `delete-account` functions, so deleting a family also empties its member
+    photos. An app build with member photos gets an error when saving one
+    until these are live; everything else keeps working.
 
 `supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
@@ -471,7 +473,8 @@ bills that object. New uploads go to Blob and send `byte_size`.
 `backend/tests/run.sh` starts a throwaway Postgres, applies every migration
 on top of a stand-in for Supabase Auth (`tests/stub_auth.sql`), and runs each
 `tests/*_test.sql` in a fresh copy of the database. The storage migrations
-run only for `storage_test`, which adds `tests/stub_storage.sql`. Run one
+run only for the tests in `supabase_tests` (`storage_test`, `boot_video_test`
+and `member_photos_test`), on top of `tests/stub_storage.sql`. Run one
 file with `run.sh invites`, and add `VERBOSE=1` to see its output.
 `concurrency_test` races two sessions for the same invite through `dblink`
 (Postgres contrib, part of the `postgresql-16` package); it's skipped when

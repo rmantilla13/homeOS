@@ -65,33 +65,81 @@ struct Device: Codable, Identifiable, Hashable {
 
 // MARK: Calendar
 
+/// One occurrence of an event, as `event_occurrences` returns it: a repeating
+/// event comes back once per repeat. `eventId` is the stored event (the whole
+/// series), which every write names; `id` tells the repeats apart for lists.
 struct FamilyEvent: Codable, Identifiable, Hashable {
-    let id: UUID
+    let eventId: UUID
     var familyId: UUID
     var title: String
+    var description: String?
     var location: String?
+    /// This occurrence's times.
     var startsAt: Date
     var endsAt: Date
     var allDay: Bool
     var color: String?
     var rrule: String?
-    var members: [EventMemberRef]?
+    /// The stored row's times, which an edit changes.
+    var seriesStartsAt: Date
+    var seriesEndsAt: Date
+    var memberIds: [UUID]
 
     enum CodingKeys: String, CodingKey {
-        case id, title, location, color, rrule
+        case title, description, location, color, rrule
+        case eventId = "id"
         case familyId = "family_id"
         case startsAt = "starts_at"
         case endsAt = "ends_at"
         case allDay = "all_day"
-        case members = "event_members"
+        case seriesStartsAt = "series_starts_at"
+        case seriesEndsAt = "series_ends_at"
+        case memberIds = "member_ids"
     }
 
-    var memberIds: [UUID] { (members ?? []).map(\.memberId) }
-}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        eventId = try c.decode(UUID.self, forKey: .eventId)
+        familyId = try c.decode(UUID.self, forKey: .familyId)
+        title = try c.decode(String.self, forKey: .title)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        location = try c.decodeIfPresent(String.self, forKey: .location)
+        startsAt = try c.decode(Date.self, forKey: .startsAt)
+        endsAt = try c.decode(Date.self, forKey: .endsAt)
+        allDay = try c.decode(Bool.self, forKey: .allDay)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        rrule = try c.decodeIfPresent(String.self, forKey: .rrule)
+        // An event that doesn't repeat is its own series.
+        seriesStartsAt = try c.decodeIfPresent(Date.self, forKey: .seriesStartsAt) ?? startsAt
+        seriesEndsAt = try c.decodeIfPresent(Date.self, forKey: .seriesEndsAt) ?? endsAt
+        memberIds = try c.decodeIfPresent([UUID].self, forKey: .memberIds) ?? []
+    }
 
-struct EventMemberRef: Codable, Hashable {
-    var memberId: UUID
-    enum CodingKeys: String, CodingKey { case memberId = "member_id" }
+    /// An occurrence made on the phone (demo mode). As in `init(from:)`, a
+    /// row with no series times is its own series.
+    init(eventId: UUID, familyId: UUID, title: String, description: String? = nil, location: String?,
+         startsAt: Date, endsAt: Date, allDay: Bool, color: String?, rrule: String?,
+         seriesStartsAt: Date? = nil, seriesEndsAt: Date? = nil, memberIds: [UUID]) {
+        self.eventId = eventId
+        self.familyId = familyId
+        self.title = title
+        self.description = description
+        self.location = location
+        self.startsAt = startsAt
+        self.endsAt = endsAt
+        self.allDay = allDay
+        self.color = color
+        self.rrule = rrule
+        self.seriesStartsAt = seriesStartsAt ?? startsAt
+        self.seriesEndsAt = seriesEndsAt ?? endsAt
+        self.memberIds = memberIds
+    }
+
+    /// The series plus this start, so each repeat is its own row in a ForEach.
+    var id: String { "\(eventId.uuidString)|\(startsAt.timeIntervalSince1970)" }
+
+    /// Blank rules don't repeat, as on the server.
+    var isRecurring: Bool { !(rrule ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
 struct NewEvent: Encodable {

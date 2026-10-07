@@ -6,6 +6,8 @@ import HomeOS.Core
 
 // Today's chores, one column per person. Kids tap a chore to mark it done.
 // Plus adds a chore (points always need a parent's OK from the wall).
+// A try a parent turned down stays that way until a parent undoes it on the
+// phone; tapping it says so.
 Item {
     id: tasksScreen
     readonly property var people: Store.members.filter(m => m.tasksTotal > 0)
@@ -127,11 +129,13 @@ Item {
                             readonly property string status: modelData.status
                             readonly property bool done: modelData.status === "done"
                             readonly property bool pending: modelData.status === "pending"
+                            readonly property bool rejected: modelData.status === "rejected"
 
                             width: ListView.view.width
                             height: 112
                             radius: 20
-                            color: done ? Qt.rgba(0.24, 0.75, 0.48, 0.18) : pending ? Qt.rgba(0.96, 0.65, 0.14, 0.18) : Theme.surfaceAlt
+                            color: done ? Qt.rgba(0.24, 0.75, 0.48, 0.18) : pending ? Qt.rgba(0.96, 0.65, 0.14, 0.18)
+                                 : rejected ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.14) : Theme.surfaceAlt
                             scale: tap.pressed ? 0.97 : 1
                             Behavior on scale { NumberAnimation { duration: Theme.quick } }
                             Behavior on color { ColorAnimation { duration: Theme.quick } }
@@ -156,10 +160,18 @@ Item {
                                         elide: Text.ElideRight
                                     }
                                     Label {
-                                        text: taskCard.pending ? qsTr("Waiting for a parent to OK")
+                                        // Narrow columns: wrap rather than run under the ring.
+                                        width: parent.width
+                                        visible: text.length > 0
+                                        text: taskCard.pending ? qsTr("Waiting for OK")
+                                              : taskCard.rejected ? qsTr("Not OK'd · ask a parent")
                                               : taskCard.modelData.points > 0 ? "+" + taskCard.modelData.points + " ★" : ""
-                                        color: taskCard.pending ? Theme.warning : Theme.textMuted
+                                        color: taskCard.pending ? Theme.warningInk : taskCard.rejected ? Theme.danger : Theme.textMuted
                                         font.pixelSize: Theme.fontXs
+                                        font.weight: taskCard.rejected ? Font.DemiBold : Font.Normal
+                                        wrapMode: Text.WordWrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
                                     }
                                 }
                                 Rectangle {
@@ -167,7 +179,7 @@ Item {
                                     width: 56; height: 56; radius: 28
                                     color: taskCard.done ? Theme.success : taskCard.pending ? Theme.warning : "transparent"
                                     border.width: taskCard.done || taskCard.pending ? 0 : 4
-                                    border.color: Theme.divider
+                                    border.color: taskCard.rejected ? Theme.danger : Theme.divider
                                     Behavior on color { ColorAnimation { duration: Theme.quick } }
                                     Icon {
                                         anchors.centerIn: parent
@@ -185,6 +197,14 @@ Item {
                                         strokeWidth: 2.4
                                         color: "white"
                                     }
+                                    Icon {
+                                        anchors.centerIn: parent
+                                        visible: taskCard.rejected
+                                        name: "close"
+                                        size: 24
+                                        strokeWidth: 3
+                                        color: Theme.danger
+                                    }
                                     // Little celebration when a chore is ticked off.
                                     SequentialAnimation {
                                         id: pop
@@ -200,6 +220,7 @@ Item {
                             TapHandler {
                                 id: tap
                                 enabled: !taskCard.done && !taskCard.pending
+                                // Turned down: the store explains instead of ticking it.
                                 onTapped: Store.completeTask(taskCard.modelData.id, column.member.id)
                             }
                         }
