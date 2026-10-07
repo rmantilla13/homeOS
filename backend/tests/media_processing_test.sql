@@ -105,10 +105,10 @@ select tests.throws(format($$select media_job_finish(%L, 1, %L, 1000)$$, :'v1', 
   'the copy must be %', 'the copy must be this video''s -wall.mp4');
 select tests.throws(format($$select media_job_finish(%L, 1, %L, 1000)$$, :'v1', :'fam' || '/' || :'v1' || '.mp4'),
   'the copy must be %', 'not some other name');
-select tests.throws(format($$select media_job_finish(%L, 1, %L, 500000001)$$, :'v1', :'fam' || '/' || :'v1' || '-wall.mp4'),
-  'the copy must be smaller than the original', 'a copy bigger than the original is refused');
+select tests.throws(format($$select media_job_finish(%L, 1, %L, 501048577)$$, :'v1', :'fam' || '/' || :'v1' || '-wall.mp4'),
+  'the copy can''t be bigger than the original', 'a copy more than 1 MiB bigger than the original is refused');
 select tests.throws(format($$select media_job_finish(%L, 1, %L, 0)$$, :'v1', :'fam' || '/' || :'v1' || '-wall.mp4'),
-  'the copy must be smaller than the original', 'an empty copy is refused');
+  'the copy can''t be bigger than the original', 'an empty copy is refused');
 select tests.throws(format($$select media_job_finish(%L, 1, %L, 1000, null, null, %L)$$,
   :'v1', :'fam' || '/' || :'v1' || '-wall.mp4', :'fam' || '/' || :'v2' || '-thumb.jpg'),
   'the poster must be %', 'the poster must be this video''s');

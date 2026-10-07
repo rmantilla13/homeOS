@@ -157,7 +157,8 @@ end $$;
 -- A job finished. p_path null: the file already plays well on the wall, so
 -- the row stays on it. Otherwise the row moves to the copy at
 -- `<family_id>/<id>-wall.mp4`, whose size (from Blob, not the worker) can't
--- be more than the original's. A poster is added only when the row has none.
+-- be more than the original's, give or take 1 MiB. A poster is added only
+-- when the row has none.
 -- An attempt that is no longer the running one is refused.
 create or replace function public.media_job_finish(
   p_media_id uuid,
@@ -207,9 +208,10 @@ begin
   if p_path = m.storage_path then
     raise exception 'the row is already on that copy';
   end if;
+  -- A copy with only its index moved first can come out a few KB bigger.
   select s.media_max_bytes into max_bytes from public.platform_settings s;
-  if p_bytes is null or p_bytes < 1 or p_bytes > coalesce(m.byte_size, max_bytes) then
-    raise exception 'the copy must be smaller than the original';
+  if p_bytes is null or p_bytes < 1 or p_bytes > coalesce(m.byte_size, max_bytes) + 1048576 then
+    raise exception 'the copy can''t be bigger than the original';
   end if;
 
   update public.media_items x
