@@ -15,17 +15,35 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .family: return "person.2.fill"
         }
     }
+
+    /// The tabs beside the calendar when it has its own pane.
+    static let besideCalendar: [AppTab] = allCases.filter { $0 != .calendar }
+}
+
+private struct CalendarIsBesideKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True when the calendar is on screen in its own pane (the iPhone Duo open),
+    /// so links that would open the Calendar tab aren't needed.
+    var calendarIsBeside: Bool {
+        get { self[CalendarIsBesideKey.self] }
+        set { self[CalendarIsBesideKey.self] = newValue }
+    }
 }
 
 /// Floating capsule tab bar; the selected tab is an accent pill that slides between tabs.
 struct FloatingTabBar: View {
     @Binding var selection: AppTab
+    var tabs: [AppTab] = AppTab.allCases
     @Namespace private var namespace
     @Environment(\.mood) private var mood
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(AppTab.allCases) { tab in
+            ForEach(tabs) { tab in
                 let selected = tab == selection
                 Button {
                     withAnimation(Theme.springy) { selection = tab }
@@ -62,6 +80,8 @@ struct FloatingTabBar: View {
         .padding(6)
         .background(Theme.surface, in: Capsule())
         .shadow(color: .black.opacity(0.10), radius: 20, y: 8)
+        // Phone-sized on the iPhone Duo's inner display, not stretched across it.
+        .frame(maxWidth: sizeClass == .regular ? 520 : nil)
         .padding(.horizontal, 16)
         .sensoryFeedback(.selection, trigger: selection)
     }

@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(FamilyStore.self) private var store
     @Binding var selectedTab: AppTab
+    @Environment(\.calendarIsBeside) private var calendarIsBeside
     @State private var launch: AssistantLaunch?
     /// A suggestion waiting for the person to allow the AI assistant.
     @State private var consentLaunch: AssistantLaunch?
@@ -24,6 +25,7 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, Theme.page)
                 .padding(.bottom, 24)
+                .readableColumn()
                 .animation(Theme.springy, value: store.pendingCompletions)
             }
             .screenBackground()
@@ -140,8 +142,10 @@ struct HomeView: View {
         let events = store.upcomingEvents(limit: 4)
         return VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Your upcoming activities") {
-                Button("See all") { withAnimation(Theme.springy) { selectedTab = .calendar } }
-                    .font(.subheadline.weight(.semibold))
+                if !calendarIsBeside {
+                    Button("See all") { withAnimation(Theme.springy) { selectedTab = .calendar } }
+                        .font(.subheadline.weight(.semibold))
+                }
             }
             if events.isEmpty {
                 EmptyCard(text: "Nothing on the calendar yet", systemImage: "calendar")

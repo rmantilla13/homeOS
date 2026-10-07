@@ -42,6 +42,7 @@ struct FamilyView: View {
                 }
                 .padding(.horizontal, Theme.page)
                 .padding(.bottom, 24)
+                .readableColumn()
                 .animation(Theme.springy, value: store.memories)
                 .animation(Theme.springy, value: store.lists)
                 .animation(Theme.springy, value: store.members)

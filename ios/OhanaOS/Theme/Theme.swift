@@ -21,6 +21,9 @@ enum Theme {
     static let radius: CGFloat = 28
     static let radiusSm: CGFloat = 18
     static let page: CGFloat = 20
+    /// Widest a single column of cards gets on a regular-width screen (the
+    /// iPhone Duo's inner display), so lines and cards stay phone-sized.
+    static let readableWidth: CGFloat = 680
 
     static let springy = Animation.spring(response: 0.38, dampingFraction: 0.75)
     static let bouncy = Animation.spring(response: 0.42, dampingFraction: 0.55)
@@ -199,6 +202,27 @@ extension View {
     /// The screen canvas behind scroll views.
     func screenBackground() -> some View {
         background(Theme.background.ignoresSafeArea())
+    }
+
+    /// Caps a page's column at `width` and centers it when the width is
+    /// regular (the iPhone Duo open). A compact-width iPhone is unchanged.
+    func readableColumn(_ width: CGFloat = Theme.readableWidth) -> some View {
+        modifier(ReadableColumn(width: width))
+    }
+}
+
+struct ReadableColumn: ViewModifier {
+    var width: CGFloat
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    func body(content: Content) -> some View {
+        if sizeClass == .regular {
+            content
+                .frame(maxWidth: width)
+                .frame(maxWidth: .infinity)
+        } else {
+            content
+        }
     }
 }
 
