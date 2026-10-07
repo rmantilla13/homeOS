@@ -166,7 +166,7 @@ Item {
                                         text: taskCard.pending ? qsTr("Waiting for OK")
                                               : taskCard.rejected ? qsTr("Not OK'd · ask a parent")
                                               : taskCard.modelData.points > 0 ? "+" + taskCard.modelData.points + " ★" : ""
-                                        color: taskCard.pending ? Theme.warning : taskCard.rejected ? Theme.danger : Theme.textMuted
+                                        color: taskCard.pending ? Theme.warningInk : taskCard.rejected ? Theme.danger : Theme.textMuted
                                         font.pixelSize: Theme.fontXs
                                         font.weight: taskCard.rejected ? Font.DemiBold : Font.Normal
                                         wrapMode: Text.WordWrap

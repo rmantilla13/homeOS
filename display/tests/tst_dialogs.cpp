@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <algorithm>
+
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -36,15 +38,19 @@ private:
 static const char *kScene = R"(
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import HomeOS
 
 Window {
+    id: window
     width: 1280
     height: 800
     property alias dialog: dialog
     property alias field: field
     property alias layer: layer
     property int keyTaps: 0
+    // More body than fits in the window.
+    property real extraBody: 0
 
     // Declared in a screen, as the app's are.
     Item {
@@ -53,6 +59,7 @@ Window {
             id: dialog
             titleText: "New event"
             FormField { id: field }
+            Item { visible: window.extraBody > 0; Layout.preferredHeight: window.extraBody }
         }
     }
     Layer {
@@ -78,6 +85,23 @@ class TestDialogs : public QObject
 
     QObject *child(const char *name) const { return m_window->property(name).value<QObject *>(); }
     bool isOpen(const char *name) const { return child(name)->property("opened").toBool(); }
+    // The dialog's scrolling body (FocusFlickable).
+    QQuickItem *body() const
+    {
+        const auto items = child("dialog")->property("contentItem").value<QQuickItem *>()->findChildren<QQuickItem *>();
+        for (QQuickItem *item : items)
+            if (item->inherits("QQuickFlickable"))
+                return item;
+        return nullptr;
+    }
+    // Its edge fades, top then bottom: over the body, not scrolled with it.
+    QList<QQuickItem *> fades() const
+    {
+        QList<QQuickItem *> out = body()->childItems();
+        out.removeOne(body()->property("contentItem").value<QQuickItem *>());
+        std::sort(out.begin(), out.end(), [](QQuickItem *a, QQuickItem *b) { return a->y() < b->y(); });
+        return out;
+    }
     void open(const char *name)
     {
         QVERIFY(QMetaObject::invokeMethod(child(name), "open"));
@@ -149,6 +173,37 @@ private slots:
         QCOMPARE(height, dialog->property("implicitHeight").toReal());
         QVERIFY(height > 100);
         QCOMPARE(dialog->property("y").toReal(), qreal(qRound((800 - height) / 2)));
+        // Nothing more to scroll to, so no edge fades.
+        QCOMPARE(fades().size(), 2);
+        QCOMPARE(fades()[0]->opacity(), 0.0);
+        QCOMPARE(fades()[1]->opacity(), 0.0);
+    }
+
+    // A body taller than the room scrolls, and an edge fades where there's
+    // more to scroll to that way.
+    void bodyFadesWhereThereIsMore()
+    {
+        m_window->setProperty("extraBody", 1200);
+        open("dialog");
+        QQuickItem *flick = body();
+        QVERIFY(flick);
+        QTRY_VERIFY(flick->property("contentHeight").toReal() > flick->height() + 300);
+        QCOMPARE(fades().size(), 2);
+        QQuickItem *top = fades()[0];
+        QQuickItem *bottom = fades()[1];
+        QCOMPARE(top->y(), 0.0);
+        QCOMPARE(bottom->y() + bottom->height(), flick->height());
+        QTRY_COMPARE(bottom->opacity(), 1.0);
+        QCOMPARE(top->opacity(), 0.0);
+
+        flick->setProperty("contentY", flick->property("contentHeight").toReal() - flick->height());
+        QTRY_COMPARE(top->opacity(), 1.0);
+        QTRY_COMPARE(bottom->opacity(), 0.0);
+        QCOMPARE(top->y(), 0.0);
+
+        flick->setProperty("contentY", 300);
+        QTRY_COMPARE(top->opacity(), 1.0);
+        QTRY_COMPARE(bottom->opacity(), 1.0);
     }
 };
 

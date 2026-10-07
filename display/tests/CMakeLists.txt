@@ -90,3 +90,18 @@ target_compile_definitions(tst_dialogs PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_CURR
 target_link_libraries(tst_dialogs PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
 add_test(NAME tst_dialogs COMMAND tst_dialogs)
 set_tests_properties(tst_dialogs PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The calendar's New event dialog (CalendarScreen.qml): the day and time it
+# starts on in each view, and its steppers.
+homeos_test_qml_module(${CMAKE_CURRENT_BINARY_DIR}/qml-calendar
+    Theme.qml components/Icon.qml components/IconButton.qml components/PillButton.qml
+    components/Tag.qml components/SegmentedControl.qml components/MemberAvatar.qml
+    components/TimeGrid.qml components/MonthGrid.qml components/Toggle.qml
+    components/FormField.qml components/FocusFlickable.qml components/FormDialog.qml
+    screens/CalendarScreen.qml)
+qt_add_executable(tst_calendar tst_calendar.cpp)
+target_compile_options(tst_calendar PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_calendar PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/qml-calendar")
+target_link_libraries(tst_calendar PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+add_test(NAME tst_calendar COMMAND tst_calendar)
+set_tests_properties(tst_calendar PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
