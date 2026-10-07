@@ -342,8 +342,8 @@ void Assistant::streamChunks(int generation, const QStringList &chunks, int next
 QString Assistant::demoAnswer(const QString &question, QVariantList *actions)
 {
     const QString q = question.toLower();
-    const QString today = QDate::currentDate().toString(Qt::ISODate);
-    const QString tomorrow = QDate::currentDate().addDays(1).toString(Qt::ISODate);
+    const QString today = m_store->today();
+    const QString tomorrow = m_store->todayDate().addDays(1).toString(Qt::ISODate);
 
     // "add eggs to the grocery list", "put bread on the list"
     static const QRegularExpression addToList(

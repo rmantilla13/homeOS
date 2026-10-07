@@ -51,7 +51,7 @@ Item {
                 model: grid.days
                 delegate: Item {
                     required property var modelData
-                    readonly property bool today: grid.iso(modelData) === grid.iso(grid.now)
+                    readonly property bool today: grid.iso(modelData) === Store.today
                     width: grid.columnWidth
                     height: 56
                     Rectangle {
@@ -72,13 +72,18 @@ Item {
                 }
             }
         }
-        Row {
+        // All-day events under their day. Placed by index: a Row would skip
+        // the days without any (no height) and shift the rest to the left.
+        Item {
             Layout.fillWidth: true
             Layout.leftMargin: grid.labelWidth
+            Layout.preferredHeight: childrenRect.height
             Repeater {
                 model: grid.days
                 delegate: Column {
                     required property var modelData
+                    required property int index
+                    x: index * grid.columnWidth
                     width: grid.columnWidth
                     spacing: 4
                     Repeater {

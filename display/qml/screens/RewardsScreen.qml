@@ -173,6 +173,14 @@ Item {
         width: 720
         padding: 40
         background: Rectangle { radius: Theme.radius; color: Theme.surface }
+        // Like every dialog and sheet, it closes when the display goes idle.
+        Connections {
+            target: Device
+            function onIdleChanged() {
+                if (Device.idle)
+                    confirm.close()
+            }
+        }
         contentItem: ColumnLayout {
             spacing: 24
             Label {

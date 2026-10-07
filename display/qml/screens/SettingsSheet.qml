@@ -6,22 +6,21 @@ import HomeOS.Core
 
 // Display settings, from the gear in the nav rail: screen saver, dark mode,
 // sleep, voice, Wi-Fi, speaker volume, restart, about this display, and
-// re-pairing.
+// re-pairing. The pairing screen opens it on the Wi-Fi page; until the display
+// is paired the family and re-pairing parts stay hidden.
 Popup {
     id: sheet
     modal: true
-    // Lift the sheet while the Wi-Fi password keyboard is open.
+    // While the Wi-Fi password keyboard is up, the sheet fits in the room
+    // above it and scrolls the field into view.
+    readonly property real keyboardHeight: Qt.inputMethod.visible ? Qt.inputMethod.keyboardRectangle.height : 0
+    readonly property real room: (parent ? parent.height : 800) - keyboardHeight - 48
     x: parent ? Math.round((parent.width - width) / 2) : 0
-    y: {
-        if (!parent)
-            return 0
-        var top = (parent.height - height) / 2
-        if (passwordFocused)
-            top -= parent.height * 0.22
-        return Math.max(16, Math.round(top))
-    }
+    y: Math.round(24 + (room - height) / 2)
+    Behavior on y { enabled: sheet.opened; NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     width: Math.min(parent ? parent.width - 64 : 1100, 1100)
-    height: Math.min(parent ? parent.height - 48 : 760, content.implicitHeight + topPadding + bottomPadding)
+    height: Math.min(room, content.implicitHeight + topPadding + bottomPadding)
+    Behavior on height { enabled: sheet.opened; NumberAnimation { duration: Theme.smooth; easing.type: Easing.OutCubic } }
     padding: Theme.compact ? 28 : 36
     closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
 
@@ -29,13 +28,11 @@ Popup {
     property bool confirmingRepair: false
     property string confirmingPower: ""   // "" | restart | reboot
     property string joinSsid: ""
-    property bool passwordFocused: false
     onOpened: System.refresh()
     onClosed: {
         confirmingRepair = false
         confirmingPower = ""
         joinSsid = ""
-        passwordFocused = false
         page = "main"
         Qt.inputMethod.hide()
     }
@@ -44,6 +41,20 @@ Popup {
             System.scanWifi()
         else
             joinSsid = ""
+    }
+    function openWifi() {
+        page = "wifi"
+        open()
+    }
+    readonly property bool paired: Store.mode !== "pairing"
+
+    // Like every dialog and sheet, it closes when the display goes idle.
+    Connections {
+        target: Device
+        function onIdleChanged() {
+            if (Device.idle)
+                sheet.close()
+        }
     }
 
     enter: Transition {
@@ -193,12 +204,8 @@ Popup {
         }
     }
 
-    contentItem: Flickable {
-        clip: true
-        contentWidth: width
+    contentItem: FocusFlickable {
         contentHeight: content.implicitHeight
-        interactive: contentHeight > height
-        boundsBehavior: Flickable.StopAtBounds
 
         ColumnLayout {
             id: content
@@ -513,7 +520,7 @@ Popup {
                             anchors.rightMargin: 20
                             spacing: 0
                             Fact { name: qsTr("Mode"); value: sheet.modeLabel }
-                            Fact { name: qsTr("Family"); value: Store.familyName || "—" }
+                            Fact { visible: sheet.paired; name: qsTr("Family"); value: Store.familyName || "—" }
                             Fact {
                                 name: qsTr("Wi-Fi")
                                 value: !System.wifiAvailable ? qsTr("Unavailable")
@@ -644,8 +651,9 @@ Popup {
                         }
                     }
 
-                    SectionLabel { Layout.topMargin: 12; text: qsTr("PAIRING") }
+                    SectionLabel { visible: sheet.paired; Layout.topMargin: 12; text: qsTr("PAIRING") }
                     Rectangle {
+                        visible: sheet.paired
                         Layout.fillWidth: true
                         Layout.preferredHeight: repair.implicitHeight + 36
                         radius: 24
@@ -774,7 +782,6 @@ Popup {
                                 background: null
                                 echoMode: TextInput.Password
                                 inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
-                                onActiveFocusChanged: sheet.passwordFocused = activeFocus
                                 onAccepted: System.connectWifi(sheet.joinSsid, text, false)
                             }
                         }

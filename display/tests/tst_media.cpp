@@ -30,6 +30,7 @@ class TestMedia : public QObject
     int m_blobDelayMs = 0;
     bool m_oldAdmin = false;  // /api/media/urls answers "" for posters
     QSet<QString> m_missing;  // Storage objects that don't exist
+    QSet<QString> m_broken;   // Blob files whose download fails
 
     struct Rig
     {
@@ -153,6 +154,7 @@ private slots:
         m_signStatus = 200;
         m_blobDelayMs = 0;
         m_oldAdmin = false;
+        m_broken.clear();
         defaultRows();
 
         m_server.route("/auth/v1/token", [](const Request &) {
@@ -173,7 +175,12 @@ private slots:
             }
             return FakeServer::json(QJsonDocument(QJsonObject{{"urls", urls}}), 200, m_blobDelayMs);
         });
-        m_server.route("/blob/", [this](const Request &) { return FakeServer::Reply{200, "image/jpeg", m_pictureBytes, 0}; });
+        m_server.route("/blob/", [this](const Request &r) {
+            const QString path = QString::fromUtf8(r.pathOnly());
+            if (m_broken.contains(path.mid(path.indexOf(m_family))))
+                return FakeServer::json("{\"error\":\"Couldn't read\"}", 500);
+            return FakeServer::Reply{200, "image/jpeg", m_pictureBytes, 0};
+        });
         // Storage: POST signs, GET downloads.
         m_server.route("/storage/v1/object/sign/family-media", [this](const Request &r) {
             if (r.method == "GET")
@@ -331,6 +338,69 @@ private slots:
         got = downloads();
         got.sort();
         QCOMPARE(got, want);
+    }
+
+    // A color that failed waits a while before its URL is fetched again, but
+    // a new URL for it (signed again, or a poster at last) is tried at once.
+    void failedColorTriedAgainWithNewUrl()
+    {
+        m_broken = {poster("p1")};
+        auto rig = started();
+        const QString tint = ColorSampler::representative(QImage::fromData(m_pictureBytes)).name();
+        QCOMPARE(downloads().count(poster("p1")), 1);
+        QCOMPARE(item(rig->store, "p1").value("tint").toString(), QStringLiteral("#5b7cf5")); // the fallback
+        QCOMPARE(item(rig->store, "p2").value("tint").toString(), tint);
+
+        // The same URL isn't fetched again on every refresh, even once it would work.
+        m_broken.clear();
+        for (int i = 0; i < 2; ++i)
+            refreshAndSettle(rig->store);
+        QCOMPARE(downloads().count(poster("p1")), 1);
+        QCOMPARE(item(rig->store, "p1").value("tint").toString(), QStringLiteral("#5b7cf5"));
+
+        // Signed again: the new URL is tried right away. Colors that worked
+        // stay cached under their path, whatever the URL.
+        rig->store.setUrlRefreshAfterMs(0);
+        refreshAndSettle(rig->store);
+        QVERIFY(item(rig->store, "p1").value("tileUrl").toString().endsWith("?sig=2"));
+        QCOMPARE(downloads().count(poster("p1")), 2);
+        QCOMPARE(item(rig->store, "p1").value("tint").toString(), tint);
+        QCOMPARE(downloads().count(poster("p2")), 1);
+    }
+
+    // Only rows the display hasn't seen are signed. A row that leaves the
+    // list takes its URLs along, and is signed again if it comes back.
+    void onlyNewRowsAreSigned()
+    {
+        auto rig = started();
+        const QString p2Url = item(rig->store, "p2").value("url").toString();
+
+        m_rows.prepend(row("s4", "photo", "storage", false, 0));
+        refreshAndSettle(rig->store);
+        QCOMPARE(storageSignPosts().size(), 2);
+        QCOMPARE(storageSignPosts().last().body.value("paths").toArray(), QJsonArray{file("s4", "jpg")});
+        QCOMPARE(blobSignPosts().size(), 1);
+        QVERIFY(item(rig->store, "s4").value("url").toString().endsWith("?token=2"));
+        QCOMPARE(item(rig->store, "p2").value("url").toString(), p2Url);
+
+        QJsonValue p1;
+        for (qsizetype i = 0; i < m_rows.size(); ++i) {
+            if (m_rows.at(i).toObject().value("id").toString() == "p1") {
+                p1 = m_rows.takeAt(i);
+                break;
+            }
+        }
+        QVERIFY(p1.isObject());
+        refreshAndSettle(rig->store);
+        QVERIFY(item(rig->store, "p1").isEmpty());
+        QCOMPARE(blobSignPosts().size(), 1);
+
+        m_rows.prepend(p1);
+        refreshAndSettle(rig->store);
+        QCOMPARE(blobSignPosts().size(), 2);
+        QCOMPARE(blobSignPosts().last().body.value("paths").toArray(), (QJsonArray{file("p1", "jpg"), poster("p1")}));
+        QVERIFY(item(rig->store, "p1").value("url").toString().endsWith("?sig=2"));
+        QCOMPARE(item(rig->store, "p2").value("url").toString(), p2Url);
     }
 
     void legacyRowsUnchanged()

@@ -195,7 +195,8 @@ QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
 QT_QPA_EGLFS_HIDECURSOR=1
 QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 QT_IM_MODULE=qtvirtualkeyboard
-# Keyboard layout, date and time formats (Raspberry Pi OS defaults to en_GB).
+# Date and time formats (Raspberry Pi OS defaults to en_GB). The on-screen
+# keyboard is US English either way.
 LANG=en_US.UTF-8
 # 1.5 suits the 10.1" 1920x1200 panel; use 1.0 for ~21" 1080p screens.
 QT_SCALE_FACTOR=1.5

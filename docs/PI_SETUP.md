@@ -231,6 +231,33 @@ also install voice together with the display:
 `./display/deploy/install-pi.sh --with-voice` (add `--skip-models` to fetch the
 models later). Details and voice troubleshooting: [VOICE.md](VOICE.md).
 
+## On-screen keyboard
+
+Tapping a text field brings up a keyboard laid out like an iPad's in
+landscape: letters with `.?123` and `#+=` pages for numbers and symbols, a
+shift key (tap twice for caps lock) and a key that hides it. It follows the
+gear menu's **Dark mode** and the night colors. Dialogs move up to sit above
+it, and the photo frame still covers it. The keyboard is US English only.
+
+It's the Qt Virtual Keyboard (`QT_IM_MODULE=qtvirtualkeyboard` in
+`display.env`), with its look and keys in the app:
+
+- `display/qml/keyboard/style.qml`: colors (light and dark), key gaps,
+  corner radius, font sizes, the symbols drawn on delete, shift and hide, and
+  the height (`keyboardDesignWidth` and `keyboardDesignHeight`: 1280 × 310
+  gives a 310 px tall keyboard on the 1280 px wide screen).
+- `display/qml/keyboard/layouts/en_US/`: the keys. `main.qml` is the letters,
+  `symbols.qml` the `.?123` and `#+=` pages, and `digits.qml`, `numbers.qml`
+  and `dialpad.qml` the number pads for fields that ask for numbers. Widths
+  are in letter keys (`unit`); hold a letter for the accents in its
+  `alternativeKeys`.
+- `display/qml/components/KeyboardPanel.qml` picks the style (`homeos`), the
+  layouts and the language.
+
+After a change, run `./display/deploy/install-pi.sh` again to rebuild. To try
+it on a computer, run the app with `QT_IM_MODULE=qtvirtualkeyboard`. Start it
+with `--no-keyboard` to leave the keyboard out.
+
 ## Video decoding
 
 On Raspberry Pi OS Trixie, Qt plays video through FFmpeg. HEVC, which the
@@ -398,7 +425,7 @@ journalctl -u homeos-display -b --no-pager
 | Sleep turns the screen off at the wrong time | Bedtime and wake-up follow the Pi's clock. Check the time zone (next row). |
 | Wrong time | `timedatectl` should say `System clock synchronized: yes` (it needs the internet). Set the zone with `sudo timedatectl set-timezone America/New_York` (or yours). |
 | Everything too big or too small | Change `QT_SCALE_FACTOR` in `display.env`: 1.5 for this screen, 1.25 for a little more room. |
-| Wrong keyboard layout or date format | Set `LANG` in `display.env`, for example `en_US.UTF-8`. |
+| Wrong date format | Set `LANG` in `display.env`, for example `en_US.UTF-8`. The on-screen keyboard is US English either way (see [On-screen keyboard](#on-screen-keyboard)). |
 
 ## Try it without a Pi
 

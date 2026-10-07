@@ -88,8 +88,8 @@ your **Profile**.
 |---|---|
 | **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask Ohana anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
 | **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. Before a person's first question goes out, the app asks for permission (see Assistant → AI consent). |
-| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. The **+** button adds an event. |
-| **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
+| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. A repeating event shows on every day it repeats, and editing or deleting one repeat changes them all. The **+** button adds an event. |
+| **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). Parents can unfold **Other chores** at the bottom: the ones not due today (another day's repeat, or a rule that has run out), with their repeat and who they're for; long-press one to remove it. **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
 | **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. While they upload, a banner shows which item is going, what it is doing and a **Cancel** button. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
 | **Family** | Members (tap to edit; parents can add one), invites (parents), lists (tap through to add, check off and clear items), meals for the next 7 days (tap a day to set breakfast, lunch and dinner), family memory (add a fact; parents can remove one), paired wall displays and **Pair a display** (parents), and Profile / Leave family. |
 
@@ -290,8 +290,12 @@ The family is The Rivera Family. Sofia, the signed-in parent, and Marco both
 have logins. Maya (9) has a login and Leo (6) doesn't. Every date is relative
 to today: this week's school pickups, soccer, piano, a dentist visit, a
 birthday party, family dinner and an all-day apple-picking trip, plus the
-weeks around it. Today's chores are partly done, with one waiting for a
-parent's OK. There are rewards and balances with one redemption to hand out,
+weeks around it. The pickups, piano and soccer are repeating events, one
+row per repeat, as `event_occurrences` returns them. Today's chores are
+partly done, with one waiting for a parent's OK. Demo mode doesn't call
+`chores_due`: the phone works out which chores are up from their own rules
+(`demoDueTaskIds`, daily or weekly on named days), which puts every one of
+them on today. There are rewards and balances with one redemption to hand out,
 a grocery list, dinners for the next 7 days, family memory, a paired display,
 invites, two assistant chats (the open one is on the Assistant screen), and
 14 photos and 2 videos. The pictures are drawn in code and go into the same
@@ -635,11 +639,26 @@ profile screens reuse the glow header, pills and cards.
   family column, so it's filtered through its list
   (`lists!inner(family_id)`). The newest 500 items load, so a long history of
   checked-off items can't hide new ones.
-- Events load from 45 days back to 120 days ahead. Recurring events (`rrule`)
-  aren't expanded yet; only the first occurrence shows.
-- Chores count as due today from a simple read of their RRULE: `FREQ=DAILY`, or
-  `FREQ=WEEKLY;BYDAY=…`. A one-time chore stays up until it's done. Completions
-  use the phone's local date for `for_date`.
+- Events come from `event_occurrences(fid, range_start, range_end)`, 45 days
+  back to 120 days ahead. The server expands repeating events in the family's
+  time zone and returns one row per repeat, so a weekly practice shows every
+  week. PostgREST stops a response at 1000 rows, so the app reads the window a
+  page at a time (`.range`) until a page comes back short.
+  `FamilyEvent.eventId` is the stored event, and every write names it; `id`
+  (event plus start) only tells the repeats apart on screen. Editing a repeat
+  moves the whole series: its stored start goes as many calendar days as that
+  repeat did, at the new time of day, and keeps the new length, so a date moved
+  across a DST change keeps its local time and an all-day series stays at
+  midnight. Deleting one removes every repeat, past and future.
+- Chores due today come from `chores_due(fid, day)` with the phone's local
+  date. The server follows each repeating chore's rule from its due date (or
+  the day it was added); a one-time chore stays up until it's done. Only
+  today's are loaded, so on a new day the app reloads when it comes to the
+  foreground, at the significant time change (midnight), or when the network
+  comes back (`NWPathMonitor`). Until that load gets through, nothing counts as
+  due, and Home and Chores say "Today's chores haven't loaded yet" instead of
+  "No chores today". Parents find the chores that aren't due today under
+  **Other chores**. Completions use the phone's local date for `for_date`.
 - A parent marking a chore done inserts the completion and then calls
   `review_completion(approve: true)`. A rejected completion from earlier the
   same day is deleted first, because of the unique key on (task, member, date).
@@ -778,10 +797,16 @@ if CI breaks: `FunctionsError.httpError` in `FamilyStore.message(for:)`,
 `auth.currentSession` plus `try await auth.session` with `catch is URLError`
 in `FamilyStore.start()`, `auth.currentSession` in `completeAuthCallback`, the
 `lists!inner(family_id)` filter on `list_items` in `refresh()`, and
-`if case .error = event` at the end of `AssistantClient.stream`. Demo mode
-(`Services/DemoData.swift` and its `#if DEBUG` hooks) has not been compiled
-or run yet. Check first: `nonisolated private static func mood(at:)` in
-`MoodProvider`, `await DemoMedia.fullImage(for:)` in `MediaPage`, and that
+`if case .error = event` at the end of `AssistantClient.stream`. Added with
+server-side repeats: `.range(from:to:)` after `rpc(_:params:)` in
+`FamilyStore.eventOccurrences` (2.55.3 defines it on
+`PostgrestTransformBuilder`, which `rpc`'s `PostgrestFilterBuilder`
+inherits), and the `NWPathMonitor` feeding an `AsyncStream<Void>` in
+`App/OhanaOSApp.swift`. Demo mode (`Services/DemoData.swift` and its
+`#if DEBUG` hooks) has not been compiled or run yet. Check first:
+`nonisolated private static func mood(at:)` in `MoodProvider`,
+`await DemoMedia.fullImage(for:)` in `MediaPage`, the local `Series` struct
+in `DemoFamily` and the `FamilyEvent(eventId:…)` initializer, and that
 `-OhanaScreen assistant` opens the chat over Home. The AI consent gate
 (`AIConsentSheet`, `FamilyStore.hasAIConsent`, the check in
 `AskOhanaOSIntent.perform`) has not been compiled either. The riskiest
@@ -818,12 +843,12 @@ have not run on an iPhone yet. Calls to check first if CI breaks:
 `PhotosPicker(...preferredItemEncoding: .current)`
 (`Views/MediaView.swift:71`); `track.load` with three keys and
 `format.extensions[.transferFunction]?.propertyListRepresentation`
-(`Services/MediaTools.swift:329`–`:336`);
-`AVMutableVideoComposition.videoComposition(withPropertiesOf:)` (`:467`);
-`metadataItemFilter = .forSharing()` (`:522`); `await session.export()`
-with `cancelExport()` in a cancellation handler (`:535`); and
+(`Services/MediaTools.swift:338`–`:344`);
+`AVMutableVideoComposition.videoComposition(withPropertiesOf:)` (`:476`);
+`metadataItemFilter = .forSharing()` (`:531`); `await session.export()`
+with `cancelExport()` in a cancellation handler (`:544`); and
 `URLSession.upload(for:from:delegate:)` and `upload(for:fromFile:delegate:)`
-(`Services/FamilyStore.swift:998` and `:1018`). On a device, try a 4K60 HDR
+(`Services/FamilyStore.swift:1274` and `:1294`). On a device, try a 4K60 HDR
 portrait clip, a 1080p SDR clip, a Slo-Mo clip, an H.264 clip, photos,
 Cancel during an export, and leaving Ohana during an export. The debug line
 for each video shows whether the HEVC preset writes 8-bit, the size of a
@@ -833,6 +858,5 @@ portrait clip, and the bitrate.
 
 - Realtime subscriptions for live updates while the app is open.
 - Sign in with Apple.
-- RRULE expansion for recurring events.
 - Scanning the pairing QR code with `DataScannerViewController`.
 - A unit-test target (SSE parsing, invite code formatting) once CI runs tests.
