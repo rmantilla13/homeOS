@@ -1,51 +1,104 @@
 import QtQuick
 import HomeOS
 import HomeOS.Core
+import "Picks.js" as Picks
 
-// A mosaic of family photos: one large tile and four small ones. Every few
-// seconds a random tile cross-fades to a photo that isn't already showing.
+// A mosaic of family photos, each cropped to fill its tile. The screen saver
+// gives it the next layout each time it starts (classic, grid, mosaic, trio,
+// columns); with fewer photos than tiles it takes a smaller one, so no tile
+// is empty or shows a photo twice. Portrait photos go to tall tiles where
+// there's a choice. Every few seconds one tile cross-fades to a photo that
+// isn't showing and hasn't been for a minute, so photos don't hop between
+// tiles.
 Item {
     id: collage
+    property string layoutName: "classic"
     property int interval: 4000
+    property int restMs: 60000
     readonly property var shown: slots.length ? slots[0].current : null
 
     readonly property real gap: 12
-    readonly property real cellW: (width - gap * 5) / 4
-    readonly property real cellH: (height - gap * 3) / 2
-    // Slot rectangles in a 4x2 grid; the first spans 2x2.
-    readonly property var layout: [
-        { c: 0, r: 0, w: 2, h: 2 },
-        { c: 2, r: 0, w: 1, h: 1 }, { c: 3, r: 0, w: 1, h: 1 },
-        { c: 2, r: 1, w: 1, h: 1 }, { c: 3, r: 1, w: 1, h: 1 }
-    ]
+    property var layout: null
     property var slots: []
-    property int nextPhoto: 0
+    // Key -> when the photo left the screen (ms).
+    property var seen: ({})
+    property int lastTile: -1
 
-    function photoAt(i) { return Store.photos.length ? Store.photos[i % Store.photos.length] : null }
-    function showing(url) { return slots.some(s => s.current && s.current.url === url) }
+    function keys() { return slots.map(s => Picks.keyOf(s.current)) }
+    function aspectOf(index) {
+        // Before the first layout pass the size can still be 0: assume the panel.
+        return Picks.tileAspect(layout, layout.tiles[index], width > 0 ? width : 1280, height > 0 ? height : 800, gap)
+    }
 
-    Component.onCompleted: {
+    // Lays the tiles out for the photos there are and fills each one.
+    function fill() {
+        for (const s of slots)
+            s.destroy()
+        const photos = Store.photos
+        layout = Picks.layout(layoutName, photos.length)
+        lastTile = -1
         const made = []
-        for (let i = 0; i < layout.length; ++i) {
-            const s = tile.createObject(collage, { spec: layout[i] })
-            s.swap(photoAt(nextPhoto++))
+        const now = Date.now()
+        for (let i = 0; layout && i < layout.tiles.length; ++i) {
+            const photo = Picks.pick(photos, aspectOf(i), made.map(s => Picks.keyOf(s.current)), seen, now, restMs)
+            const s = tile.createObject(collage, { spec: layout.tiles[i] })
+            s.swap(photo)
             made.push(s)
         }
         slots = made
     }
 
-    Timer {
-        interval: collage.interval
-        running: Store.photos.length > collage.layout.length
-        repeat: true
-        onTriggered: {
-            // Pick a tile (the big one less often) and the next photo not on screen.
-            const i = Math.random() < 0.2 ? 0 : 1 + Math.floor(Math.random() * (collage.slots.length - 1))
-            let p = collage.photoAt(collage.nextPhoto++)
-            for (let guard = 0; p && collage.showing(p.url) && guard < Store.photos.length; ++guard)
-                p = collage.photoAt(collage.nextPhoto++)
-            collage.slots[i].swap(p)
+    // One tile takes a photo that isn't showing; nothing changes when no
+    // photo may go there yet.
+    function step() {
+        if (!layout || !slots.length)
+            return
+        const i = Picks.chooseTile(layout.tiles, lastTile, Math.random())
+        const now = Date.now()
+        const photo = Picks.pick(Store.photos, aspectOf(i), keys(), seen, now, restMs)
+        if (!photo)
+            return
+        const leaving = Picks.keyOf(slots[i].current)
+        if (leaving)
+            seen[leaving] = now
+        slots[i].swap(photo)
+        lastTile = i
+    }
+
+    // New or deleted photos: lay out again when the count calls for another
+    // layout, else replace only photos that are gone. A URL signed again
+    // keeps the photo (and its loaded image) where it is.
+    function refresh() {
+        const photos = Store.photos
+        const wanted = Picks.layout(layoutName, photos.length)
+        if (!wanted || !layout || wanted.name !== layout.name) {
+            fill()
+            return
         }
+        const present = photos.map(p => Picks.keyOf(p))
+        const now = Date.now()
+        for (let i = 0; i < slots.length; ++i) {
+            if (present.indexOf(Picks.keyOf(slots[i].current)) >= 0)
+                continue
+            const photo = Picks.pick(photos, aspectOf(i), keys(), seen, now, 0)
+            if (photo)
+                slots[i].swap(photo)
+        }
+    }
+
+    // After the screen saver has set layoutName.
+    Component.onCompleted: Qt.callLater(fill)
+    Connections {
+        target: Store
+        function onMediaChanged() { collage.refresh() }
+    }
+
+    Timer {
+        objectName: "collageTimer"
+        interval: collage.interval
+        running: collage.slots.length > 0 && Store.photos.length > collage.slots.length
+        repeat: true
+        onTriggered: collage.step()
     }
 
     Component {
@@ -57,10 +110,15 @@ Item {
             property bool showA: true
             // The first fill paints immediately. Later swaps keep the slow crossfade.
             property bool crossfade: false
-            x: collage.gap + spec.c * (collage.cellW + collage.gap)
-            y: collage.gap + spec.r * (collage.cellH + collage.gap)
-            width: spec.w * collage.cellW + (spec.w - 1) * collage.gap
-            height: spec.h * collage.cellH + (spec.h - 1) * collage.gap
+            // A layout replaced meanwhile (this tile is about to go) still has a size.
+            readonly property int cols: collage.layout ? collage.layout.cols : 1
+            readonly property int rows: collage.layout ? collage.layout.rows : 1
+            readonly property real cellW: (collage.width - collage.gap * (cols + 1)) / cols
+            readonly property real cellH: (collage.height - collage.gap * (rows + 1)) / rows
+            x: collage.gap + spec.c * (cellW + collage.gap)
+            y: collage.gap + spec.r * (cellH + collage.gap)
+            width: spec.w * cellW + (spec.w - 1) * collage.gap
+            height: spec.h * cellH + (spec.h - 1) * collage.gap
 
             function swap(photo) {
                 current = photo

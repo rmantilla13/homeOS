@@ -58,6 +58,11 @@ public:
     // Origin of the admin app that signs private photo and video URLs.
     // Empty means Blob files have no playback URL. Rows still in Supabase play.
     void setMediaApiUrl(const QString &url);
+    // The media service the phones upload through: `configured` when it is
+    // an http(s) URL with a real host, else https://ohanaos.co, the iOS
+    // app's default. An empty value or the display.env example placeholder
+    // would leave every new photo and video without a URL.
+    static QString mediaApiUrlOrDefault(const QString &configured);
     // How long a signed media URL is reused, and when it is dropped even if
     // signing it again fails. Both shorten URLs already signed (for tests).
     void setUrlRefreshAfterMs(qint64 ms);

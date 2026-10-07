@@ -244,7 +244,7 @@ void DisplayController::applyBacklight()
 
 void DisplayController::setScreensaver(const QString &style)
 {
-    static const QStringList styles{"photos", "collage", "video"};
+    static const QStringList styles{"photos", "collage", "frame", "memories", "video", "clock", "today"};
     if (!styles.contains(style) || style == m_screensaver)
         return;
     m_screensaver = style;
