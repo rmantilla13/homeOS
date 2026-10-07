@@ -181,7 +181,7 @@ A Python service on the Pi, next to the display. It needs a USB microphone
 Qt 6 with QML for the UI and C++ for data, networking and hardware.
 
 ```
-QML screens  ─ Home · Calendar · Tasks · Rewards · Media · Planner · screen savers
+QML screens  ─ Home · Calendar · Tasks · Rewards · Media · Planner · Games · screen savers
              ─ AssistantPanel · QuickAnswer · SettingsSheet
      │
 FamilyStore  ─ demo / pairing / live modes; exposes display-ready rows to QML

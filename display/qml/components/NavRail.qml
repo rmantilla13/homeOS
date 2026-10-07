@@ -17,7 +17,8 @@ Rectangle {
         { icon: "chores",   label: qsTr("Chores") },
         { icon: "star",     label: qsTr("Rewards") },
         { icon: "photo",    label: qsTr("Media") },
-        { icon: "meals",    label: qsTr("Meals") }
+        { icon: "meals",    label: qsTr("Meals") },
+        { icon: "games",    label: qsTr("Games") }
     ]
 
     color: Theme.surface
@@ -52,7 +53,8 @@ Rectangle {
 
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: Theme.compact ? 80 : 96
-                Layout.preferredHeight: Theme.compact ? 80 : 92
+                // Seven items and the two buttons fit the 800 px compact panel.
+                Layout.preferredHeight: Theme.compact ? 76 : 92
                 radius: 26
                 color: "transparent"
                 scale: navTap.pressed ? 0.94 : 1
