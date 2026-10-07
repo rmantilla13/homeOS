@@ -16,6 +16,12 @@ const nextConfig: NextConfig = {
     ];
   },
   poweredByHeader: false,
+  // The routes that start a wall-copy job read worker.mjs and write it into
+  // the sandbox (lib/media/processing.ts), so it has to ship with them.
+  outputFileTracingIncludes: {
+    "/api/media/process": ["./lib/media/worker.mjs"],
+    "/api/media/process/sweep": ["./lib/media/worker.mjs"],
+  },
 };
 
 export default nextConfig;

@@ -220,7 +220,9 @@ async function runJob(dir, source, { poster = true } = {}) {
     const jobFile = path.join(jobDir, "job.json");
     await writeFile(jobFile, JSON.stringify({
       media_id: "11111111-1111-4111-8111-111111111111",
+      family_id: "00000000-0000-4000-8000-00000000f001",
       attempt: 1,
+      sandbox: "ohana-video-test",
       token: "t0ken",
       source_url: `${origin}/source`,
       source_ext: path.extname(source).slice(1),
@@ -269,6 +271,8 @@ test("a whole job: a 4K60 HDR clip in, a wall copy and a poster out", { skip: no
     assert.equal(report.plan, "transcode");
     assert.equal(report.token, "t0ken");
     assert.equal(report.attempt, 1);
+    assert.equal(report.family_id, "00000000-0000-4000-8000-00000000f001");
+    assert.equal(report.sandbox, "ohana-video-test");
     assert.equal(report.poster, true);
     assert.equal(report.width, 1920);
     assert.equal(report.height, 1080);

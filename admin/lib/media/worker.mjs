@@ -451,8 +451,16 @@ export async function prepare(tools, source, extension, workDir) {
 
 export async function runJob(job, workDir) {
   const started = Date.now();
+  // The token covers these four, so the admin app knows which job and sandbox this is.
   const report = (result) =>
-    postJson(job.callback_url, { media_id: job.media_id, attempt: job.attempt, token: job.token, ...result });
+    postJson(job.callback_url, {
+      media_id: job.media_id,
+      family_id: job.family_id,
+      attempt: job.attempt,
+      sandbox: job.sandbox,
+      token: job.token,
+      ...result,
+    });
   try {
     const tools = await ensureFfmpeg(workDir);
     const extension = String(job.source_ext || "mov").toLowerCase();

@@ -20,6 +20,7 @@
     "@supabase/supabase-js": "^2.117.2",
     "@vercel/blob": "^2.8.1",
     "@vercel/oidc": "^4.0.0",
+    "@vercel/sandbox": "^3.5.1",
     "jose": "^6.2.12",
     "next": "16.3.8",
     "react": "19.3.0",
