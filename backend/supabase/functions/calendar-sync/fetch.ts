@@ -1,7 +1,10 @@
 // Fetching a calendar link a parent pasted. The function runs on the
 // server, so a link must not reach the server's own network: only http(s)
 // on public hosts, redirects checked the same way, a time limit and a size
-// cap. webcal:// (what "Subscribe" buttons hand out) is https.
+// cap. webcal:// (what "Subscribe" buttons hand out) is https. Hosts are
+// checked as written (names and IP literals); a public name that resolves
+// to a private address isn't caught here, so the runtime's own network
+// rules are the backstop.
 
 import { CalendarError } from "./rows.ts";
 

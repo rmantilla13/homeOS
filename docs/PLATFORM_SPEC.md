@@ -52,6 +52,8 @@ Migrations are added after the existing ones, never edited in place:
   `can_read_avatar` also reads family folders; `can_write_member_photo` (§1.7)
 - `20261011000002_storage_member_photos.sql`: the member photo policies on
   the `avatars` bucket (Supabase-only, like 000005)
+- `20261012000001_calendar_sync.sql`: connected calendars and the shared
+  family calendar link (§1.13); `event_occurrences` gains `source_id` (§1.12)
 
 `20261009000002` to `20261009000004` were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -504,7 +506,7 @@ days.
 |---|---|
 | `rrule_occurs_on(rule text, dtstart date, day date, dtstart_is_instance boolean default true)` | `boolean`: whether `day` is an occurrence of the series anchored at the local date `dtstart`. Immutable, reads no tables. |
 | `rrule_days(rule text, dtstart date, from_day date, to_day date, dtstart_is_instance boolean default true)` | `setof date`: the occurrences in `[from_day, to_day]`, in order. Same rules as `rrule_occurs_on`, which is `exists (rrule_days(rule, dtstart, day, day, …))`. It parses the rule once per call, which is why `event_occurrences` uses it. |
-| `event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)` | `table(id uuid, family_id uuid, title text, description text, location text, starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text, created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz, member_ids uuid[])`, ordered by `starts_at`, then `all_day` desc, then `id` |
+| `event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)` | `table(id uuid, family_id uuid, title text, description text, location text, starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text, created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz, member_ids uuid[], source_id uuid)`, ordered by `starts_at`, then `all_day` desc, then `id`. `source_id` (20261012000001) is the connected calendar an imported event came from, null for the family's own |
 | `chores_due(fid uuid, day date)` | `setof tasks`, ordered by `created_at` |
 
 All four can be executed by `authenticated` only. `event_occurrences` and
@@ -619,6 +621,91 @@ dates, so `UNTIL=20261020T000000Z` still includes Oct 20.
   today.
 - Assistant: `event_occurrences` from a day ago to 14 days ahead, and
   `chores_due` for the family's today.
+
+### 1.13 Connected calendars
+
+Events come in from other calendars, and the family's own go out as a link.
+`calendar-sync` (§2.5) does the fetching; the database stores, guards and
+expands.
+
+```
+public.calendar_accounts (            -- a Google account a parent connected for the family
+  id uuid pk, family_id uuid not null → families on delete cascade,
+  provider text not null default 'google' check (provider in ('google')),
+  email text not null default '',
+  needs_reconnect boolean not null default false,   -- Google refused the refresh token
+  created_by uuid not null → auth.users on delete cascade,
+  created_at, updated_at, unique (family_id, provider, email))
+public.calendar_account_tokens (account_id uuid pk → calendar_accounts on delete cascade,
+  refresh_token text not null, access_token text, access_token_expires_at timestamptz, updated_at)
+public.calendar_sources (             -- one calendar whose events are copied in
+  id uuid pk, family_id uuid not null → families on delete cascade,
+  provider text not null check (provider in ('ics','google')),
+  account_id uuid → calendar_accounts on delete cascade, google_calendar_id text,
+  url_host text,                      -- a link's host, for telling links apart
+  name text not null (1–100 characters after trimming),
+  color text (#RRGGBB),               -- null: the person's color
+  member_id uuid → members on delete set null,   -- who the events are for; null is everyone
+  busy_only boolean not null default false,
+  enabled boolean not null default true,
+  last_attempt_at, last_synced_at timestamptz, last_error text, event_count int not null default 0,
+  created_by uuid → auth.users on delete set null, created_at, updated_at,
+  unique (account_id, google_calendar_id))
+public.calendar_source_links (source_id uuid pk → calendar_sources on delete cascade, url text not null (≤ 2048))
+public.calendar_feeds (family_id uuid pk → families on delete cascade, token text not null unique,
+  created_by uuid → auth.users on delete set null, created_at)
+events.source_id uuid → calendar_sources on delete cascade
+```
+
+A `google` source has `account_id` and `google_calendar_id`; an `ics` source
+has neither (`calendar_sources_provider_fields`). `events` loses the unused
+`unique (family_id, external_source, external_id)` and gains
+`events_source_external unique (source_id, external_id)`; an imported row
+has `external_source` = the provider and `external_id` = the occurrence's
+uid (`events_source_has_id`).
+
+**Who sees what (RLS)**
+
+| Table | Read | Write |
+|---|---|---|
+| `calendar_sources` | anyone in the family, displays included | parents update and delete; no client insert |
+| `calendar_accounts` | parents | none (calendar-sync adds and disconnects) |
+| `calendar_account_tokens`, `calendar_source_links` | service role only (privileges revoked too) | service role |
+| `calendar_feeds` | parents | parents delete; `calendar_feed_token` creates |
+
+**Guards**
+
+- `events_source_guard` (before insert, update or delete on `events`), for
+  callers running as `authenticated` or `anon`: an imported row can't be
+  changed or deleted (`this event comes from a connected calendar; change it
+  there`), and no row can be inserted or updated with a `source_id` (`only
+  calendar sync can add events from a connected calendar`). The service role,
+  security-definer functions and cascades (removing a calendar, a member or a
+  family) pass.
+- `event_members_source_guard`: the same for the people on an imported event.
+- `calendar_sources_guard`: a client may change only `name`, `color`,
+  `member_id`, `busy_only` and `enabled` (`only a calendar's name, color,
+  person, privacy and on/off can be changed`); `member_id` must be in the
+  family (`that person isn't in this family`), `account_id` the family's
+  (`that account isn't in this family`). Names are trimmed. Turning a
+  calendar off sets `event_count` to 0.
+- `calendar_sources_apply` (after update, security definer): off deletes the
+  calendar's events; a new color, person or `busy_only = true` applies to
+  the events already there (titles become `Busy`, no description or
+  location). Turning it on again, or `busy_only` off, waits for a sync.
+- `members_calendar_cleanup` (after update of `user_id` or delete on
+  `members`): a parent's Google accounts in that family go when their member
+  row loses its login (leaving, account deletion) or is deleted. Deleting the
+  login itself cascades too.
+- `family_last_activity` ignores imported events.
+
+**Functions**
+
+| Function | Who | Does |
+|---|---|---|
+| `calendar_apply_sync(source uuid, rows jsonb)` | service role | Replaces the calendar's events with `rows`, a JSON array (at most 5000, else `too many events (at most 5000)`) of `{uid, title, description, location, starts_at, ends_at, all_day}`, one per occurrence. Rows without a uid (or one over 1024 characters), a finite start and end, or that end before they start are dropped, and a repeated uid keeps the first. Title, description and location are clipped to 500, 4000 and 500 characters; a blank title is `Untitled event`; `busy_only` makes them `Busy`, null, null. Changed rows are updated in place (ids stay; unchanged rows aren't written), missing ones deleted, and every event is linked to the calendar's person only. Stamps `last_attempt_at`, `last_synced_at`, clears `last_error`, sets `event_count`. A calendar turned off while syncing ends up empty. Raises `calendar not found`, `this family is suspended`, `rows must be a JSON array`. Returns `{added, updated, removed, event_count}`. |
+| `calendar_claim_due(lim int default 20, min_age_seconds int default 900, only_family uuid default null, only_source uuid default null)` | service role | Stamps `last_attempt_at = now()` on, and returns, up to `lim` (at most 200) enabled calendars of active families not tried in the last `min_age_seconds`, least recently tried first, skipping rows another run has locked. |
+| `calendar_feed_token(family uuid, rotate boolean default false)` | `authenticated`, a parent of an active family (`only a parent can share the family calendar`) | The family's feed token, made on first use: 24 random bytes as URL-safe base64 (32 characters). `rotate` replaces it. |
 
 ---
 
@@ -780,6 +867,84 @@ caller, 502 `your data is deleted, but your login couldn't be removed yet;
 try again in a moment` with `families_deleted`. A file or display cleanup
 failure is logged and doesn't fail the request. `verify_jwt = false`, like
 the other functions.
+
+### 2.5 `calendar-sync`
+
+Connected calendars in (Google, calendar links) and the family calendar out.
+`verify_jwt = false`: it also answers Google's redirect and calendar apps,
+which carry no Supabase token.
+
+**`POST`, with a person's or display's JWT.** Body `{ action, ... }`; uuids
+are matched case-insensitively.
+
+| `action` | Params | Who | Effect |
+|---|---|---|---|
+| `add_link` | `family_id`, `url`, `name?` (≤ 100), `color?` (`#RRGGBB`), `member_id?`, `busy_only?` | parent | `webcal://`/`webcals://` become `https://`; only http(s) to a public host (no `localhost`, `.local`, `.internal`, private, loopback, link-local or CGNAT addresses, no user or password in the link). Fetched (20 s, at most 5 redirects, each checked the same way, at most 5 MB) and parsed before anything is saved. 409 `That calendar is already connected.` for the same link in the family. Saves the source (`url_host`, the name given, else the calendar's `X-WR-CALNAME`, else the host) and the link, then applies the rows. `{ source_id, name, event_count }`, plus `sync_error` when the first apply failed. |
+| `google_start` | `family_id` | parent | `{ url }`: Google's consent page for `openid email https://www.googleapis.com/auth/calendar.readonly`, offline access, `prompt=consent`, and a `state` signed with HMAC-SHA256 (keyed from the service role key) naming the family and the person, valid 15 minutes. 503 `Google Calendar isn't set up on this server yet.` without `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. |
+| `google_calendars` | `account_id` | parent (RLS on `calendar_accounts`) | `{ email, calendars: [{ id, name, color, primary, added }] }`: the account's readable, unhidden calendars, primary first, then by name; `color` is Google's as `#RRGGBB`; `added` when the family already has it. |
+| `add_google` | `account_id`, `calendar_id`, `name?`, `color?`, `member_id?`, `busy_only?` | parent | The calendar must be in the account's list (404 `That calendar isn't in this Google account.`); 409 when it's already connected. Color: the one given, else none when a person is given, else Google's. Syncs it. Same answer as `add_link`. |
+| `disconnect_google` | `account_id` | parent | Revokes the refresh token at Google (best effort) and deletes the account, its calendars and their events. `{ ok, revoked }`. |
+| `sync` | `family_id` or `source_id` (one of them), `force?` | anyone in the family, displays included | Claims (`calendar_claim_due`, up to 20) the family's calendars, or the one, not tried in the last 600 s (30 s with `force`), and syncs them: one in this request, several in one request each (below). `{ results: [{ source_id, ok: true, added, updated, removed, event_count } | { source_id, ok: false, error }] }`; an empty list means everything was fresh. 404 `calendar not found` for a calendar the caller can't see. |
+
+**`POST` with `Authorization: Bearer <CALENDAR_CRON_SECRET>`** (at least 16
+characters; set in the function's secrets): only `{ "action": "sync_due" }`,
+which claims up to 50 calendars not tried in 14 minutes and syncs them,
+5 at a time, starting none after 100 s. `{ synced, failed }`. pg_cron calls
+it every 15 minutes (PLATFORM.md).
+
+**`POST` with the service role key**: only `{ "action": "sync_source",
+source_id }`, the function calling itself. Edge functions get about 2 s of
+CPU per request, so `sync_due` and a family `sync` hand each calendar to
+its own request.
+
+**Syncing one calendar.** The window is 60 days back to 365 days ahead; at
+most 5000 occurrences go to `calendar_apply_sync`, the nearest to now.
+
+- *Links:* parsed with ical.js. Repeats are expanded with EXDATE, RDATE and
+  RECURRENCE-ID (moved or cancelled repeats); an old series without COUNT
+  starts from just before the window. Times use the file's VTIMEZONEs, else
+  a TZID the runtime knows, else (and for floating times) the family's zone.
+  All-day events span local midnight to 23:59:59 of their last day in the
+  family's zone. `STATUS:CANCELLED` is left out; `CLASS:PRIVATE` or
+  `CONFIDENTIAL` comes in as `Busy`. An occurrence's uid is the event's UID,
+  plus `/` and the original start (UTC, `20261026T233000Z`, or the date for
+  an all-day series) for a repeat. A calendar that takes more than 1.2 s to
+  read fails with `That calendar is too big to sync. Try a link to a smaller
+  calendar.`
+- *Google:* `events.list` with `singleEvents=true` (Google expands repeats),
+  up to 10 pages of 2500. Cancelled events and `workingLocation` /
+  `focusTime` blocks are left out; `private` and `confidential` visibility
+  come in as `Busy`. The uid is Google's event id. The access token is
+  refreshed when under a minute is left. `invalid_grant`, a 401 or
+  `insufficientPermissions` set `needs_reconnect`.
+- A failure keeps the calendar's events and sets `last_error` to a sentence
+  a parent can act on (`That calendar link doesn't exist anymore.`,
+  `The calendar link needs a sign-in. Use a public or secret link instead.`,
+  `That link didn't return a calendar.`, `Google needs you to connect this
+  account again.`, …); anything unexpected is `Something went wrong syncing
+  this calendar. Ohana will try again soon.` and is logged.
+
+**`GET …/calendar-sync/google/callback?code&state`** (the OAuth client's
+redirect URI; `GOOGLE_REDIRECT_URI` overrides
+`<SUPABASE_URL>/functions/v1/calendar-sync/google/callback`). Checks the
+state, exchanges the code, requires the calendar scope (else revokes and
+says so), reads the email from the ID token, checks the person is still a
+parent of the active family, upserts the account (`needs_reconnect =
+false`, `created_by` the person) and its tokens (keeping the stored refresh
+token when Google sends none), and marks its calendars due. Always answers
+302 to `CALENDAR_APP_REDIRECT` (default `ohanaos://google-calendar`) with
+`account_id` and `email`, or `error`: `Google sign-in was cancelled.`,
+`That sign-in took too long. Try connecting again.`, `Ohana needs
+permission to see your calendars. Try again and allow it.`, `Only a parent
+can connect calendars.`, …
+
+**`GET` or `HEAD …/calendar-sync/feed/<token>.ics`** (`.ics` optional): the
+family's own events (`source_id` null) from `event_occurrences`, 30 days back
+to 365 ahead, as `text/calendar` (`Cache-Control: private, max-age=300`).
+Each occurrence is its own VEVENT in UTC; all-day events are dates. UID
+`<event id>@ohanaos`, or `<event id>-<local date>@ohanaos` for a repeat;
+`DESCRIPTION` adds `For: <names>`. `X-WR-CALNAME` is the family's name. 404
+for an unknown token or a suspended family.
 
 ---
 
@@ -1010,6 +1175,11 @@ the toast "Voice needs the Ohana voice service (see docs/VOICE.md)"; if the
 service has no speech-to-text (`hello.stt` false, e.g. no mic), show "Voice
 needs a microphone (see docs/VOICE.md)".
 
+**Connected calendars:** while live, the display calls `calendar-sync`
+`{ action: "sync", family_id }` at most every 15 minutes (with each load),
+and reloads when a result added, updated or removed events. Imported events
+come through `event_occurrences` like any other.
+
 **Check-in:** while live, the display sets `last_seen_at` on its own
 `devices` row (the id saved at pairing) at most every 5 minutes; the iOS app
 and the admin console show it.
@@ -1185,6 +1355,30 @@ through the media API and Storage paths through Storage.
   per request. The grid uses the poster when there is one.
 - Deleting a blob file calls `POST /api/media/delete` (which removes its
   poster too) before deleting the row.
+
+**Connected calendars** (Profile → Connected calendars, and the ↻ button on
+the Calendar tab)
+
+- Everyone sees the family's `calendar_sources`: name, color, where from,
+  person, Busy, event count, last update and `last_error`. `refresh()` loads
+  them, and when one hasn't been tried for 15 minutes asks `calendar-sync`
+  `sync` for the family (at most every 10 minutes per phone), reloading if
+  anything changed. Pull to refresh and Sync now send `force`.
+- Parents: **Connect Google Calendar** opens `google_start`'s URL in
+  `ASWebAuthenticationSession` (callback scheme `ohanaos`), then lists
+  `google_calendars` (the primary ticked) and adds each with `add_google`.
+  **Add a calendar link** sends `add_link` with a name, person, color and
+  Busy, and explains where iCloud, Google, Outlook and school calendars keep
+  their links. A calendar's sheet edits name, person, Busy, on/off and color
+  through PostgREST (nulls sent), syncs it, or removes it. Google accounts can
+  be reconnected (`needs_reconnect`) or disconnected.
+- **Show Ohana in other calendars** (parents): `calendar_feed_token` makes
+  the link `<SUPABASE_URL>/functions/v1/calendar-sync/feed/<token>.ics`;
+  Add to Apple Calendar opens it as `webcal://`, Add to Google Calendar opens
+  `https://calendar.google.com/calendar/r?cid=<webcal link>`; copy, share,
+  make a new link (`rotate`), or stop sharing (delete the row).
+- An imported event's details say which calendar it's from, show its
+  description, and have no Edit or Delete.
 
 **Siri:** `AskOhanaOSIntent: AppIntent`
 
