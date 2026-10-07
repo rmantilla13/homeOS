@@ -72,6 +72,7 @@ sudo apt-get install -y \
     qml6-module-qtquick-shapes qml6-module-qt5compat-graphicaleffects \
     qml6-module-qtmultimedia \
     qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin qml6-module-qt-labs-folderlistmodel \
+    qml6-module-qtquick-particles qml6-module-qtquick-localstorage libqt6sql6-sqlite \
     pipewire pipewire-pulse wireplumber libasound2-plugins alsa-utils \
     fonts-inter fonts-noto-color-emoji \
     ffmpeg curl v4l-utils \

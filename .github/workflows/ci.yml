@@ -113,6 +113,7 @@ jobs:
             qml6-module-qtmultimedia \
             qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin \
             qml6-module-qt-labs-folderlistmodel \
+            qml6-module-qtquick-particles qml6-module-qtquick-localstorage libqt6sql6-sqlite \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             ffmpeg
       - name: Build

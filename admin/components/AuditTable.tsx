@@ -7,6 +7,7 @@ const TONES: Record<string, Tone> = {
   delete_family: "danger",
   delete_family_files: "danger",
   delete_user: "danger",
+  delete_own_account: "danger",
   ban_user: "danger",
   revoke_platform_invite: "warn",
   set_family_status: "warn",
@@ -40,7 +41,7 @@ function Target({ e }: { e: AuditEntry }) {
     }
     case "user": {
       const email = str(d.email);
-      return e.action === "delete_user" ? (
+      return e.action === "delete_user" || e.action === "delete_own_account" ? (
         <span>{email ?? e.target_id}</span>
       ) : (
         <Link href={`/users?q=${encodeURIComponent(email ?? e.target_id ?? "")}`}>{email ?? "User"}</Link>

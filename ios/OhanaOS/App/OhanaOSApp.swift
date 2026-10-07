@@ -35,8 +35,13 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: store.phase)
         // An invite link opened while you're already in a family.
-        .sheet(item: Binding(
-            get: { store.phase == .ready ? store.pendingInviteCode.map(InviteLink.init) : nil },
+        .sheet(item: Binding<InviteLink?>(
+            get: {
+                #if DEBUG
+                if DemoMode.isOn { return nil }
+                #endif
+                return store.phase == .ready ? store.pendingInviteCode.map(InviteLink.init) : nil
+            },
             set: { if $0 == nil { store.setPendingInvite(nil) } }
         )) { link in
             InviteLinkSheet(code: link.code)
@@ -75,7 +80,11 @@ private struct LoadingView: View {
 
 /// Five screens behind a floating tab bar.
 struct MainTabView: View {
+    #if DEBUG
+    @State private var tab: AppTab = DemoMode.initialTab
+    #else
     @State private var tab: AppTab = .home
+    #endif
 
     var body: some View {
         ZStack {

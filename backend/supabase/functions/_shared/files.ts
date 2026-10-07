@@ -1,9 +1,9 @@
-// Storage cleanup for the admin function, kept free of I/O setup so it can be
-// unit-tested with a fake bucket (files.test.ts).
+// Storage cleanup for the admin and delete-account functions, kept free of
+// I/O setup so it can be unit-tested with a fake bucket (files.test.ts).
 //
 // Deleting rows in SQL leaves the files behind: Supabase removes objects only
-// through the Storage API. So when a family or a person is deleted, the admin
-// function empties their folder, family-media/<family_id>/ or
+// through the Storage API. So when a family or a person is deleted, these
+// functions empty their folder, family-media/<family_id>/ or
 // avatars/<user_id>/. Both layouts are flat ('<folder>/<file>').
 
 // The slice of the Storage client this needs (supabase.storage.from(bucket)).

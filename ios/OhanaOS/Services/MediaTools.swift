@@ -73,6 +73,15 @@ final class MediaCache {
         if let image { fullImages.setObject(image, forKey: key) }
         return image
     }
+
+    #if DEBUG
+    /// Demo mode: an image drawn on the phone stands in for the download,
+    /// for the grid tile and the viewer's backdrop color.
+    func seedThumbnail(_ image: UIImage, for item: MediaItem) {
+        thumbnails.setObject(image, forKey: item.storagePath as NSString)
+        tints[item.storagePath] = MediaTools.averageColor(of: image)
+    }
+    #endif
 }
 
 /// Profile photos from the private `avatars` bucket. Keys include the

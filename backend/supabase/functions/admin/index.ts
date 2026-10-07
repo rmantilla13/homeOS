@@ -17,14 +17,15 @@
 // (Auth unreachable), or the status Auth answered with.
 //
 // SQL can't remove Storage files, so delete_family also empties
-// family-media/<family_id>/ and delete_user empties avatars/<user_id>/.
+// family-media/<family_id>/ and avatars/<family_id>/ (member photos), and
+// delete_user empties avatars/<user_id>/.
 // The caller is checked with their own JWT (is_platform_admin()); the work is
 // done with the service role, and every action is written to admin_audit_log.
 
 import { type AuthError, createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { authenticate, bearerToken, json, preflight, readJson } from "../_shared/http.ts";
 import { commitBootVideo, createBootVideoUpload, getBootVideo, removeBootVideo } from "./boot.ts";
-import { removeFolder, removePaths } from "./files.ts";
+import { removeFolder, removePaths } from "../_shared/files.ts";
 import { mediaObjectPath, signableMediaPath } from "./media.ts";
 import { type AdminRequest, parseAdminRequest } from "./request.ts";
 
@@ -34,7 +35,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const BAN_FOREVER = "876000h"; // 100 years
 const MEDIA_BUCKET = "family-media"; // '<family_id>/<file>'
-const AVATAR_BUCKET = "avatars"; // '<user_id>/<file>'
+const AVATAR_BUCKET = "avatars"; // '<user_id>/<file>' and member photos at '<family_id>/<file>'
 const MEDIA_URL_SECONDS = 10 * 60;
 
 const service = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -110,9 +111,9 @@ async function userAction(adminId: string, r: Extract<AdminRequest, { userId: st
 }
 
 // Deletes the family's rows with the admin's own JWT (admin_delete_family
-// checks admin rights again and writes its own audit row), then its photos
-// and videos, which only the Storage API can remove. A cleanup failure
-// doesn't undo the deletion; it's logged and audited.
+// checks admin rights again and writes its own audit row), then its photos,
+// videos and member photos, which only the Storage API can remove. A cleanup
+// failure doesn't undo the deletion; it's logged and audited.
 async function deleteFamily(db: SupabaseClient, adminId: string, familyId: string): Promise<Response> {
   const { error } = await db.rpc("admin_delete_family", { family: familyId });
   if (error) {
@@ -121,12 +122,17 @@ async function deleteFamily(db: SupabaseClient, adminId: string, familyId: strin
   }
   const files = await removeFolder(service.storage.from(MEDIA_BUCKET), familyId);
   if (files.error) console.error(`family-media cleanup for ${familyId} failed:`, files.error);
+  const photos = await removeFolder(service.storage.from(AVATAR_BUCKET), familyId);
+  if (photos.error) console.error(`member photo cleanup for ${familyId} failed:`, photos.error);
   await audit(adminId, "delete_family_files", "family", familyId, {
     bucket: MEDIA_BUCKET,
     files_removed: files.removed,
+    member_photos_removed: photos.removed,
     ...(files.error ? { error: files.error } : {}),
+    ...(photos.error ? { member_photos_error: photos.error } : {}),
   });
-  return json({ ok: true, files_removed: files.removed, ...(files.error ? { files_error: files.error } : {}) });
+  const filesError = [files.error, photos.error].filter(Boolean).join("; ");
+  return json({ ok: true, files_removed: files.removed + photos.removed, ...(filesError ? { files_error: filesError } : {}) });
 }
 
 // Turns a Storage signed URL into an absolute one. createSignedUrls sometimes

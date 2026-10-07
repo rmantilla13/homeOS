@@ -9,10 +9,14 @@
 #
 # Needs a Mac with Xcode 26 or newer, signed in (Xcode > Settings > Accounts)
 # with an Apple ID on the team, and ios/Config/Local.xcconfig filled in.
+# With no Apple ID signed in (CI), set ASC_KEY_PATH (the .p8 file), ASC_KEY_ID
+# and ASC_ISSUER_ID to sign in with an App Store Connect API key instead.
+# The archive is then ad hoc signed and needs no development certificate.
+# The export signs it with the cloud-managed Apple Distribution certificate.
 # Bash 3.2 compatible (the macOS /bin/bash).
 set -euo pipefail
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 upload=0
 case "${1:-}" in
   "") ;;
@@ -20,6 +24,36 @@ case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
+
+# App Store Connect API key: all three variables or none.
+auth=()
+api_key=0
+# Signed in with an Apple ID, Xcode signs the archive for development and may
+# create or update certificates and profiles.
+archive_signing=(-allowProvisioningUpdates)
+if [[ -n "${ASC_KEY_PATH:-}${ASC_KEY_ID:-}${ASC_ISSUER_ID:-}" ]]; then
+  missing=""
+  [[ -n "${ASC_KEY_PATH:-}" ]] || missing="$missing ASC_KEY_PATH"
+  [[ -n "${ASC_KEY_ID:-}" ]] || missing="$missing ASC_KEY_ID"
+  [[ -n "${ASC_ISSUER_ID:-}" ]] || missing="$missing ASC_ISSUER_ID"
+  if [[ -n "$missing" ]]; then
+    echo "An App Store Connect API key needs ASC_KEY_PATH, ASC_KEY_ID and ASC_ISSUER_ID together. Missing:$missing" >&2
+    exit 1
+  fi
+  if [[ ! -f "$ASC_KEY_PATH" ]]; then
+    echo "ASC_KEY_PATH is not a file: $ASC_KEY_PATH" >&2
+    exit 1
+  fi
+  # The script changes directory below, so make the path absolute.
+  key_path="$(cd "$(dirname "$ASC_KEY_PATH")" && pwd)/$(basename "$ASC_KEY_PATH")"
+  auth=(-authenticationKeyPath "$key_path" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+  # Ad hoc signed, with the same settings Xcode Cloud uses. The key is used
+  # only by the export. Without -allowProvisioningUpdates the archive never
+  # contacts the developer website, so it can't create a development
+  # certificate or need a registered device.
+  archive_signing=(CODE_SIGN_IDENTITY=- AD_HOC_CODE_SIGNING_ALLOWED=YES)
+  api_key=1
+fi
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -88,15 +122,22 @@ fi
 echo "Archiving $bundle (team $team), build $build"
 echo "  Supabase:  $supabase_url"
 echo "  Media API: $media_url"
+if [[ "$api_key" == 1 ]]; then
+  echo "  Signing in with an App Store Connect API key"
+  echo "  Archive: ad hoc signed. Export: cloud-managed Apple Distribution certificate."
+fi
 
 rm -rf "$archive" "$export_dir"
+# With an API key there is no development certificate on this machine. Archive
+# ad hoc signed, as Xcode Cloud does; the export signs with the cloud-managed
+# Apple Distribution certificate.
 xcodebuild \
   -project OhanaOS.xcodeproj \
   -scheme OhanaOS \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath "$archive" \
-  -allowProvisioningUpdates \
+  ${archive_signing[@]+"${archive_signing[@]}"} \
   CURRENT_PROJECT_VERSION="$build" \
   archive
 
@@ -116,6 +157,8 @@ SUPABASE_URL="$(plist SupabaseURL)" SUPABASE_ANON_KEY="$(plist SupabaseAnonKey)"
   bash "$root/scripts/check-release-config.sh"
 
 # ExportOptions.plist with this team, and destination "upload" for --upload.
+# The export always signs for App Store Connect. With an API key, Xcode uses
+# the cloud-managed Apple Distribution certificate.
 options="$root/build/ExportOptions.plist"
 cp "$root/Config/ExportOptions.plist" "$options"
 /usr/libexec/PlistBuddy -c "Set :teamID $team" "$options"
@@ -128,7 +171,8 @@ xcodebuild \
   -archivePath "$archive" \
   -exportPath "$export_dir" \
   -exportOptionsPlist "$options" \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates \
+  ${auth[@]+"${auth[@]}"}
 
 version="$(plist CFBundleShortVersionString)"
 if [[ "$upload" == 1 ]]; then

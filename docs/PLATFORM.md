@@ -25,7 +25,9 @@ There are two kinds of auth users:
 - A **member** is someone on the family screen. Kids usually have a member row
   with no account. A member row gets an account only by accepting an invite,
   never by a direct write, and a row with an account can't be moved to
-  another family.
+  another family. Parents can give a member without an account a photo
+  (`avatars/<family_id>/<file>`, in `members.avatar_path`), which everyone in
+  the family can see; a member with an account shows their profile photo.
 - **Roles** are `parent`, `child` and `other`. Parents manage the family:
   members, invites, rewards and approvals. Everyone can edit their own name,
   color and avatar. A family always keeps at least one parent with an account:
@@ -125,8 +127,10 @@ returns the same text in `reason`:
 | `the last parent can't leave` | `leave_family` by the only parent with an account |
 | `a family needs at least one parent with an account` | Removing, demoting or unlinking that parent directly |
 | `only a parent can change that` | A kid editing anything but their own name, color or avatar |
+| `that photo isn't in this family's folder` | Setting `members.avatar_path` to anything but `<family_id>/<file>` for the member's own family |
 | `only a parent can add points that skip approval` | A kid or display adding a chore with points and no approval |
 | `only a parent can change a chore's points or approval` | A kid or display changing those on an existing chore |
+| `you're the only parent with a login in {family}. Make someone else there a parent first` | `delete_my_account` by the last parent of a family where others have logins |
 
 ## The first admin
 
@@ -244,6 +248,32 @@ may, the display's auth user, so its refresh token stops working. The
 console calls the `admin` function's `revoke_device`, which finishes the
 auth deletion when SQL can't and writes `revoke_device_auth`. A second
 revoke answers `device not found`.
+
+## Deleting your account
+
+People delete their own account in the iOS app: Profile → **Delete account**,
+or the same button on "Enter an invite code" when they have no family. The App
+Store requires this of any app that creates accounts (guideline 5.1.1(v)).
+The phone calls the admin app's `POST /api/account/delete`, which calls the
+`delete-account` edge function and then clears Blob files.
+`delete_my_account()` does the database part:
+
+- **The only login in a family:** the family goes with everything in it,
+  its displays and their accounts included, and its member photos
+  (`avatars/<family_id>/`).
+- **A family others still use:** the member row stays, unlinked, with its
+  points and history, as with `leave_family`. A parent can remove it.
+- **The last parent of a family where others have logins:** refused. Make
+  someone else a parent first.
+- **Always:** the login, the profile, the profile photo
+  (`avatars/<user_id>/`) and their assistant chats.
+
+Displays and platform admins can't delete themselves this way: unpair the
+display, or remove the admin row first. Each deletion writes
+`delete_own_account` to the audit log with the user id and counts, and no
+email. Deploy the `delete-account` function and the admin app together with
+the migration; an app build that has the button gets an error until they're
+live.
 
 ## Assistant limits
 
@@ -372,12 +402,13 @@ console's Audit page (`admin_list_audit`).
 SQL can't remove files from Storage, and it can't remove Blob objects either.
 The console deletes a family through the `admin` function's `delete_family`,
 which runs `admin_delete_family` and then empties `family-media/<family_id>/`
-(files uploaded before Blob). The console then deletes photos and videos
-from the private Blob store under the same prefix. Deleting one item runs
-`admin_delete_media` and then removes that row's Storage objects. Deleting a
-user empties `avatars/<user_id>/`. Calling `admin_delete_family` or
-`admin_delete_media` directly (SQL editor) leaves the files; remove them in
-Storage, and the family's folder in Blob, yourself.
+(files uploaded before Blob) and `avatars/<family_id>/` (member photos). The
+console then deletes photos and videos from the private Blob store under the
+same prefix. Deleting one item runs `admin_delete_media` and then removes
+that row's Storage objects. Deleting a user empties `avatars/<user_id>/`.
+Calling `admin_delete_family` or `admin_delete_media` directly (SQL editor)
+leaves the files; remove them in Storage, and the family's folder in Blob,
+yourself.
 
 The `admin` edge function calls `admin_create_platform_invite` and
 `admin_delete_family` with the admin's own session, so those rows name the
@@ -397,8 +428,16 @@ new ones in order, and don't edit them in place:
 5. `backend/supabase/migrations/20261009000002_video_blob.sql`
 6. `backend/supabase/migrations/20261009000003_blob_photos.sql`
 7. `backend/supabase/migrations/20261009000004_blob_limits.sql`
+8. `backend/supabase/migrations/20261010000001_account_deletion.sql`, then
+   `supabase functions deploy delete-account` and redeploy the admin app
+   (`/api/account/delete`, `/privacy`, `/support`). Safe to run again.
+9. `backend/supabase/migrations/20261011000001_member_photos.sql` and
+   `20261011000002_storage_member_photos.sql`, then redeploy the `admin` and
+   `delete-account` functions, so deleting a family also empties its member
+   photos. An app build with member photos gets an error when saving one
+   until these are live; everything else keeps working.
 
-`supabase db push` does this. The last three used to be `20261008000001` to
+`supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
 are safe to run again if you pasted them into the SQL editor before; a
 re-run of 3 also removes the anon read on `platform_boot_video` that its

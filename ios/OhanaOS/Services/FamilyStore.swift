@@ -58,6 +58,30 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
     }
 }
 
+/// Whether a person allowed their questions to go to the AI assistant on this
+/// iPhone. One answer per account, kept in UserDefaults. Siri reads it too.
+enum AIConsent {
+    /// The account in the session saved on this iPhone. Siri reads it without
+    /// the store. The session may have expired; only the id is needed here.
+    static var savedUserId: UUID? { supabase.auth.currentSession?.user.id }
+
+    static func key(for userId: UUID) -> String {
+        "ohanaos.aiConsent.\(userId.uuidString.lowercased())"
+    }
+
+    static func isAllowed(for userId: UUID) -> Bool {
+        UserDefaults.standard.bool(forKey: key(for: userId))
+    }
+
+    static func set(_ allowed: Bool, for userId: UUID) {
+        if allowed {
+            UserDefaults.standard.set(true, forKey: key(for: userId))
+        } else {
+            UserDefaults.standard.removeObject(forKey: key(for: userId))
+        }
+    }
+}
+
 /// App-wide state: auth, the current family, and its data. Views read from
 /// here and call its async actions; row-level security scopes every query
 /// to the signed-in user's families, and each query also names the family on
@@ -117,6 +141,8 @@ final class FamilyStore {
     /// Bumped when a chat is closed mid-reply, so late events are dropped.
     @ObservationIgnored private var replyGeneration = 0
     private let assistant = AssistantClient()
+    /// Bumped when AI consent changes, so views showing `hasAIConsent` update.
+    private var aiConsentChanges = 0
 
     @ObservationIgnored private var signedURLs: [String: (url: URL, expires: Date)] = [:]
 
@@ -125,16 +151,29 @@ final class FamilyStore {
         static let familyId = "ohanaos.familyId"
     }
 
+    /// The signed-in account's user id.
+    private var currentUserId: UUID? {
+        #if DEBUG
+        if DemoMode.isOn { return DemoMode.userId }
+        #endif
+        return supabase.auth.currentUser?.id
+    }
+
     var me: Member? {
-        guard let uid = supabase.auth.currentUser?.id else { return nil }
+        guard let uid = currentUserId else { return nil }
         return members.first { $0.userId == uid }
     }
     var isParent: Bool { me?.role == .parent }
     var kids: [Member] { members.filter { $0.role == .child } }
     var pendingCompletions: [TaskCompletion] { completions.filter { $0.status == "pending" } }
 
-    var email: String? { supabase.auth.currentUser?.email }
-    var myProfile: Profile? { profile(for: supabase.auth.currentUser?.id) }
+    var email: String? {
+        #if DEBUG
+        if DemoMode.isOn { return DemoMode.email }
+        #endif
+        return supabase.auth.currentUser?.email
+    }
+    var myProfile: Profile? { profile(for: currentUserId) }
     /// Waiting for the first words of a reply.
     var isThinking: Bool { chat.last.map { $0.isStreaming && $0.text.isEmpty } ?? false }
 
@@ -155,6 +194,13 @@ final class FamilyStore {
     // MARK: Lifecycle
 
     func start() async {
+        #if DEBUG
+        // Demo mode (-OhanaDemo YES): a sample family, no Supabase, no network.
+        if DemoMode.isOn {
+            loadDemo()
+            return
+        }
+        #endif
         guard Config.isConfigured else {
             errorMessage = Config.unconfiguredMessage
             return
@@ -206,6 +252,9 @@ final class FamilyStore {
 
     /// Picks the family to show (or the setup screens when there's none) and loads it.
     func loadFamily() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         guard Config.isConfigured else {
             errorMessage = Config.unconfiguredMessage
             return
@@ -246,6 +295,9 @@ final class FamilyStore {
     }
 
     func refresh() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         guard let family else { return }
         let fid = family.id.uuidString
         let iso = ISO8601DateFormatter()
@@ -321,6 +373,9 @@ final class FamilyStore {
     }
 
     func refreshMedia() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         guard let family else { return }
         do {
             let rows: [MediaItem] = try await supabase.from("media_items").select()
@@ -390,13 +445,44 @@ final class FamilyStore {
     }
 
     func signOut() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         setPendingInvite(nil)
         try? await supabase.auth.signOut()
+    }
+
+    /// Deletes your account, then signs out. Your login, profile, photo and
+    /// chats go. A family where you're the only login goes too, with
+    /// everything in it; in any other family your member row stays, unlinked,
+    /// as when you leave. The server refuses the last parent of a family that
+    /// has other logins. It runs through the admin app (`/api/account/delete`),
+    /// which also clears that family's photos and videos from Blob.
+    func deleteAccount() async -> Bool {
+        #if DEBUG
+        if DemoMode.isOn { return false }
+        #endif
+        do {
+            _ = try await adminAppJSON("/api/account/delete", [:], service: "the Ohana server")
+        } catch {
+            report(error)
+            return false
+        }
+        preferredFamilyId = nil
+        // The account is gone, so its answer about the assistant goes too.
+        revokeAI()
+        // The server has removed the login and its sessions; this forgets the one on the phone.
+        await signOut()
+        return true
     }
 
     /// `ohanaos://invite/<CODE>` prefills the invite; `ohanaos://auth-callback`
     /// finishes an email confirmation or an admin's email invite.
     func handleOpenURL(_ url: URL) {
+        #if DEBUG
+        // Demo mode never signs in or redeems a code.
+        if DemoMode.isOn { return }
+        #endif
         if let code = InviteCode.from(url: url) {
             setPendingInvite(code)
             return
@@ -445,6 +531,9 @@ final class FamilyStore {
     /// Asks the server what a code is for. Works signed out. Nil when the request failed.
     func previewInvite(_ code: String) async -> InvitePreview? {
         struct Params: Encodable { let code: String }
+        #if DEBUG
+        if DemoMode.isOn { return nil }
+        #endif
         do {
             let preview: InvitePreview = try await supabase
                 .rpc("preview_invite", params: Params(code: InviteCode.normalize(code)))
@@ -481,6 +570,9 @@ final class FamilyStore {
     @discardableResult
     func acceptInvite(_ code: String, displayName: String? = nil) async -> Bool {
         struct Params: Encodable { let code: String; let display_name: String? }
+        #if DEBUG
+        if DemoMode.isOn { return false }
+        #endif
         let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             let familyId: UUID = try await supabase
@@ -506,6 +598,9 @@ final class FamilyStore {
             let tz: String
             let invite_code: String?
         }
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         do {
             let familyId: UUID = try await supabase
                 .rpc("create_family", params: Params(family_name: name, my_name: myName, tz: TimeZone.current.identifier,
@@ -522,6 +617,9 @@ final class FamilyStore {
     // MARK: Profile
 
     func loadProfiles() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         do {
             profiles = try await supabase.from("profiles").select("id, display_name, avatar_path, updated_at").execute().value
         } catch {
@@ -532,7 +630,7 @@ final class FamilyStore {
     /// Renames you; `renameMember` also renames your member row (the name on the wall).
     func updateDisplayName(_ name: String, renameMember: Bool) async -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let uid = supabase.auth.currentUser?.id, !name.isEmpty else { return false }
+        guard let uid = currentUserId, !name.isEmpty else { return false }
         let ok = await perform {
             try await supabase.from("profiles").update(["display_name": name]).eq("id", value: uid.uuidString).execute()
             if renameMember, let me = self.me {
@@ -545,7 +643,7 @@ final class FamilyStore {
 
     /// Uploads a square JPEG to `avatars/<uid>/avatar.jpg` and points the profile at it.
     func uploadAvatar(_ jpeg: Data) async -> Bool {
-        guard let uid = supabase.auth.currentUser?.id else { return false }
+        guard let uid = currentUserId else { return false }
         // Storage policies compare the folder with auth.uid()::text, which is lowercase.
         let path = "\(uid.uuidString.lowercased())/avatar.jpg"
         let ok = await perform {
@@ -559,7 +657,7 @@ final class FamilyStore {
     }
 
     func removeAvatar() async {
-        guard let uid = supabase.auth.currentUser?.id, let path = myProfile?.avatarPath else { return }
+        guard let uid = currentUserId, let path = myProfile?.avatarPath else { return }
         await perform {
             let clear: [String: AnyJSON] = ["avatar_path": .null]
             try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
@@ -574,9 +672,69 @@ final class FamilyStore {
         return (path, profile.updatedAt.map { String($0.timeIntervalSince1970) } ?? "")
     }
 
-    /// A member's photo comes from their account's profile, if they have one.
+    /// A member's photo: their account's profile photo if they have one, else
+    /// the one a parent set. That one is a new file each time, so its path is
+    /// its version.
     func avatarPath(for member: Member?) -> (path: String, version: String)? {
-        photo(of: profile(for: member?.userId))
+        if let profilePhoto = photo(of: profile(for: member?.userId)) { return profilePhoto }
+        guard let path = member?.avatarPath else { return nil }
+        return (path: path, version: "")
+    }
+
+    // MARK: Member photos
+
+    /// Parents give a member without a login a photo. It goes to a new file in
+    /// the family's folder, `avatars/<family_id>/<member_id>-<random>.jpg`,
+    /// so other phones don't keep showing the old one from their cache; then
+    /// the old file goes.
+    func setMemberPhoto(_ jpeg: Data, for member: Member) async -> Bool {
+        let old = self.member(member.id)?.avatarPath ?? member.avatarPath
+        var path: String?
+        let ok = await perform {
+            let uploaded = try await self.uploadMemberPhoto(jpeg, for: member.id, in: member.familyId)
+            do {
+                try await supabase.from("members").update(["avatar_path": uploaded])
+                    .eq("id", value: member.id.uuidString).execute()
+            } catch {
+                await self.removeMemberPhotoFile(uploaded, in: member.familyId)
+                throw error
+            }
+            path = uploaded
+        }
+        if ok, let old, let path, old != path { await removeMemberPhotoFile(old, in: member.familyId) }
+        return ok
+    }
+
+    func removeMemberPhoto(for member: Member) async -> Bool {
+        guard let path = self.member(member.id)?.avatarPath ?? member.avatarPath else { return true }
+        if let i = members.firstIndex(where: { $0.id == member.id }) { members[i].avatarPath = nil }
+        let ok = await perform {
+            let clear: [String: AnyJSON] = ["avatar_path": .null]
+            try await supabase.from("members").update(clear).eq("id", value: member.id.uuidString).execute()
+        }
+        if ok { await removeMemberPhotoFile(path, in: member.familyId) }
+        return ok
+    }
+
+    /// Uploads a member photo to a new file and returns its path. The member
+    /// row doesn't need to exist yet.
+    private func uploadMemberPhoto(_ jpeg: Data, for memberId: UUID, in familyId: UUID) async throws -> String {
+        // Storage policies compare the folder with family ids as text, which are lowercase.
+        let token = UUID().uuidString.prefix(8).lowercased()
+        let path = "\(familyId.uuidString.lowercased())/\(memberId.uuidString.lowercased())-\(token).jpg"
+        _ = try await supabase.storage.from(Config.avatarBucket)
+            .upload(path, data: jpeg, options: FileOptions(cacheControl: "3600", contentType: "image/jpeg", upsert: false))
+        return path
+    }
+
+    /// Best effort: a file left behind goes with the family's folder later.
+    private func removeMemberPhotoFile(_ path: String, in familyId: UUID) async {
+        AvatarCache.shared.forget(path: path)
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
+        guard path.hasPrefix("\(familyId.uuidString.lowercased())/") else { return }
+        _ = try? await supabase.storage.from(Config.avatarBucket).remove(paths: [path])
     }
 
     // MARK: Members
@@ -606,19 +764,25 @@ final class FamilyStore {
         }
     }
 
-    /// Parents only. The member's chores, completions and points go with them;
-    /// the server refuses to remove the last parent with an account.
+    /// Parents only. The member's chores, completions, points and photo go with
+    /// them; the server refuses to remove the last parent with an account.
     func removeMember(_ member: Member) async -> Bool {
+        let photo = self.member(member.id)?.avatarPath ?? member.avatarPath
         members.removeAll { $0.id == member.id }
-        return await perform {
+        let ok = await perform {
             try await supabase.from("members").delete().eq("id", value: member.id.uuidString).execute()
         }
+        if ok, let photo { await removeMemberPhotoFile(photo, in: member.familyId) }
+        return ok
     }
 
     /// Unlinks your account. Your member row, points and history stay on the screen.
     func leaveFamily() async -> Bool {
         guard let family else { return false }
         struct Params: Encodable { let family: UUID }
+        #if DEBUG
+        if DemoMode.isOn { return false }
+        #endif
         do {
             try await supabase.rpc("leave_family", params: Params(family: family.id)).execute()
         } catch {
@@ -637,6 +801,9 @@ final class FamilyStore {
     // MARK: Invites
 
     func loadInvites() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         guard let family, isParent else {
             invites = []
             return
@@ -665,6 +832,9 @@ final class FamilyStore {
         let email = email?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = Params(family: family.id, role: member?.role ?? role, member: member?.id,
                             email: email?.isEmpty == false ? email : nil, expires_in_days: expiresInDays)
+        #if DEBUG
+        if DemoMode.isOn { return nil }
+        #endif
         do {
             let rows: [CreatedInvite] = try await supabase.rpc("create_family_invite", params: params).execute().value
             await loadInvites()
@@ -678,6 +848,9 @@ final class FamilyStore {
     func revokeInvite(_ invite: FamilyInvite) async {
         struct Params: Encodable { let invite: UUID }
         if let i = invites.firstIndex(where: { $0.id == invite.id }) { invites[i].revokedAt = .now }
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         do {
             try await supabase.rpc("revoke_family_invite", params: Params(invite: invite.id)).execute()
         } catch {
@@ -686,13 +859,25 @@ final class FamilyStore {
         await loadInvites()
     }
 
-    func addMember(name: String, role: MemberRole, color: String) async {
-        guard let family else { return }
+    /// Parents add someone to the family screen, with a photo when `photo` is
+    /// a JPEG. The photo goes up first, so either both are saved or neither.
+    func addMember(name: String, role: MemberRole, color: String, photo: Data? = nil) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let family, !name.isEmpty else { return false }
         let order = (members.map(\.sortOrder).max() ?? 0) + 1
-        await perform {
-            try await supabase.from("members")
-                .insert(NewMember(familyId: family.id, displayName: name, role: role, color: color, sortOrder: order))
-                .execute()
+        var new = NewMember(familyId: family.id, displayName: name, role: role, color: color, sortOrder: order)
+        members.append(Member(id: new.id, familyId: family.id, userId: nil, displayName: name, role: role,
+                              color: color, sortOrder: order))
+        return await perform {
+            if let photo {
+                new.avatarPath = try await self.uploadMemberPhoto(photo, for: new.id, in: family.id)
+            }
+            do {
+                try await supabase.from("members").insert(new).execute()
+            } catch {
+                if let path = new.avatarPath { await self.removeMemberPhotoFile(path, in: family.id) }
+                throw error
+            }
         }
     }
 
@@ -1143,20 +1328,30 @@ final class FamilyStore {
         }
     }
 
-    /// `/api/media/<name>` on the media service's origin. A path in the
-    /// configured URL is dropped, so it can't turn into `/x/api/media/...`.
-    private func mediaEndpoint(_ name: String) -> URL? {
+    /// `path` on the admin app's origin (`Config.mediaAPIURL`), which serves
+    /// `/api/media/*` and `/api/account/delete`. A path in the configured URL
+    /// is dropped, so it can't turn into `/x/api/media/...`.
+    private func adminAppEndpoint(_ path: String) -> URL? {
         let base = Config.mediaAPIURL
         var components = URLComponents()
         components.scheme = base.scheme
         components.host = base.host
         components.port = base.port
-        components.path = "/api/media/" + name
+        components.path = path
         return components.url
     }
 
     private func mediaJSON(_ name: String, _ body: [String: Any]) async throws -> [String: Any] {
-        guard let url = mediaEndpoint(name) else {
+        try await adminAppJSON("/api/media/" + name, body, service: "the media service")
+    }
+
+    /// POSTs JSON to the admin app with your session. `service` names it in
+    /// messages: "the media service at ohanaos.co".
+    private func adminAppJSON(_ path: String, _ body: [String: Any], service: String) async throws -> [String: Any] {
+        #if DEBUG
+        if DemoMode.isOn { throw MediaAPIError(message: "Demo mode doesn't send anything to \(service).") }
+        #endif
+        guard let url = adminAppEndpoint(path) else {
             throw MediaAPIError(message: "This build has no valid media service address (MEDIA_API_URL).")
         }
         let token = try await supabase.auth.session.accessToken
@@ -1169,21 +1364,22 @@ final class FamilyStore {
         do {
             reply = try await URLSession.shared.data(for: request)
         } catch {
-            throw Self.transferError(error, to: "the media service at \(Self.mediaHost)")
+            throw Self.transferError(error, to: "\(service) at \(Self.mediaHost)")
         }
         let json = (try? JSONSerialization.jsonObject(with: reply.0) as? [String: Any]) ?? [:]
         let status = (reply.1 as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             if status == 401 {
                 // Signed in here, refused there: an expired session, or a build
-                // whose media service belongs to another Supabase project.
-                throw MediaAPIError(message: "The media service at \(Self.mediaHost) didn't accept your sign-in. Sign out and back in, then try again.")
+                // whose admin app belongs to another Supabase project.
+                throw MediaAPIError(message: "\(service.sentenceCased) at \(Self.mediaHost) didn't accept your sign-in. Sign out and back in, then try again.")
             }
             if let message = json["error"] as? String, !message.isEmpty {
-                throw MediaAPIError(message: message)
+                // Media errors are sentences already; the edge function's are lowercase.
+                throw MediaAPIError(message: message.sentenceCased)
             }
             // Not the admin app's JSON: a wrong address, a missing route or a proxy page.
-            throw MediaAPIError(message: "The media service at \(Self.mediaHost) answered HTTP \(status). Check that the app points at the Ohana admin app, then try again.")
+            throw MediaAPIError(message: "\(service.sentenceCased) at \(Self.mediaHost) answered HTTP \(status). Check that the app points at the Ohana admin app, then try again.")
         }
         return json
     }
@@ -1215,6 +1411,9 @@ final class FamilyStore {
 
     func setShowOnFrame(_ item: MediaItem, _ show: Bool) async {
         if let i = media.firstIndex(where: { $0.id == item.id }) { media[i].showOnFrame = show }
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         do {
             try await supabase.from("media_items").update(["show_on_frame": show]).eq("id", value: item.id.uuidString).execute()
         } catch {
@@ -1237,6 +1436,9 @@ final class FamilyStore {
         guard !unique.isEmpty else { return }
         let ids = Set(unique.map(\.id))
         media.removeAll { ids.contains($0.id) }
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         var removed: [MediaItem] = []
         do {
             for item in unique {
@@ -1295,6 +1497,10 @@ final class FamilyStore {
     }
 
     private func signedURL(path: String, inBlob: Bool, reportErrors: Bool) async -> URL? {
+        #if DEBUG
+        // Demo images are drawn on the phone (DemoMedia); there is nothing to sign.
+        if DemoMode.isOn { return nil }
+        #endif
         if let cached = signedURLs[path], cached.expires > Date.now.addingTimeInterval(300) {
             return cached.url
         }
@@ -1358,6 +1564,9 @@ final class FamilyStore {
 
     /// Your own conversations in this family (RLS hides everyone else's).
     func loadThreads() async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         guard let family else { return }
         do {
             threads = try await supabase.from("assistant_threads")
@@ -1377,6 +1586,12 @@ final class FamilyStore {
         cancelReply()
         currentThreadId = thread.id
         chat = []
+        #if DEBUG
+        if DemoMode.isOn {
+            chat = demoTranscript(for: thread.id)
+            return
+        }
+        #endif
         do {
             let rows: [AssistantMessageRow] = try await supabase.from("assistant_messages")
                 .select("id, role, content, actions")
@@ -1402,6 +1617,9 @@ final class FamilyStore {
     func deleteThread(_ thread: AssistantThread) async {
         if currentThreadId == thread.id { newChat() }
         threads.removeAll { $0.id == thread.id }
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
         do {
             try await supabase.from("assistant_threads").delete().eq("id", value: thread.id.uuidString).execute()
         } catch {
@@ -1410,10 +1628,51 @@ final class FamilyStore {
         }
     }
 
+    /// Whether the signed-in person allowed their questions to go to the AI
+    /// assistant on this iPhone. Asked once per account, before the first
+    /// question. False when signed out.
+    var hasAIConsent: Bool {
+        _ = aiConsentChanges
+        #if DEBUG
+        if DemoMode.isOn { return true }
+        #endif
+        guard let uid = currentUserId else { return false }
+        return AIConsent.isAllowed(for: uid)
+    }
+
+    func allowAI() {
+        #if DEBUG
+        // Demo consent stays on; the bump snaps Profile's switch back.
+        if DemoMode.isOn { aiConsentChanges += 1; return }
+        #endif
+        guard let uid = currentUserId else { return }
+        AIConsent.set(true, for: uid)
+        aiConsentChanges += 1
+    }
+
+    /// Stops questions going to the assistant from this iPhone until allowed again.
+    func revokeAI() {
+        #if DEBUG
+        // Demo consent stays on; the bump snaps Profile's switch back.
+        if DemoMode.isOn { aiConsentChanges += 1; return }
+        #endif
+        guard let uid = currentUserId else { return }
+        AIConsent.set(false, for: uid)
+        aiConsentChanges += 1
+    }
+
     /// Sends a message in the open thread and streams the reply into `chat`.
+    /// Sends nothing until the person has allowed the assistant (`allowAI`).
     func ask(_ text: String) async {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isReplying else { return }
+        guard !text.isEmpty, !isReplying, hasAIConsent else { return }
+        #if DEBUG
+        if DemoMode.isOn {
+            chat.append(ChatMessage(role: .user, text: text))
+            chat.append(ChatMessage(role: .assistant, text: DemoMode.offlineReply))
+            return
+        }
+        #endif
         isReplying = true  // before the task starts, so a double tap can't send twice
         let task = Task { await self.streamReply(to: text) }
         replyTask = task
@@ -1506,6 +1765,9 @@ final class FamilyStore {
     func pairDisplay(code: String, name: String) async -> Bool {
         guard let family else { return false }
         struct Claim: Encodable { let action = "claim"; let code: String; let familyId: UUID; let name: String }
+        #if DEBUG
+        if DemoMode.isOn { return false }
+        #endif
         do {
             try await supabase.functions.invoke("pair-device", options: FunctionInvokeOptions(body: Claim(code: code, familyId: family.id, name: name)))
             await refresh()
@@ -1527,6 +1789,10 @@ final class FamilyStore {
     /// replaced by the server's state. Returns whether the write succeeded.
     @discardableResult
     private func perform(_ work: () async throws -> Void) async -> Bool {
+        #if DEBUG
+        // Demo mode keeps the local change and sends nothing.
+        if DemoMode.isOn { return true }
+        #endif
         var ok = true
         do {
             try await work()

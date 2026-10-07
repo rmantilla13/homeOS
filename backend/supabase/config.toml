@@ -13,3 +13,6 @@ verify_jwt = false
 
 [functions.pair-device]
 verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = false

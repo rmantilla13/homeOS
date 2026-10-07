@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { demoMode, supabaseConfig } from "@/lib/env";
+import { PUBLIC_PATHS } from "@/lib/site";
 
 // Runs before every page: refreshes the Supabase session (writing rotated
 // tokens back as cookies) and keeps everyone but platform admins on /login.
@@ -15,6 +16,14 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // Phones and wall displays call these with their own family JWT. The admin
   // gate below would send that request to the login page.
   if (pathname === "/api/media" || pathname.startsWith("/api/media/")) {
+    return NextResponse.next({ request });
+  }
+  // The iOS app deleting its own account, with the person's JWT.
+  if (pathname === "/api/account/delete") {
+    return NextResponse.next({ request });
+  }
+  // The privacy policy and support page are for everyone.
+  if ((PUBLIC_PATHS as readonly string[]).includes(pathname)) {
     return NextResponse.next({ request });
   }
 

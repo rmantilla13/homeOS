@@ -1,0 +1,160 @@
+# Archives a signed Release build of ios/OhanaOS.xcodeproj on macOS and
+# uploads it to App Store Connect, where it shows up in TestFlight. Runs only
+# on demand: Actions → TestFlight → Run workflow. See docs/IOS.md → TestFlight.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL       the project URL, https://<project-ref>.supabase.co
+#   SUPABASE_ANON_KEY  the anon (publishable) key. Archives refuse a
+#                      service_role or sb_secret_ key.
+#   ASC_KEY_ID         the App Store Connect API key's Key ID
+#   ASC_ISSUER_ID      the Issuer ID shown above the team keys
+#   ASC_API_KEY_P8     the contents of the downloaded AuthKey_<id>.p8, pasted
+#                      as is or base64-encoded
+#
+# The API key needs the Admin role. No Apple ID is signed in on the runner.
+# The archive is ad hoc signed, as Xcode Cloud does, so the runner needs no
+# development certificate and the team needs no registered device. The export
+# uses the key to sign with the cloud-managed Apple Distribution certificate
+# and an App Store profile. The app record for the bundle id
+# (com.ohanaos.ohana) must already exist in App Store Connect; an upload does
+# not create it.
+name: TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Build number (leave empty for the UTC time as YYYYMMDD.HHMM)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# One upload at a time. A second run waits instead of cancelling the first.
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    name: Archive and upload
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # App Store Connect requires the iOS 26 SDK, so Xcode 26 or later.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Check Xcode
+        run: |
+          xcodebuild -version
+          major=$(xcodebuild -version | awk 'NR==1 { split($2, v, "."); print v[1] }')
+          if [ "$major" -lt 26 ]; then
+            echo "::error::Xcode 26 or later is required for App Store Connect (found $major)"
+            exit 1
+          fi
+
+      - name: Check secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_ANON_KEY ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_P8; do
+            if [ -z "${!name:-}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. Add them under Settings → Secrets and variables → Actions (docs/IOS.md → TestFlight)."
+            exit 1
+          fi
+
+      # xcconfig treats // as a comment, so the URL is written https:/$()/host.
+      - name: Write Local.xcconfig
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          url="${SUPABASE_URL%/}"
+          case "$url" in
+            https://?*) ;;
+            *)
+              echo "::error::The SUPABASE_URL secret must start with https://"
+              exit 1
+              ;;
+          esac
+          host="${url#https://}"
+          case "$host" in
+            */*|*[[:space:]]*)
+              echo "::error::The SUPABASE_URL secret must be https://<project-ref>.supabase.co with no path or spaces"
+              exit 1
+              ;;
+          esac
+          echo "::add-mask::$host"
+          umask 077
+          {
+            echo "// Written by the TestFlight workflow."
+            printf 'SUPABASE_URL = https:/$()/%s\n' "$host"
+            printf 'SUPABASE_ANON_KEY = %s\n' "$SUPABASE_ANON_KEY"
+          } > ios/Config/Local.xcconfig
+
+      - name: Write the App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          umask 077
+          key="$RUNNER_TEMP/AuthKey.p8"
+          case "$ASC_API_KEY_P8" in
+            *"-----BEGIN"*) printf '%s\n' "$ASC_API_KEY_P8" > "$key" ;;
+            *) printf '%s' "$ASC_API_KEY_P8" | tr -d ' \t\r\n' | base64 --decode > "$key" 2>/dev/null || true ;;
+          esac
+          if ! grep -q -- "-----BEGIN PRIVATE KEY-----" "$key"; then
+            rm -f "$key"
+            echo "::error::ASC_API_KEY_P8 is neither the contents of a .p8 file nor base64 of one"
+            exit 1
+          fi
+
+      - name: Archive and upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          OHANA_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -o pipefail
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          ios/scripts/archive-for-testflight.sh --upload 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      # -exportArchive writes its own logs (*.xcdistributionlogs) to the
+      # temporary directory. Copy them next to the build log.
+      - name: Collect export logs
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/export-logs"
+          for dir in "${TMPDIR:-/tmp}" "$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"; do
+            [ -n "$dir" ] && [ -d "$dir" ] || continue
+            find "$dir" -maxdepth 2 -name '*.xcdistributionlogs' -exec cp -R {} "$RUNNER_TEMP/export-logs/" \; 2>/dev/null || true
+          done
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/export-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove the API key and Local.xcconfig
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8" ios/Config/Local.xcconfig
