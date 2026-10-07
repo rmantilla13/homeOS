@@ -463,6 +463,7 @@ enum MediaTools {
         }
         #endif
         let ext = output.pathExtension.isEmpty ? "mov" : output.pathExtension.lowercased()
+        metadata.processing = "done"  // right for the wall: the server leaves it alone
         return PreparedVideo(url: output, fileExtension: ext, metadata: metadata)
     }
 

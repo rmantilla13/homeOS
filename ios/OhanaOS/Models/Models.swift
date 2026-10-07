@@ -490,9 +490,11 @@ struct NewMediaItem: Encodable {
     var thumbnailPath: String?
     /// Omitted so the column default (`supabase`) applies.
     var fileStore: String?
+    /// Videos only: `done` or `pending` (see `MediaMetadata.processing`).
+    var processing: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, width, height
+        case id, kind, width, height, processing
         case familyId = "family_id"
         case storagePath = "storage_path"
         case durationSeconds = "duration_seconds"
@@ -519,6 +521,7 @@ struct NewMediaItem: Encodable {
         try c.encodeIfPresent(contentType, forKey: .contentType)
         try c.encodeIfPresent(thumbnailPath, forKey: .thumbnailPath)
         try c.encodeIfPresent(fileStore, forKey: .fileStore)
+        try c.encodeIfPresent(processing, forKey: .processing)
     }
 }
 
@@ -530,6 +533,9 @@ struct MediaMetadata {
     var takenAt: Date?
     /// A small JPEG poster. Photos always have one; a video has one when a frame could be read.
     var thumbnail: Data?
+    /// Videos: `done` when the phone made it right for the wall (or it already
+    /// was), `pending` when the original goes up and the server makes a copy.
+    var processing: String?
 }
 
 // MARK: Accounts & invites

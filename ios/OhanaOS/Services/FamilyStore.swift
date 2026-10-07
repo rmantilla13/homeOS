@@ -1351,12 +1351,25 @@ final class FamilyStore {
                                    width: metadata.width, height: metadata.height,
                                    durationSeconds: metadata.durationSeconds, takenAt: metadata.takenAt,
                                    uploadedBy: me?.id, byteSize: bytes, contentType: signedType,
-                                   thumbnailPath: thumbnailPath, fileStore: "blob")
+                                   thumbnailPath: thumbnailPath, fileStore: "blob",
+                                   processing: kind == "video" ? metadata.processing : nil)
             // Its own task, so Cancel can't land between the file and its row.
             try await Task { () async throws -> Void in
-                _ = try await supabase.from("media_items").insert(row).execute()
+                do {
+                    _ = try await supabase.from("media_items").insert(row).execute()
+                } catch let error as PostgrestError where row.processing != nil && Self.isMissingProcessingColumn(error) {
+                    // A database from before server copies: the same row without the state.
+                    var older = row
+                    older.processing = nil
+                    _ = try await supabase.from("media_items").insert(older).execute()
+                }
             }.value
             if thumbnailPath != nil, let poster { MediaCache.shared.remember(poster, for: path) }
+            if row.processing == "pending" {
+                // The server makes the wall copy. Asking now only starts it
+                // sooner (its sweep would anyway), so nothing waits on this.
+                Task { _ = try? await self.mediaJSON("process", ["pathname": path]) }
+            }
             return true
         } catch {
             if let uploadedPath {
@@ -1367,6 +1380,12 @@ final class FamilyStore {
             report(error)
             return false
         }
+    }
+
+    /// PostgREST's answer when the database has no `media_items.processing`
+    /// yet (20261012000001_video_processing.sql not applied).
+    private static func isMissingProcessingColumn(_ error: PostgrestError) -> Bool {
+        error.code == "PGRST204" && error.message.contains("'processing'")
     }
 
     /// PUTs the poster with the ticket the media service signed for it.
