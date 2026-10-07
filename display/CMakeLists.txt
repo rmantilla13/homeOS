@@ -43,6 +43,10 @@ target_compile_options(homeos-display PRIVATE ${HOMEOS_WARNINGS})
 target_compile_definitions(homeos-display PRIVATE HOMEOS_VERSION="${PROJECT_VERSION}")
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# Imported by relative path only. As a module script (a qmldir entry, which a
+# capitalized .js gets), Qt 6.8's per-folder qmldirs make "HomeOS" ambiguous
+# and Main.qml fails to load.
+set_source_files_properties(qml/screensaver/Picks.js PROPERTIES QT_QML_SKIP_QMLDIR_ENTRY TRUE)
 
 # Open-source games kept as their authors wrote them (display/games/README.md).
 # GamesScreen.qml loads them from the resources when one is opened.
