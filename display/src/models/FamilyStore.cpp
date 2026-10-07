@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDebug>
@@ -25,6 +26,7 @@ constexpr int kSyncIntervalMs = 60 * 1000; // fallback until Realtime subscripti
 constexpr int kPairPollMs = 3000;
 constexpr int kPairRetryMs = 10 * 1000;
 constexpr qint64 kCheckInIntervalMs = 5 * 60 * 1000;
+constexpr qint64 kCalendarSyncIntervalMs = 15 * 60 * 1000;
 // Re-check the date at least this often, so a jump of the clock (NTP setting
 // it at boot) is noticed between syncs and in demo mode too.
 constexpr qint64 kDayCheckMaxMs = 15 * 60 * 1000;
@@ -99,6 +101,18 @@ void FamilyStore::setMediaApiUrl(const QString &url)
     m_mediaApiUrl = url.trimmed();
     while (m_mediaApiUrl.endsWith(QLatin1Char('/')))
         m_mediaApiUrl.chop(1);
+}
+
+QString FamilyStore::mediaApiUrlOrDefault(const QString &configured)
+{
+    const QString value = configured.trimmed();
+    const QUrl url(value);
+    const QString scheme = url.scheme().toLower();
+    const QString host = url.host().toLower();
+    if (!url.isValid() || (scheme != QLatin1String("https") && scheme != QLatin1String("http")) || host.isEmpty()
+        || host.contains(QLatin1String("your-admin")) || host.contains(QLatin1String("your-project")))
+        return QStringLiteral("https://ohanaos.co");
+    return value;
 }
 
 void FamilyStore::setUrlRefreshAfterMs(qint64 ms)
@@ -221,12 +235,21 @@ void FamilyStore::loadDemo()
     for (const QJsonValue &v : root.value("media").toArray()) {
         QJsonObject m = v.toObject();
         const QString file = QDir(mediaDir).filePath(m.value("file").toString());
-        if (!mediaDir.isEmpty() && QFileInfo::exists(file))
+        if (!mediaDir.isEmpty() && QFileInfo::exists(file)) {
             m.insert("url", QUrl::fromLocalFile(file).toString());
+            // The phone records a photo's size; here it's the file's own.
+            const QSize size = QImageReader(file).size();
+            if (m.value("kind").toString() == "photo" && size.isValid()) {
+                m.insert("width", size.width());
+                m.insert("height", size.height());
+            }
+        }
         const QString poster = QDir(mediaDir).filePath(m.value("poster").toString());
         if (m.contains("poster") && QFileInfo::exists(poster))
             m.insert("posterUrl", QUrl::fromLocalFile(poster).toString());
-        m.insert("taken_at", nowDt.addSecs(-qint64(m.value("hoursAgo").toDouble() * 3600)).toString(Qt::ISODate));
+        // yearsAgo and daysAgo put photos on this day in past years (On this day).
+        const QDateTime taken = nowDt.addYears(-m.value("yearsAgo").toInt()).addDays(-m.value("daysAgo").toInt());
+        m.insert("taken_at", taken.addSecs(-qint64(m.value("hoursAgo").toDouble() * 3600)).toString(Qt::ISODate));
         m.insert("show_on_frame", m.value("kind").toString() == "photo");
         m_rawMedia << m.toVariantMap();
     }
@@ -320,6 +343,7 @@ void FamilyStore::loadLive()
             {"range_start", QDateTime(weekStart.addDays(-7), QTime(0, 0)).toUTC().toString(Qt::ISODate)},
             {"range_end", QDateTime(weekStart.addDays(35), QTime(0, 0)).toUTC().toString(Qt::ISODate)}};
         auto loadRepeats = [this, call, window, base](const QString &familyId) {
+            syncCalendars(familyId);
             QJsonObject events = window;
             events.insert("fid", familyId);
             call("event_occurrences", events, [this](const QJsonDocument &d) { m_rawEvents = toList(d); });
@@ -513,6 +537,35 @@ void FamilyStore::checkIn()
     m_client->update("devices", QUrlQuery("id=eq." + deviceId), seen, [](const QJsonDocument &, const QString &error) {
         if (!error.isEmpty())
             qWarning() << "device check-in failed:" << error;
+    });
+}
+
+// Events from connected calendars (Google, calendar links) are copied in by
+// the calendar-sync function (PLATFORM_SPEC §2.5). The display is always on,
+// so every 15 minutes it asks for the family's stale ones; the server skips
+// any refreshed in the last 10 minutes, so several displays don't add work.
+// When something changed, the family reloads.
+void FamilyStore::syncCalendars(const QString &familyId)
+{
+    if (familyId.isEmpty() || (m_lastCalendarSync.isValid() && m_lastCalendarSync.elapsed() < kCalendarSyncIntervalMs))
+        return;
+    m_lastCalendarSync.start();
+    const int generation = m_generation;
+    m_client->callFunction("calendar-sync", {{"action", "sync"}, {"family_id", familyId}},
+                           [this, generation](const QJsonDocument &doc, const QString &error) {
+        if (generation != m_generation)
+            return;
+        if (!error.isEmpty()) {
+            qWarning() << "calendar sync failed:" << error;
+            return;
+        }
+        for (const QJsonValue &v : doc.object().value("results").toArray()) {
+            const QJsonObject r = v.toObject();
+            if (r.value("added").toInt() + r.value("updated").toInt() + r.value("removed").toInt() > 0) {
+                refresh();
+                return;
+            }
+        }
     });
 }
 
@@ -910,6 +963,7 @@ void FamilyStore::pollPairing()
             m_settings.setValue("device/familyId", o.value("familyId").toString());
             m_settings.setValue("device/id", o.value("deviceId").toString());
             m_lastCheckIn.invalidate(); // a new device row: check in right away
+            m_lastCalendarSync.invalidate();
             m_pairingCode.clear();
             emit pairingChanged();
 
@@ -1048,6 +1102,10 @@ void FamilyStore::rebuild()
         const int secs = qRound(m.value("duration_seconds").toDouble());
         m.insert("durationLabel", secs > 0 ? QStringLiteral("%1:%2").arg(secs / 60).arg(secs % 60, 2, 10, QChar('0')) : QString());
         m.insert("uploaderName", nameById.value(m.value("uploaded_by").toString()));
+        // width / height, upright as the phone shows it; 0 when unknown.
+        // The screen savers put portrait photos in tall tiles.
+        const double w = m.value("width").toDouble(), h = m.value("height").toDouble();
+        m.insert("aspect", w > 0 && h > 0 ? w / h : 0.0);
 
         // The uploaded poster (thumbUrl) stands in for a video until it plays.
         // Demo videos bring their own.

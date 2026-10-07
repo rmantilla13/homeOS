@@ -92,12 +92,12 @@ about 20–35 clips that size.
 | # | Phase | Size | Files | Verified by |
 |---|---|---|---|---|
 | 0 | **Spike: ffmpeg in a Sandbox.** One short-lived sandbox on `homeos-admin`: is ffmpeg (with libx265 + zimg) available, or how does it install (dnf, a static build pinned by sha256, or a VCR image)? Transcode a sample and time it. Stop it. Decides D3. | XS | none (notes in this file) | `ffmpeg -version` shows libx265 + zimg; sample timing recorded. **Gate:** if ffmpeg can't run there, stop and bring a Cloud Run or Fly worker as the alternative. |
-| 1 | **Database.** `20261012000001_video_processing.sql`: `media_items.processing` (null, pending, processing, done or failed; a client may set only null, `pending` or `done`, and only on insert), service-only `media_jobs` (attempts, started_at, finished_at, replaced_path, error), guard freeze list, and RPCs `media_job_claim`, `media_job_finish`, `media_job_fail`, `media_job_replaced_due`, `media_job_replaced_cleared` (service_role only). | S | migration, `backend/tests/media_processing_test.sql` | `backend/tests/run.sh` green: the client freeze, allowed insert values, claim cap and staleness, finish only shrinks `byte_size`, canonical `-wall.mp4` path, stale attempt refused |
+| 1 | **Database.** `20261013000001_video_processing.sql`: `media_items.processing` (null, pending, processing, done or failed; a client may set only null, `pending` or `done`, and only on insert), service-only `media_jobs` (attempts, started_at, finished_at, replaced_path, error), guard freeze list, and RPCs `media_job_claim`, `media_job_finish`, `media_job_fail`, `media_job_replaced_due`, `media_job_replaced_cleared` (service_role only). | S | migration, `backend/tests/media_processing_test.sql` | `backend/tests/run.sh` green: the client freeze, allowed insert values, claim cap and staleness, finish only shrinks `byte_size`, canonical `-wall.mp4` path, stale attempt refused |
 | 2 | **Edge function `media-jobs`.** A thin POST wrapper around those RPCs, with a constant-time compare of `x-media-jobs-secret` against `MEDIA_JOBS_SECRET` (unset gives 503). | S | `functions/media-jobs/{index,jobs,jobs.test}.ts` | `deno check` + `deno test` (CI) |
 | 3 | **Worker.** `admin/lib/media/worker.mjs`, plain Node with no dependencies, which runs in the sandbox: download, ffprobe, plan (same rules as iOS `MediaTools.plan`), ffmpeg arguments, PUTs, callback. Pure functions are exported for tests. | M | `worker.mjs`, `tests/worker.test.mjs` | `npm test`: plan rules and arguments, plus a local end-to-end run on a 4K HDR sample with a fake HTTP server. The output must be HEVC 8-bit, BT.709, ≤ 1920, ≤ 30 fps, with `moov` first. Skipped where ffmpeg is missing. |
 | 4 | **Orchestration and routes.** `lib/media/processing.ts` (claim, presign, sandbox start, HMAC callback token, finish/fail, sweep); routes `POST /api/media/process`, `POST /api/media/process/done` and `GET /api/media/process/sweep` (Vercel `CRON_SECRET`); `video.ts` accepts `-wall.mp4`; `/delete` also removes that id's leftovers (Blob `list` by `<family>/<id>` prefix); `vercel.json` cron; `next.config.ts` traces `worker.mjs`; `@vercel/sandbox` dependency. | M | above + `tests/processing.test.mjs` | `npm run lint && npm run typecheck && npm test && npm run build` |
 | 5 | **iOS.** The insert sends `processing` (`done` after `prepareVideo`, `pending` for the original fallback) and retries without the field if the server is older (PostgREST unknown column). A `pending` row then calls `/api/media/process` without waiting on it. | S | `FamilyStore.swift`, `MediaView.swift` | iOS CI build green |
-| 6 | **Docs.** ARCHITECTURE (Media), PLATFORM_SPEC (§1.13 processing, §2.5 `media-jobs`, §3 routes, §6 iOS), ADMIN (setup checklist), IOS (uploads), PLATFORM (migration list), README (function deploy). | S | docs | links resolve; reads as one story |
+| 6 | **Docs.** ARCHITECTURE (Media), PLATFORM_SPEC (§1.14 processing, §2.6 `media-jobs`, §3 routes, §6 iOS), ADMIN (setup checklist), IOS (uploads), PLATFORM (migration list), README (function deploy). | S | docs | links resolve; reads as one story |
 | 7 | **Rollout: production, only with a separate go-ahead.** Apply the migration, deploy `media-jobs`, set `MEDIA_JOBS_SECRET` in Supabase and Vercel, deploy the admin app, let the sweep backfill the 5 originals, then upload one real 500 MB+ clip. | — | — | That row ends `processing = 'done'` on a `-wall.mp4` with a smaller `byte_size` and a poster, and plays on the wall |
 
 ## Decision log
@@ -140,7 +140,7 @@ about 20–35 clips that size.
 | 3 Worker | done (adf6867) | `worker.test.mjs` 12/12, incl. real ffmpeg jobs (4K60 HLG → 1920×1080 HEVC 8-bit bt709 AAC, index first; as-is; remux); `--self-test` ok locally |
 | 4 Routes | done (f92d1ed) | `npm run lint`, `npm run typecheck`, `npm run build` (worker.mjs traced into the routes), `npm test` 79/79 |
 | 5 iOS | done (375bb95) | tree-sitter Swift parse of the 4 files; iOS CI build on the PR |
-| 6 Docs | done | PLATFORM_SPEC §1.13, §2.5, §3, §6, §7; ADMIN, ARCHITECTURE, IOS, PLATFORM, README |
+| 6 Docs | done | PLATFORM_SPEC §1.14, §2.6, §3, §6, §7; ADMIN, ARCHITECTURE, IOS, PLATFORM, README |
 | 7 Rollout | needs go-ahead | below |
 
 ## Execution notes (deviations from the plan)
@@ -163,7 +163,7 @@ about 20–35 clips that size.
 ## Phase 7 rollout (each step needs a go-ahead)
 
 1. Merge #40 (CI green), so Vercel deploys the admin app. Nothing changes yet.
-2. `supabase db push` (20261012000001), then
+2. `supabase db push` (20261013000001), then
    `supabase secrets set MEDIA_JOBS_SECRET=…` and
    `supabase functions deploy media-jobs`.
 3. Vercel Production env: `MEDIA_JOBS_SECRET` (the same value) and

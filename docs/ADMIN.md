@@ -174,8 +174,8 @@ with no Supabase values, never the production project.
    function its service role key automatically.
 7. Point the iOS app at this deployment (`MEDIA_API_URL` in
    `ios/Config/*.xcconfig`, read as `Config.mediaAPIURL`) and the display at
-   it (`HOMEOS_MEDIA_URL`). The app uses `https://ohanaos.co` when
-   `MEDIA_API_URL` is empty or still the example placeholder. Both send the
+   it (`HOMEOS_MEDIA_URL`). Both use `https://ohanaos.co` when the value
+   is empty or still the example placeholder. Both send the
    family member's Supabase access token to `/api/media/*`.
 8. Check the route from anywhere. Without a sign-in it should answer a
    clean 401 in JSON, not a login page, a 404 or a 503:
@@ -233,11 +233,11 @@ app builds and the 4K originals uploaded before this existed. The copy is
 smaller than the original. The original is deleted six hours after the
 swap. Each job runs ffmpeg in its own Vercel Sandbox, with presigned URLs
 for that one video and no other credentials. Details are in
-[PLATFORM_SPEC.md](PLATFORM_SPEC.md) §1.13, §2.5 and §3.
+[PLATFORM_SPEC.md](PLATFORM_SPEC.md) §1.14, §2.6 and §3.
 
 To turn it on:
 
-1. Apply `20261012000001_video_processing.sql` (`supabase db push`).
+1. Apply `20261013000001_video_processing.sql` (`supabase db push`).
 2. Make a secret, give it to the edge function, and deploy that function:
 
    ```bash

@@ -45,12 +45,14 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
     the caller is a platform admin. Listing and deleting media rows stays in
     SQL; signing a thumbnail URL is the function, because admins are not
     family members and have no Storage read policy.
+  - `calendar-sync` brings in connected calendars (Google, calendar links)
+    and serves the family's own calendar as a subscribable link; see
+    Connected calendars below.
   - `delete-account` deletes the caller's own account for the iOS app.
   - `media-jobs` keeps the state of server-made video copies for the admin
     app, behind a shared secret, so the admin app never holds the service
     role key (see Media below).
-  - Later: push notifications (APNs), recurring-chore generation, and
-    calendar sync with Google and iCloud.
+  - Later: push notifications (APNs) and recurring-chore generation.
 
 ### Data model
 
@@ -59,7 +61,9 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | `families` | One household |
 | `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member without a login a photo |
 | `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
-| `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members` |
+| `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members`. Events copied from a connected calendar have `source_id` and are read-only |
+| `calendar_sources` / `calendar_accounts` | Connected calendars (a Google calendar or a calendar link) and the Google accounts behind them. Refresh tokens and links sit in service-only tables |
+| `calendar_feeds` | The token of the family's subscribable calendar link |
 | `tasks` | Chores and to-dos: assignee, points, recurrence, due date, and whether a parent must approve |
 | `task_completions` | A task completed on a date; when approved, it posts points |
 | `rewards` / `reward_redemptions` | The reward catalog and claims |
@@ -78,6 +82,36 @@ functions (`approve_completion`, `redeem_reward`), so balances can't drift.
 Guard triggers also stop non-parents from setting what a chore is worth or
 letting it skip approval, so a child (or the kitchen display) can't award
 themselves points.
+
+## Connected calendars
+
+```
+ Google Calendar ──OAuth, events.list──┐                       ┌── wall display, iPhone, assistant
+ iCloud / Outlook / school ──ICS link──┼─▶ calendar-sync ─▶ events (source_id) ─▶ event_occurrences
+                                       │    (edge function)                       │
+ Apple / Google / Outlook ◀──feed link─┴──────────────────── the family's own events
+```
+
+- **In.** A parent connects a Google account (browser sign-in, read-only
+  scope) and picks calendars, or adds a calendar link (`webcal://` or
+  `https://`: iCloud public calendars, Outlook, Google's secret address,
+  school, team and holiday calendars). `calendar-sync` reads each one,
+  expands repeats itself (ical.js for links; Google expands its own), and
+  hands one row per occurrence, 60 days back to a year ahead, to
+  `calendar_apply_sync`, which updates `events` in place. So the display, the
+  iPhone and the assistant need nothing new: imported events come through
+  `event_occurrences` with a `source_id`, in the calendar's color or its
+  person's, and can't be edited here.
+- **Fresh.** pg_cron calls `calendar-sync` every 15 minutes, a paired display
+  asks every 15 minutes, and the iPhone asks when it opens; the server skips
+  calendars refreshed in the last 10 minutes. Each calendar syncs in its own
+  request, within the edge runtime's CPU budget.
+- **Private.** Refresh tokens and links stay in service-only tables. A
+  calendar can show as "Busy" (no titles or places), and private events
+  always do. A parent's Google account leaves with them.
+- **Out.** A parent makes a secret link that serves the family's own events
+  as ICS, for Apple Calendar, Google Calendar or Outlook to subscribe to.
+  Imported events aren't in it, so nothing loops.
 
 ## Design system: dynamic color and motion
 
@@ -104,16 +138,36 @@ overrides it). A video playing in the media viewer counts as a touch, so a
 long one isn't cut off:
 
 - **Photos:** one photo at a time, cross-fading, with a slow zoom and drift.
-- **Collage:** one large and four small tiles; a random tile swaps to a new
-  photo every few seconds.
+- **Collage:** photos cropped to fill rounded tiles, in a new layout each
+  time the screen saver starts: classic (one large, four small), grid (3×2),
+  mosaic (seven tiles of mixed sizes), trio (one large, two small) and
+  columns (four tall). With fewer photos than tiles it takes a smaller
+  layout, so no tile is empty or repeats a photo. Portrait photos go to tall
+  tiles when there's a choice. Every few seconds one tile cross-fades to a
+  photo that isn't showing and hasn't been for a minute, so photos don't hop
+  between tiles.
+- **Smart frame:** like Photos, but two portrait photos share the screen
+  side by side; a portrait left without a partner stands whole over a
+  blurred copy of itself.
+- **On this day:** photos taken on this date in earlier years ("2 years ago
+  today"), then within three days of it ("this week"); with none, the newest
+  photos with their dates. It draws on the photos the display has loaded
+  (the newest 200 by date).
 - **Video:** family videos full screen and muted, one after another; a
   single video loops. The poster shows until the first frame. A clip that
   fails, or stops moving for 10 seconds, is skipped after a 2-second pause;
   when every clip fails (offline, say), it tries again every 30 seconds.
   Falls back to Photos if there are no videos.
+- **Clock:** a big clock, the date and the next three events on the
+  time-of-day gradient, no photos. It shifts a few pixels every minute.
+- **Today:** the time, today's events, a photo that changes every 15
+  seconds and how many chores each person has left, in the app's colors.
 
-Every style shows the clock, the date and the next event over a shade in the
-colors of what's on screen. The first touch only wakes the screen.
+The photo styles show the clock, the date and the next event over a shade in
+the colors of what's on screen; Clock and Today lay out their own. Photos
+are shown upright: the display applies a JPEG's EXIF orientation. Which
+photo goes where is in `qml/screensaver/Picks.js`. The first touch only
+wakes the screen.
 
 ## Media
 
@@ -138,7 +192,7 @@ runs ffmpeg with presigned URLs for that one video, and the row moves to
 same happens to videos from older app builds. A cron sweep every 10 minutes
 catches anything missed and deletes swapped-out originals after six hours
 ([ADMIN.md](ADMIN.md#big-videos-wall-copies-on-the-server),
-[PLATFORM_SPEC.md](PLATFORM_SPEC.md) §1.13). Each photo and video also gets a JPEG poster (at most 256 KiB) at
+[PLATFORM_SPEC.md](PLATFORM_SPEC.md) §1.14). Each photo and video also gets a JPEG poster (at most 256 KiB) at
 `<family_id>/<id>-thumb.jpg`, presigned in the same upload ticket as the file;
 a poster that fails never fails the upload. The row records `byte_size` (the
 file only; posters are not billed), `content_type` and `thumbnail_path`. The
@@ -255,8 +309,9 @@ the project and company are OhanaOS. `xcodegen generate` replaces it.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Vercel
   Blob through the admin app (`Config.mediaAPIURL`), with a size, a content
   type and a JPEG poster. Videos are made at most 1080p (mostly HEVC) for
-  the wall first. They appear on the wall frame within seconds once the
-  display has `HOMEOS_MEDIA_URL`. Profile photos stay in Supabase. Files
+  the wall first. They appear on the wall frame within a minute; the
+  display signs them through the same admin app (`HOMEOS_MEDIA_URL`, by
+  default `https://ohanaos.co`). Profile photos stay in Supabase. Files
   already in Storage keep playing from that bucket.
 - Parents approve chore completions and manage rewards.
 - **Pair a display**: the screen shows a 6-digit code and a QR code; the app

@@ -201,8 +201,8 @@ Popup {
                     SectionLabel { text: qsTr("SCREEN SAVER") }
                     ScreenSaverOptions {
                         Layout.fillWidth: true
-                        cardHeight: Theme.compact ? 176 : 200
-                        spacing: 12
+                        cardHeight: 132
+                        gap: 12
                     }
 
                     SectionLabel { Layout.topMargin: 12; text: qsTr("DISPLAY") }

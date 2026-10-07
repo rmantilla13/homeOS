@@ -76,6 +76,7 @@ Rectangle {
                 source: slide.modelData.tileUrl || slide.imageSource
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                autoTransform: true
                 sourceSize.width: 480
                 visible: false
             }
@@ -96,6 +97,7 @@ Rectangle {
                 source: slide.imageSource
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
+                autoTransform: true // EXIF orientation, as in PhotoTile
                 sourceSize.width: 2560
             }
             Loader {

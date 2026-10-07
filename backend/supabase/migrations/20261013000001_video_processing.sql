@@ -1,6 +1,6 @@
 -- Server-made wall copies of videos. A video the phone couldn't optimize
 -- (or one from an older app) gets a 1080p HEVC copy made in a Vercel
--- Sandbox, and the row is moved onto it. See docs/PLATFORM_SPEC.md §1.13.
+-- Sandbox, and the row is moved onto it. See docs/PLATFORM_SPEC.md §1.14.
 --
 -- media_items.processing says where a video stands:
 --   null        not known: rows from before this, or from an app that doesn't send it

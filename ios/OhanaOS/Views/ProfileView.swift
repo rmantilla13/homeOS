@@ -103,6 +103,25 @@ struct ProfileView: View {
                              : "See who's in the family, and change your own name, photo and color.")
                     }
                 }
+                if store.family != nil {
+                    Section {
+                        NavigationLink {
+                            ConnectedCalendarsView()
+                        } label: {
+                            LabeledContent {
+                                Text(store.calendarSources.isEmpty ? "" : "\(store.calendarSources.count)")
+                            } label: {
+                                Label("Connected calendars", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                        }
+                    } header: {
+                        Text("Calendars")
+                    } footer: {
+                        Text(store.isParent
+                             ? "Show Google, iCloud, Outlook, school and team calendars on the family calendar, and the family's calendar in other apps."
+                             : "See which other calendars show on the family calendar.")
+                    }
+                }
                 if store.families.count > 1 {
                     Section {
                         Picker("Show", selection: familySelection) {

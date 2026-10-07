@@ -30,13 +30,13 @@
 - [x] Dynamic time-of-day palette and photo-driven colors
 - [x] Smooth page transitions and micro-animations
 - [x] Media page (photos and videos, month groups, full-screen viewer with video playback)
-- [x] Screen savers: photos (drifting), collage, full-screen video
+- [x] Screen savers: photos (drifting), collage (five layouts), smart frame, on this day, full-screen video, clock, today
 - [ ] Assistant in the iOS app
 - [ ] Voice input (speech-to-text) and spoken replies
 
 ## M3: Polish and family features
 - [ ] Recurring chores generated nightly (edge function plus cron)
-- [ ] Google and iCloud calendar sync
+- [x] Calendar sync: Google (sign-in), iCloud, Outlook and any calendar link in; the family calendar out as a subscribable link
 - [ ] Push notifications: chore reminders, approval requests
 - [ ] Albums, "on this day" memories, video playback on the wall
 - [ ] Meal-plan to shopping-list generation

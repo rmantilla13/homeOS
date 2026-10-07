@@ -58,6 +58,11 @@ public:
     // Origin of the admin app that signs private photo and video URLs.
     // Empty means Blob files have no playback URL. Rows still in Supabase play.
     void setMediaApiUrl(const QString &url);
+    // The media service the phones upload through: `configured` when it is
+    // an http(s) URL with a real host, else https://ohanaos.co, the iOS
+    // app's default. An empty value or the display.env example placeholder
+    // would leave every new photo and video without a URL.
+    static QString mediaApiUrlOrDefault(const QString &configured);
     // How long a signed media URL is reused, and when it is dropped even if
     // signing it again fails. Both shorten URLs already signed (for tests).
     void setUrlRefreshAfterMs(qint64 ms);
@@ -130,6 +135,7 @@ private:
     void forgetMedia();
     void withSession(std::function<void()> fn);
     void checkIn();
+    void syncCalendars(const QString &familyId);
     void startPairing();
     void pollPairing();
     void rebuild();
@@ -160,6 +166,8 @@ private:
     int m_generation = 0;
     // When this display last set devices.last_seen_at (monotonic; invalid until it has).
     QElapsedTimer m_lastCheckIn;
+    // When this display last asked for the family's connected calendars to be refreshed.
+    QElapsedTimer m_lastCalendarSync;
 
     std::function<QDateTime()> m_clock; // tests only; empty means the real clock
     QDate m_today;

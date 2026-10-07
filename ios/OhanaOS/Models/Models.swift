@@ -84,6 +84,9 @@ struct FamilyEvent: Codable, Identifiable, Hashable {
     var seriesStartsAt: Date
     var seriesEndsAt: Date
     var memberIds: [UUID]
+    /// The connected calendar it was copied from (Google, a calendar link).
+    /// Those events are read-only here: they change in their own calendar.
+    var sourceId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case title, description, location, color, rrule
@@ -95,6 +98,7 @@ struct FamilyEvent: Codable, Identifiable, Hashable {
         case seriesStartsAt = "series_starts_at"
         case seriesEndsAt = "series_ends_at"
         case memberIds = "member_ids"
+        case sourceId = "source_id"
     }
 
     init(from decoder: Decoder) throws {
@@ -113,13 +117,14 @@ struct FamilyEvent: Codable, Identifiable, Hashable {
         seriesStartsAt = try c.decodeIfPresent(Date.self, forKey: .seriesStartsAt) ?? startsAt
         seriesEndsAt = try c.decodeIfPresent(Date.self, forKey: .seriesEndsAt) ?? endsAt
         memberIds = try c.decodeIfPresent([UUID].self, forKey: .memberIds) ?? []
+        sourceId = try c.decodeIfPresent(UUID.self, forKey: .sourceId)
     }
 
     /// An occurrence made on the phone (demo mode). As in `init(from:)`, a
     /// row with no series times is its own series.
     init(eventId: UUID, familyId: UUID, title: String, description: String? = nil, location: String?,
          startsAt: Date, endsAt: Date, allDay: Bool, color: String?, rrule: String?,
-         seriesStartsAt: Date? = nil, seriesEndsAt: Date? = nil, memberIds: [UUID]) {
+         seriesStartsAt: Date? = nil, seriesEndsAt: Date? = nil, memberIds: [UUID], sourceId: UUID? = nil) {
         self.eventId = eventId
         self.familyId = familyId
         self.title = title
@@ -133,6 +138,7 @@ struct FamilyEvent: Codable, Identifiable, Hashable {
         self.seriesStartsAt = seriesStartsAt ?? startsAt
         self.seriesEndsAt = seriesEndsAt ?? endsAt
         self.memberIds = memberIds
+        self.sourceId = sourceId
     }
 
     /// The series plus this start, so each repeat is its own row in a ForEach.
@@ -140,6 +146,8 @@ struct FamilyEvent: Codable, Identifiable, Hashable {
 
     /// Blank rules don't repeat, as on the server.
     var isRecurring: Bool { !(rrule ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    /// Copied from a connected calendar, so it can't be edited or deleted here.
+    var isImported: Bool { sourceId != nil }
 }
 
 struct NewEvent: Encodable {

@@ -6,7 +6,7 @@ small admin console runs the platform.
 
 | Module    | What it does                                                        |
 |-----------|---------------------------------------------------------------------|
-| Calendar  | Shared family calendar, color-coded per member, synced via the cloud |
+| Calendar  | Shared family calendar, color-coded per member. Brings in Google, iCloud, Outlook and school calendars, and shows up in other calendar apps |
 | Tasks     | Chores and to-dos with assignees, recurrence and due dates          |
 | Rewards   | Points earned from chores, redeemable for family-defined rewards    |
 | Media     | Family photos and videos, plus a photo-frame mode when idle         |
@@ -67,12 +67,12 @@ Useful flags and variables:
 | `--windowed` | Run in a window instead of full screen |
 | `--demo` | Use sample data even if a backend is configured |
 | `HOMEOS_IDLE_SECONDS=30` | Seconds before the screen saver starts (default 120) |
-| `HOMEOS_SCREENSAVER=photos\|collage\|video` | Screen saver style (otherwise chosen on the Media page) |
+| `HOMEOS_SCREENSAVER=photos\|collage\|frame\|memories\|video\|clock\|today` | Screen saver style (otherwise chosen on the Media page) |
 | `HOMEOS_NIGHT_MODE=on\|off` | Force the night theme on or off |
 | `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |
 | `HOMEOS_VOICE_URL` | Voice service address (default `ws://127.0.0.1:8765`) |
-| `HOMEOS_MEDIA_URL` | Admin app origin that signs private photo and video URLs (Vercel Blob) |
+| `HOMEOS_MEDIA_URL` | Admin app origin that signs private photo and video URLs (Vercel Blob). Default `https://ohanaos.co`, the same as the iOS app |
 | `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,` | Decode video on the CPU only. On the Pi (eglfs) the app uses `drm`, the Pi 5's HEVC decoder, unless this is set ([docs/PI_SETUP.md](docs/PI_SETUP.md#video-decoding)) |
 
 To connect it to the backend, set:
@@ -101,6 +101,7 @@ supabase functions deploy assistant          # Claude: workload identity, docs/P
 
 supabase functions deploy admin
 supabase functions deploy delete-account     # Delete account in the iOS app
+supabase functions deploy calendar-sync      # Connected calendars: docs/PLATFORM.md
 supabase functions deploy media-jobs         # server-made wall copies of big videos, docs/ADMIN.md
 tests/run.sh                         # SQL tests (RLS, invites, admin, ...) on a throwaway Postgres
 ```

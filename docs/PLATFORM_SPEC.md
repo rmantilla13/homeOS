@@ -52,9 +52,11 @@ Migrations are added after the existing ones, never edited in place:
   `can_read_avatar` also reads family folders; `can_write_member_photo` (§1.7)
 - `20261011000002_storage_member_photos.sql`: the member photo policies on
   the `avatars` bucket (Supabase-only, like 000005)
-- `20261012000001_video_processing.sql`: `media_items.processing`, the
+- `20261012000001_calendar_sync.sql`: connected calendars and the shared
+  family calendar link (§1.13); `event_occurrences` gains `source_id` (§1.12)
+- `20261013000001_video_processing.sql`: `media_items.processing`, the
   service-only `media_jobs` table and the `media_job_*` functions behind
-  server-made wall copies of videos (§1.13). Safe to run again
+  server-made wall copies of videos (§1.14). Safe to run again
 
 `20261009000002` to `20261009000004` were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -453,7 +455,7 @@ in Storage stay `supabase` and keep playing from that bucket.
 The admin app (the Vercel project that owns the store) signs upload and
 playback URLs. Clients send their Supabase JWT. See §3, Media API. Photos
 are capped at 50 MB; videos at 2 GiB. A video the server made a wall copy
-of (§1.13) points at `<family_id>/<id>-wall.mp4`.
+of (§1.14) points at `<family_id>/<id>-wall.mp4`.
 
 A `blob` row's poster is `<family_id>/<id>-thumb.jpg` (JPEG, at most
 256 KiB), set in the insert because `media_items_guard` freezes
@@ -508,10 +510,11 @@ days.
 |---|---|
 | `rrule_occurs_on(rule text, dtstart date, day date, dtstart_is_instance boolean default true)` | `boolean`: whether `day` is an occurrence of the series anchored at the local date `dtstart`. Immutable, reads no tables. |
 | `rrule_days(rule text, dtstart date, from_day date, to_day date, dtstart_is_instance boolean default true)` | `setof date`: the occurrences in `[from_day, to_day]`, in order. Same rules as `rrule_occurs_on`, which is `exists (rrule_days(rule, dtstart, day, day, …))`. It parses the rule once per call, which is why `event_occurrences` uses it. |
-| `event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)` | `table(id uuid, family_id uuid, title text, description text, location text, starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text, created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz, member_ids uuid[])`, ordered by `starts_at`, then `all_day` desc, then `id` |
+| `event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)` | `table(id uuid, family_id uuid, title text, description text, location text, starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text, created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz, member_ids uuid[], source_id uuid)`, ordered by `starts_at`, then `all_day` desc, then `id`. `source_id` (20261012000001) is the connected calendar an imported event came from, null for the family's own |
 | `chores_due(fid uuid, day date)` | `setof tasks`, ordered by `created_at` |
 
-All four can be executed by `authenticated` only. `event_occurrences` and
+All four can be executed by `authenticated` only (and, since 20261012000001,
+`event_occurrences` by the service role too, for the family feed in §2.5). `event_occurrences` and
 `chores_due` are `stable` and security invoker, so RLS on `events`,
 `event_members`, `tasks`, `task_completions` and `families` applies:
 another family's id returns no rows.
@@ -624,7 +627,94 @@ dates, so `UNTIL=20261020T000000Z` still includes Oct 20.
 - Assistant: `event_occurrences` from a day ago to 14 days ahead, and
   `chores_due` for the family's today.
 
-### 1.13 Wall copies of videos
+### 1.13 Connected calendars
+
+Events come in from other calendars, and the family's own go out as a link.
+`calendar-sync` (§2.5) does the fetching; the database stores, guards and
+expands.
+
+```
+public.calendar_accounts (            -- a Google account a parent connected for the family
+  id uuid pk, family_id uuid not null → families on delete cascade,
+  provider text not null default 'google' check (provider in ('google')),
+  email text not null default '',
+  needs_reconnect boolean not null default false,   -- Google refused the refresh token
+  created_by uuid not null → auth.users on delete cascade,
+  created_at, updated_at, unique (family_id, provider, email))
+public.calendar_account_tokens (account_id uuid pk → calendar_accounts on delete cascade,
+  refresh_token text not null, access_token text, access_token_expires_at timestamptz, updated_at)
+public.calendar_sources (             -- one calendar whose events are copied in
+  id uuid pk, family_id uuid not null → families on delete cascade,
+  provider text not null check (provider in ('ics','google')),
+  account_id uuid → calendar_accounts on delete cascade, google_calendar_id text,
+  url_host text,                      -- a link's host, for telling links apart
+  name text not null (1–100 characters after trimming),
+  color text (#RRGGBB),               -- null: the person's color
+  member_id uuid → members on delete set null,   -- who the events are for; null is everyone
+  busy_only boolean not null default false,
+  enabled boolean not null default true,
+  last_attempt_at, last_synced_at timestamptz, last_error text, event_count int not null default 0,
+  created_by uuid → auth.users on delete set null, created_at, updated_at,
+  unique (account_id, google_calendar_id))
+public.calendar_source_links (source_id uuid pk → calendar_sources on delete cascade, url text not null (≤ 2048))
+public.calendar_feeds (family_id uuid pk → families on delete cascade, token text not null unique,
+  created_by uuid → auth.users on delete set null, created_at)
+events.source_id uuid → calendar_sources on delete cascade
+```
+
+A `google` source has `account_id` and `google_calendar_id`; an `ics` source
+has neither (`calendar_sources_provider_fields`). `events` loses the unused
+`unique (family_id, external_source, external_id)` and gains
+`events_source_external unique (source_id, external_id)`; an imported row
+has `external_source` = the provider and `external_id` = the occurrence's
+uid (`events_source_has_id`).
+
+**Who sees what (RLS)**
+
+| Table | Read | Write |
+|---|---|---|
+| `calendar_sources` | anyone in the family, displays included | parents update and delete; no client insert |
+| `calendar_accounts` | parents | none (calendar-sync adds and disconnects) |
+| `calendar_account_tokens`, `calendar_source_links` | service role only (privileges revoked too) | service role |
+| `calendar_feeds` | parents | parents delete; `calendar_feed_token` creates |
+
+**Guards**
+
+- `events_source_guard` (before insert, update or delete on `events`), for
+  callers running as `authenticated` or `anon`: an imported row can't be
+  changed or deleted (`this event comes from a connected calendar; change it
+  there`), and no row can be inserted or updated with a `source_id` (`only
+  calendar sync can add events from a connected calendar`). The service role,
+  security-definer functions and cascades (removing a calendar, a member or a
+  family) pass.
+- `event_members_source_guard`: the same for the people on an imported event.
+- `calendar_sources_guard`: a client may change only `name`, `color`,
+  `member_id`, `busy_only` and `enabled` (`only a calendar's name, color,
+  person, privacy and on/off can be changed`); `member_id` must be in the
+  family (`that person isn't in this family`), `account_id` the family's
+  (`that account isn't in this family`). Turning `busy_only` off on a Google
+  calendar is for the parent who connected that account (`only the person
+  who connected this Google account can show its details`). Names are
+  trimmed. Turning a calendar off sets `event_count` to 0.
+- `calendar_sources_apply` (after update, security definer): off deletes the
+  calendar's events; a new color, person or `busy_only = true` applies to
+  the events already there (titles become `Busy`, no description or
+  location). Turning it on again, or `busy_only` off, waits for a sync.
+- `members_calendar_cleanup` (after update of `user_id` or delete on
+  `members`): a parent's Google accounts in that family go when their member
+  row loses its login (leaving, account deletion) or is deleted. Deleting the
+  login itself cascades too.
+- `family_last_activity` ignores imported events.
+
+**Functions**
+
+| Function | Who | Does |
+|---|---|---|
+| `calendar_apply_sync(source uuid, rows jsonb)` | service role | Replaces the calendar's events with `rows`, a JSON array (at most 5000, else `too many events (at most 5000)`) of `{uid, title, description, location, starts_at, ends_at, all_day}`, one per occurrence. Rows without a uid (or one over 1024 characters), a finite start and end, or that end before they start are dropped, and a repeated uid keeps the first. Title, description and location are clipped to 500, 4000 and 500 characters; a blank title is `Untitled event`; `busy_only` makes them `Busy`, null, null. Changed rows are updated in place (ids stay; unchanged rows aren't written), missing ones deleted, and every event is linked to the calendar's person only. Stamps `last_attempt_at`, `last_synced_at`, clears `last_error`, sets `event_count`. A calendar turned off while syncing ends up empty. Raises `calendar not found`, `this family is suspended`, `rows must be a JSON array`. Returns `{added, updated, removed, event_count}`. |
+| `calendar_claim_due(lim int default 20, min_age_seconds int default 900, only_family uuid default null, only_source uuid default null)` | service role | Stamps `last_attempt_at = now()` on, and returns, up to `lim` (at most 200) enabled calendars of active families not tried in the last `min_age_seconds`, least recently tried first, skipping rows another run has locked. |
+| `calendar_feed_token(family uuid, rotate boolean default false)` | `authenticated`, a parent of an active family (`only a parent can share the family calendar`) | The family's feed token, made on first use: 24 random bytes as URL-safe base64 (32 characters). `rotate` replaces it. |
+
+### 1.14 Wall copies of videos
 
 A video that doesn't play well on the wall as uploaded (4K, HDR, 10-bit,
 above 30 fps or 16 Mb/s, not HEVC or H.264, or not MP4/MOV) gets a copy made
@@ -656,7 +746,7 @@ the column like any other.
 deleted) and `error`. RLS is on with no policies, and only `service_role` is
 granted. It goes with its media row.
 
-Functions, `service_role` only (called by the `media-jobs` edge function, §2.5):
+Functions, `service_role` only (called by the `media-jobs` edge function, §2.6):
 
 - `media_job_claim(p_media_id uuid default null, p_limit int default 1,
   p_max_running int default 2, p_max_attempts int default 3, p_stale_after
@@ -850,11 +940,91 @@ try again in a moment` with `families_deleted`. A file or display cleanup
 failure is logged and doesn't fail the request. `verify_jwt = false`, like
 the other functions.
 
-### 2.5 `media-jobs`
+### 2.5 `calendar-sync`
+
+Connected calendars in (Google, calendar links) and the family calendar out.
+`verify_jwt = false`: it also answers Google's redirect and calendar apps,
+which carry no Supabase token.
+
+**`POST`, with a person's or display's JWT.** Body `{ action, ... }`; uuids
+are matched case-insensitively.
+
+| `action` | Params | Who | Effect |
+|---|---|---|---|
+| `add_link` | `family_id`, `url`, `name?` (≤ 100), `color?` (`#RRGGBB`), `member_id?`, `busy_only?` | parent | `webcal://`/`webcals://` become `https://`; only http(s) to a public host (no `localhost`, `.local`, `.internal`, private, loopback, link-local, CGNAT, multicast or NAT64/6to4 addresses, no user or password in the link; a name is also looked up before each request and refused when any answer is such an address). Fetched (20 s, at most 5 redirects, each checked the same way, at most 5 MB) and parsed before anything is saved. 409 `That calendar is already connected.` for the same link in the family. Saves the source (`url_host`, the name given, else the calendar's `X-WR-CALNAME`, else the host) and the link, then applies the rows. `{ source_id, name, event_count }`, plus `sync_error` when the first apply failed. |
+| `google_start` | `family_id` | parent | `{ url }`: Google's consent page for `openid email https://www.googleapis.com/auth/calendar.readonly`, offline access, `prompt=consent`, and a `state` signed with HMAC-SHA256 (keyed from the service role key) naming the family and the person, valid 15 minutes. 503 `Google Calendar isn't set up on this server yet.` without `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. |
+| `google_finish` | `code`, `state` (from the redirect below) | the parent named in `state` (403 `That Google sign-in was started by someone else.`), still a parent of that family | Checks the state (400 `That sign-in took too long. Try connecting again.`), exchanges the code, requires the calendar scope (else revokes the grant unless the same Google account is already connected, in this family or another, and says `Ohana needs permission to see your calendars. Try again and allow it.`), reads the email from the ID token, upserts the account (`needs_reconnect = false`, `created_by` the caller) and its tokens (keeping the stored refresh token when Google sends none), and marks its calendars due. `{ account_id, email }`. Finishing in the app, with the parent's own JWT, means a consent link sent to someone else can't attach their Google account to another family. |
+| `google_calendars` | `account_id` | the parent who connected it (403 `Only the person who connected this Google account can choose its calendars.`) | `{ email, calendars: [{ id, name, color, primary, added }] }`: the account's readable, unhidden calendars, primary first, then by name; `color` is Google's as `#RRGGBB`; `added` when the family already has it. |
+| `add_google` | `account_id`, `calendar_id`, `name?`, `color?`, `member_id?`, `busy_only?` | the parent who connected it | The calendar must be in the account's list (404 `That calendar isn't in this Google account.`); 409 when it's already connected. Color: the one given, else none when a person is given, else Google's. Syncs it. Same answer as `add_link`. |
+| `disconnect_google` | `account_id` | any parent | Deletes the account, its calendars and their events. Revokes the refresh token at Google (best effort) unless the same Google account is connected in another family, since Google's revoke ends the whole grant. `{ ok, revoked }`. |
+| `sync` | `family_id` or `source_id` (one of them), `force?` | anyone in the family, displays included | Claims (`calendar_claim_due`, up to 20) the family's calendars, or the one, not tried in the last 600 s (30 s with `force`), and syncs them: one in this request, several in one request each (below). `{ results: [{ source_id, ok: true, added, updated, removed, event_count } | { source_id, ok: false, error }] }`; an empty list means everything was fresh. 404 `calendar not found` for a calendar the caller can't see. |
+
+When Google refuses an account's token in `google_calendars`, `add_google`
+or a sync, `needs_reconnect` is set; the first two answer 409 `{ error,
+reconnect: true }`, and a sync records it in `last_error`.
+
+**`POST` with `Authorization: Bearer <CALENDAR_CRON_SECRET>`** (at least 16
+characters; set in the function's secrets): only `{ "action": "sync_due" }`,
+which claims up to 50 calendars not tried in 14 minutes and syncs them,
+5 at a time, starting none after 100 s. `{ synced, failed }`. pg_cron calls
+it every 15 minutes (PLATFORM.md).
+
+**`POST` with the service role key**: only `{ "action": "sync_source",
+source_id }`, the function calling itself. Edge functions get about 2 s of
+CPU per request, so `sync_due` and a family `sync` hand each calendar to
+its own request.
+
+**Syncing one calendar.** The window is 60 days back to 365 days ahead; at
+most 5000 occurrences go to `calendar_apply_sync`, the nearest to now. A link
+with more than 50,000 occurrences in the window is refused as too big.
+
+- *Links:* parsed with ical.js. Repeats are expanded with EXDATE, RDATE and
+  RECURRENCE-ID (moved or cancelled repeats); an old series without COUNT
+  starts from just before the window. Times use the file's VTIMEZONEs, else
+  a TZID the runtime knows, else (and for floating times) the family's zone.
+  All-day events span local midnight to 23:59:59 of their last day in the
+  family's zone. `STATUS:CANCELLED` is left out; `CLASS:PRIVATE` or
+  `CONFIDENTIAL` comes in as `Busy`. An occurrence's uid is the event's UID,
+  plus `/` and the original start (UTC, `20261026T233000Z`, or the date for
+  an all-day series) for a repeat. A calendar that takes more than 1.2 s to
+  read fails with `That calendar is too big to sync. Try a link to a smaller
+  calendar.`
+- *Google:* `events.list` with `singleEvents=true` (Google expands repeats),
+  up to 10 pages of 2500. Cancelled events and `workingLocation` /
+  `focusTime` blocks are left out; `private` and `confidential` visibility
+  come in as `Busy`. The uid is Google's event id. The access token is
+  refreshed when under a minute is left. `invalid_grant`, a 401 or
+  `insufficientPermissions` set `needs_reconnect`.
+- A failure keeps the calendar's events and sets `last_error` to a sentence
+  a parent can act on (`That calendar link doesn't exist anymore.`,
+  `The calendar link needs a sign-in. Use a public or secret link instead.`,
+  `That link didn't return a calendar.`, `Google needs you to connect this
+  account again.`, …); anything unexpected is `Something went wrong syncing
+  this calendar. Ohana will try again soon.` and is logged.
+
+**`GET …/calendar-sync/google/callback?code&state`** (the OAuth client's
+redirect URI; `GOOGLE_REDIRECT_URI` overrides
+`<SUPABASE_URL>/functions/v1/calendar-sync/google/callback`). Checks the
+state's signature and age and answers 302 to `CALENDAR_APP_REDIRECT`
+(default `ohanaos://google-calendar`) with `code` and `state` for
+`google_finish`, or with `error`: `Google sign-in was cancelled.`, `That
+sign-in took too long. Try connecting again.`, `Google couldn't sign you
+in. Try again.` It saves nothing.
+
+**`GET` or `HEAD …/calendar-sync/feed/<token>.ics`** (`.ics` optional): the
+family's own events (`source_id=is.null` on `event_occurrences`, so imported
+ones don't use up its 20,000-row reads), 30 days back
+to 365 ahead, as `text/calendar` (`Cache-Control: private, max-age=300`).
+Each occurrence is its own VEVENT in UTC; all-day events are dates. UID
+`<event id>@ohanaos`, or `<event id>-<local date>@ohanaos` for a repeat;
+`DESCRIPTION` adds `For: <names>`. `X-WR-CALNAME` is the family's name. 404
+for an unknown token or a suspended family.
+
+### 2.6 `media-jobs`
 
 Only the admin app calls it (§3, Wall copies), with the header
 `x-media-jobs-secret`. It holds the service role so the admin app doesn't,
-and it can only run the `media_job_*` functions (§1.13). It answers:
+and it can only run the `media_job_*` functions (§1.14). It answers:
 
 - 503 `media jobs aren't configured` until the function secret
   `MEDIA_JOBS_SECRET` is set (at least 32 characters);
@@ -923,7 +1093,7 @@ The route checks `Authorization: Bearer <supabase access token>` with
 | `/api/media/upload` | `{ family_id, content_type, bytes, thumbnail_bytes? }` | Member only. `bytes` is an integer from 1 to 50 MB for a photo and 1 to 2 GiB for a video. Photo types: `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/gif`. Video types: `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. With `thumbnail_bytes` an integer from 1 to 262144 (256 KiB), the reply also has `thumbnail: { pathname, upload_url, content_type }`: a presigned `PUT` for `<family_id>/<id>-thumb.jpg`, `image/jpeg`, at most that size, no overwrite. Any other `thumbnail_bytes` is ignored with a logged warning, and a poster that can't be signed is logged and left out; neither fails the upload. The client `PUT`s the poster and the bytes (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'`, `kind` `photo` or `video`, the returned `id` and `pathname`, and `thumbnail_path` when the poster went up. |
 | `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>`, a poster `<family_uuid>/<media_uuid>-thumb.jpg` or a wall copy `<family_uuid>/<media_uuid>-wall.mp4`, or whose folder isn't a family the caller belongs to, comes back as `""`. Names match without regard to case and are signed in lowercase. Playback URLs last 6 hours. The wildcard read token stays on the server. |
 | `/api/media/delete` | `{ pathname }` | A file's path only: a poster's path on its own gets 400 (`That isn't a media path.`). Member of that folder only. Deletes the poster `<family_id>/<id>-thumb.jpg` first (a missing one is fine; any other error is logged and doesn't stop the file), then the file (a missing one is fine; any other error is 502), then anything else under `<family_id>/<id>` (an original waiting after a swap, a copy from a running job; a failure there is only logged). A wall copy's path counts as a file. `{ ok: true }`. |
-| `/api/media/process` | `{ pathname }` | A video file's path (not a poster, a photo or a wall copy). Member only. The row is read as the caller: 404 when it isn't visible or has moved to another path, 400 when it isn't a Blob video. `done`, `processing` and `failed` come back as `{ state }`. Otherwise the video is claimed (§2.5) and a sandbox started: `{ state: "processing" }`, or `"queued"` when no slot is free (the sweep starts it). 502 when the claim fails, 503 until `MEDIA_JOBS_SECRET` is set. Phones don't wait on it. |
+| `/api/media/process` | `{ pathname }` | A video file's path (not a poster, a photo or a wall copy). Member only. The row is read as the caller: 404 when it isn't visible or has moved to another path, 400 when it isn't a Blob video. `done`, `processing` and `failed` come back as `{ state }`. Otherwise the video is claimed (§2.6) and a sandbox started: `{ state: "processing" }`, or `"queued"` when no slot is free (the sweep starts it). 502 when the claim fails, 503 until `MEDIA_JOBS_SECRET` is set. Phones don't wait on it. |
 
 Errors are `{ "error": string }`: 400 bad JSON or body, 401 missing or
 rejected token, 403 not in the family, 413 body over 64 KiB, 502 Blob
@@ -931,7 +1101,7 @@ failed, 503 Supabase or Blob isn't configured.
 Deployment Protection in front of the whole app blocks phones and displays;
 leave `/api/media`, `/api/account/delete`, `/privacy` and `/support` reachable.
 
-**Wall copies** (§1.13). Off until `MEDIA_JOBS_SECRET` is set to the same
+**Wall copies** (§1.14). Off until `MEDIA_JOBS_SECRET` is set to the same
 value as the function secret.
 
 - Each job runs `lib/media/worker.mjs` in its own Vercel Sandbox, created
@@ -1149,6 +1319,11 @@ the toast "Voice needs the Ohana voice service (see docs/VOICE.md)"; if the
 service has no speech-to-text (`hello.stt` false, e.g. no mic), show "Voice
 needs a microphone (see docs/VOICE.md)".
 
+**Connected calendars:** while live, the display calls `calendar-sync`
+`{ action: "sync", family_id }` at most every 15 minutes (with each load),
+and reloads when a result added, updated or removed events. Imported events
+come through `event_occurrences` like any other.
+
 **Check-in:** while live, the display sets `last_seen_at` on its own
 `devices` row (the id saved at pairing) at most every 5 minutes; the iOS app
 and the admin console show it.
@@ -1157,8 +1332,10 @@ and the admin console show it.
 app origin. Rows with `file_store = 'blob'` (new photos and videos) are
 signed with `POST /api/media/urls` and the device access token (6 hours,
 same as Storage), at most 200 paths per request. Rows still in
-`family-media` stay on `signUrls`. If the URL is unset, Blob files get an
-empty `url` and a warning; older Storage files still play.
+`family-media` stay on `signUrls`. When it is unset, not an http(s) URL
+with a host, or the `YOUR-ADMIN` placeholder, the display uses
+`https://ohanaos.co`, the iOS app's `Config.defaultMediaAPIURL`; the log
+says which (`media service:`).
 
 - Both `storage_path` and `thumbnail_path` are signed; each row gets `url`
   and `thumbUrl`. A signed URL is reused for 4 of its 6 hours, so a refresh
@@ -1188,6 +1365,32 @@ empty `url` and a warning; older Storage files still play.
   `display.env` sets it (`,` is CPU only), and logs
   `homeOS display: video decoding: ...` and `homeOS display: drawing on ...`
   at start. See `docs/PI_SETUP.md`, Video decoding.
+- Photos render upright: every photo `Image` sets `autoTransform: true`, so
+  a JPEG with pixels stored sideways and an EXIF orientation shows as the
+  phone shows it. The iOS app also redraws such photos upright before upload.
+- Each media row carries `aspect` (width / height from the row, upright; 0
+  when unknown). The screen savers treat below 0.9 as portrait and above
+  1.1 as landscape.
+
+**Screen saver styles** (`Device.screensaver`, QSettings
+`display/screensaver`): `photos` (default), `collage`, `frame`, `memories`,
+`video`, `clock`, `today`. `qml/screensaver/Picks.js` decides which photo
+goes where, and `tst_savers` tests it:
+
+- Collage: `TURNS` (classic, grid, mosaic, trio, columns) advance by one
+  each time the screen saver starts. `layout(turn, n)` falls back to a
+  smaller layout when there are fewer photos than tiles. `pick()` never
+  takes a photo on screen or one that left less than 60 s ago, prefers the
+  tile's shape, then the photo off screen longest (new photos first, newest
+  first). A tile changes every 4 s, big tiles less often, never the same
+  tile twice in a row. A deleted photo is replaced; a URL signed again
+  keeps the tile as it is.
+- Smart frame: `frames()` pairs each portrait photo with the next unpaired
+  portrait; landscape and unknown photos go alone.
+- On this day: `memories()` takes photos whose anniversary this year (or
+  next or last, around New Year) is within 3 days of today, same day first.
+  With none, the newest photos and their date labels.
+- Clock and Today hide the shared clock overlay and draw their own.
 
 **Settings sheet:** a gear button in the nav rail, above the moon, opens
 `SettingsSheet.qml` with:
@@ -1274,7 +1477,7 @@ index moved to the front if needed). Anything else is exported as HEVC
 the last resort (`docs/IOS.md`, Photo and video uploads). A video the phone
 made, or one that already fit, is inserted with `processing = 'done'`. The
 original goes in as `pending`, and the app then calls `POST
-/api/media/process` without waiting on it (§1.13). If the database doesn't
+/api/media/process` without waiting on it (§1.14). If the database doesn't
 have that column yet, the insert is retried without it. Each item carries
 a JPEG poster of at most 256 KiB. The row sets `byte_size` (the file only),
 `content_type`, `thumbnail_path` when the poster went up, and
@@ -1328,6 +1531,34 @@ through the media API and Storage paths through Storage.
   per request. The grid uses the poster when there is one.
 - Deleting a blob file calls `POST /api/media/delete` (which removes its
   poster too) before deleting the row.
+
+**Connected calendars** (Profile → Connected calendars, and the ↻ button on
+the Calendar tab)
+
+- Everyone sees the family's `calendar_sources`: name, color, where from,
+  person, Busy, event count, last update and `last_error`. `refresh()` loads
+  them, and when one hasn't been tried for 15 minutes asks `calendar-sync`
+  `sync` for the family (at most every 10 minutes per phone), reloading if
+  anything changed. Pull to refresh and Sync now send `force`.
+- Parents: **Connect Google Calendar** opens `google_start`'s URL in
+  `ASWebAuthenticationSession` (callback scheme `ohanaos`), sends the
+  callback's `code` and `state` to `google_finish`, then lists
+  `google_calendars` (the primary ticked) and adds each with `add_google`.
+  Only the parent who connected an account sees Choose calendars and Sign in
+  again for it, and can turn Busy off on its calendars; other parents see who
+  connected it and can disconnect it.
+  **Add a calendar link** sends `add_link` with a name, person, color and
+  Busy, and explains where iCloud, Google, Outlook and school calendars keep
+  their links. A calendar's sheet edits name, person, Busy, on/off and color
+  through PostgREST (nulls sent), syncs it, or removes it. Google accounts can
+  be reconnected (`needs_reconnect`) or disconnected.
+- **Show Ohana in other calendars** (parents): `calendar_feed_token` makes
+  the link `<SUPABASE_URL>/functions/v1/calendar-sync/feed/<token>.ics`;
+  Add to Apple Calendar opens it as `webcal://`, Add to Google Calendar opens
+  `https://calendar.google.com/calendar/r?cid=<webcal link>`; copy, share,
+  make a new link (`rotate`), or stop sharing (delete the row).
+- An imported event's details say which calendar it's from, show its
+  description, and have no Edit or Delete.
 
 **Siri:** `AskOhanaOSIntent: AppIntent`
 

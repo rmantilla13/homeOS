@@ -88,7 +88,7 @@ your **Profile**.
 |---|---|
 | **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask Ohana anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
 | **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. Before a person's first question goes out, the app asks for permission (see Assistant → AI consent). |
-| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. A repeating event shows on every day it repeats, and editing or deleting one repeat changes them all. The **+** button adds an event. |
+| **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. A repeating event shows on every day it repeats, and editing or deleting one repeat changes them all. Events from a connected calendar say where they're from and can't be edited here. The **+** button adds an event; **↻** opens Connected calendars. |
 | **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). Parents can unfold **Other chores** at the bottom: the ones not due today (another day's repeat, or a rule that has run out), with their repeat and who they're for; long-press one to remove it. **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
 | **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. While they upload, a banner shows which item is going, what it is doing and a **Cancel** button. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
 | **Family** | Members (tap to edit; parents can add one), invites (parents), lists (tap through to add, check off and clear items), meals for the next 7 days (tap a day to set breakfast, lunch and dinner), family memory (add a fact; parents can remove one), paired wall displays and **Pair a display** (parents), and Profile / Leave family. |
@@ -149,7 +149,7 @@ to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
 policy), and `profiles.avatar_path` is set. **Remove photo** clears both. Also
 shows your email, family and role; a family picker when you belong to more
 than one; **Manage family** (see Family management); the **Assistant**
-switch (see Assistant → AI consent); the Siri tip; **Privacy policy** and
+switch (see Assistant → AI consent); **Connected calendars** (below); the Siri tip; **Privacy policy** and
 **Help and support** (`https://ohanaos.co/privacy` and `/support`, `Config`);
 and **Sign out**.
 
@@ -172,6 +172,45 @@ downloaded from the private bucket with the session and cached per path and
 `profiles.updated_at`, so a new photo replaces the old one on the next
 refresh. Member photos get a new file name each time, so the path alone
 versions them.
+
+## Connected calendars
+
+Profile → Connected calendars, or **↻** on the Calendar tab
+(`Views/CalendarSyncView.swift`, `Services/CalendarSync.swift`). The server
+side is the `calendar-sync` function ([PLATFORM.md](PLATFORM.md) →
+Connected calendars).
+
+- **Showing in Ohana**: each calendar with its color, where it's from
+  (Google and the account, or a link's host), its person, Busy only, how many
+  events and when it last updated, or why it didn't. Everyone sees the list;
+  parents tap a calendar to rename it, choose who it's for and its color,
+  show it as Busy, turn it off, sync it, or remove it. **Sync now** and
+  pull to refresh sync them all. When the app loads and a calendar hasn't
+  been tried for 15 minutes, it asks the server to catch up (at most every
+  10 minutes) and reloads if events changed.
+- **Connect Google Calendar** (parents): Google's sign-in opens in an
+  `ASWebAuthenticationSession` sheet through SwiftUI's
+  `webAuthenticationSession`, and the function sends it back to
+  `ohanaos://google-calendar` with a code, which the app sends to
+  `google_finish` with its own session. Then **Choose calendars** lists the
+  account's calendars with the main one ticked. The parent who connected an
+  account can choose more calendars or sign in again (when Google stopped
+  accepting Ohana); other parents see who connected it, can't turn Busy off
+  on its calendars, and can disconnect it.
+- **Add a calendar link** (parents): a `webcal://` or `https://` link, an
+  optional name, who it's for, Busy, and a color, with where to find the
+  link in iCloud, Google, Outlook and on school or team sites. The server
+  reads the calendar before saving, so a bad link stays in the form with the
+  reason.
+- **Show Ohana in other calendars** (parents): create the family's calendar
+  link, add it to Apple Calendar (`webcal://`, which opens Calendar's
+  Subscribe sheet) or Google Calendar (`calendar.google.com/calendar/r?cid=`),
+  copy it for Outlook, share it, make a new one, or stop sharing.
+
+`FamilyEvent.sourceId` (`event_occurrences.source_id`) marks an imported
+event: its details show "From <calendar>" and its description, and have no
+Edit or Delete. Loading the calendars fails quietly (a log line), so the app
+works against a server without calendar sync yet.
 
 ## Family management
 
@@ -846,6 +885,19 @@ calls from the first build:
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
   `Dictation`), the `AVAsyncProperty` loads in `MediaTools.videoMetadata(at:)`,
   and `nonisolated init()` on the `@Observable @MainActor` `Dictation` class.
+
+Connected calendars came after those builds too (both new files pass the
+tree-sitter parse). Calls to check first if CI breaks:
+`@Environment(\.webAuthenticationSession)` and
+`authenticate(using:callbackURLScheme:)` with `catch let error as
+ASWebAuthenticationSessionError where error.code == .canceledLogin` in
+`ConnectedCalendarsView.connectGoogle`; `if` around `ToolbarItem` in
+`.toolbar` (`ConnectedCalendarsView`, `EventDetailView`); and
+`supabase.functions.invoke` decoding into local `Decodable` structs (2.55.3's
+`invoke<T: Decodable>(_:options:decoder:)` with a plain `JSONDecoder`). On a
+device: connect a Google account (and cancel once), add an iCloud public
+calendar link, turn Busy on and off, and subscribe to the family link in
+Apple Calendar.
 
 Video optimizing, posters and upload progress came after those builds and
 have not run on an iPhone yet. Server copies added

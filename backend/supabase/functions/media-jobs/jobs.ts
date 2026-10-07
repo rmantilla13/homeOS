@@ -1,6 +1,6 @@
 // What media-jobs does once the caller is known, kept free of I/O setup so it
 // can be unit-tested with fakes (jobs.test.ts). Each action is one media_job_*
-// function from 20261012000001_video_processing.sql, called with the service
+// function from 20261013000001_video_processing.sql, called with the service
 // role. Those functions do the checking (states, attempts, paths, sizes);
 // this only shapes the request and the answer.
 

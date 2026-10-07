@@ -1,4 +1,4 @@
--- Server-made wall copies (20261012000001_video_processing): what a member
+-- Server-made wall copies (20261013000001_video_processing): what a member
 -- may set, and the job functions the media-jobs edge function calls with
 -- the service role.
 \set ON_ERROR_STOP 1
@@ -195,7 +195,7 @@ select tests.eq((select count(*)::int from media_jobs where media_id = :'v1'), 0
 -- ───────────────────────────── Again ─────────────────────────────
 
 -- Safe to run again: the states, the jobs and the guard stay as they were.
-\ir ../supabase/migrations/20261012000001_video_processing.sql
+\ir ../supabase/migrations/20261013000001_video_processing.sql
 select tests.eq((select processing from media_items where id = :'v3'), 'failed', 'a re-run keeps the states');
 select tests.eq((select attempts from media_jobs where media_id = :'v3'), 3, 'and the jobs');
 select tests.eq((select count(*)::int from pg_trigger where tgname = 'media_items_processing_guard'), 1, 'one guard trigger');

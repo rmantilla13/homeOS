@@ -1,4 +1,4 @@
-// Server-made wall copies of videos (docs/PLATFORM_SPEC.md §1.13).
+// Server-made wall copies of videos (docs/PLATFORM_SPEC.md §1.14).
 //
 //   requestJob          a phone uploaded a video it couldn't optimize
 //                       (POST /api/media/process, handled in api.ts)
