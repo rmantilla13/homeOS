@@ -262,10 +262,11 @@ struct MediaView: View {
                 return .failed("A video stopped optimizing when Ohana left the screen. "
                     + "Keep Ohana open while videos upload, then add it again.")
             }
-            // Last resort, as before optimizing existed: the original as it is.
+            // Last resort: the original as it is. The server makes the wall copy.
             print("OhanaOS video prep:", error)
             var metadata = await MediaTools.videoMetadata(at: picked)
             metadata.thumbnail = await MediaTools.posterJPEG(for: picked, durationSeconds: metadata.durationSeconds ?? 0)
+            metadata.processing = "pending"
             let ext = picked.pathExtension.isEmpty ? "mov" : picked.pathExtension.lowercased()
             return .video(MediaTools.PreparedVideo(url: picked, fileExtension: ext, metadata: metadata))
         }

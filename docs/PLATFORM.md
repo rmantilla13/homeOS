@@ -529,6 +529,10 @@ applied yet. Apply the new ones in order, and don't edit them in place:
     `source_id`); older app and display builds read it as before. An app
     build with connected calendars shows none until this is live, without
     an error.
+12. `backend/supabase/migrations/20261013000001_video_processing.sql`, then
+    the `media-jobs` function and its secret ([ADMIN.md](ADMIN.md) → "Big
+    videos"). Safe to run again. An app build that sends `processing` retries
+    its insert without it until this is live.
 
 `supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)

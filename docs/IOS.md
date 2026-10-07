@@ -783,11 +783,20 @@ the phone, before they upload. The code is `MediaTools.prepareVideo` and
 - If the export is at least 90% of the original's size and the original
   plays well on the wall, the original goes instead (with its index moved
   first if needed).
-- If optimizing fails in any other way, the original is uploaded as it is.
+- If optimizing fails in any other way, the original is uploaded as it is,
+  and the server makes the wall copy (below).
+- The row says which it was: `processing = 'done'` when the phone made the
+  file (or it already fit), `'pending'` for the original. After inserting a
+  pending row the app calls `POST /api/media/process` with its path and
+  doesn't wait for the answer; the server's sweep would start the copy
+  anyway. A database without the column (PostgREST `PGRST204` naming
+  `'processing'`) gets the same insert without it.
 - One file is stored per item: the optimized file takes the original's
-  place, and no copy of the original is kept. Blob items uploaded before
-  this keep their original file and have no poster; adding a clip again
-  gives it both.
+  place, and no copy of the original is kept. The server does the same with
+  its copy: the row moves to `<family_id>/<id>-wall.mp4` and the original
+  is deleted six hours later. Blob items uploaded before posters get a
+  poster from the server's copy job too
+  ([ADMIN.md](ADMIN.md#big-videos-wall-copies-on-the-server)).
 - Every export, the index-first copy included, drops location metadata
   (`.forSharing()`); the date was read before.
 - iOS stops exports in the background, so an export only starts while Ohana
@@ -908,7 +917,10 @@ calendar link, turn Busy on and off, and subscribe to the family link in
 Apple Calendar.
 
 Video optimizing, posters and upload progress came after those builds and
-have not run on an iPhone yet. Calls to check first if CI breaks:
+have not run on an iPhone yet. Server copies added
+`catch let error as PostgrestError where …` with `error.code` and
+`error.message` in `FamilyStore.uploadToBlob`, and `NewMediaItem.processing`
+with a default in the memberwise initializer. Calls to check first if CI breaks:
 `PhotosPicker(...preferredItemEncoding: .current)`
 (`Views/MediaView.swift:71`); `track.load` with three keys and
 `format.extensions[.transferFunction]?.propertyListRepresentation`
