@@ -185,15 +185,20 @@ jobs:
             echo "$udid" >> "$RUNNER_TEMP/simulators"
             xcrun simctl bootstatus "$udid" -b
             xcrun simctl ui "$udid" appearance light
-            # 9:41 in the runner's time zone, written as a UTC ISO date-time
-            # (the way Nine41 does it). Some simulator versions ignored a plain
-            # 9:41, and an ISO string also pins the date.
-            time=$(date -j -u -r "$(date -j -f '%Y-%m-%d %H:%M:%S' '2007-01-09 09:41:00' +%s)" +%Y-%m-%dT%H:%M:%SZ)
-            xcrun simctl status_bar "$udid" override \
-              --time "$time" \
-              --dataNetwork wifi --wifiMode active --wifiBars 3 \
-              --cellularMode active --cellularBars 4 \
-              --batteryState charged --batteryLevel 100
+            # 9:41 local time as an ISO date-time with a +HH:MM offset, the
+            # form fastlane snapshot passes (simctl refused ...Z). It also
+            # pins the date. If simctl still refuses it, try a plain 9:41,
+            # then go on without a fixed clock: the time is cosmetic.
+            local_time=$(date -j -f '%Y-%m-%d %H:%M:%S' '2007-01-09 09:41:00' '+%Y-%m-%dT%H:%M:%S%z')
+            time="${local_time:0:22}:${local_time:22:2}"
+            echo "Status bar time: $time"
+            bars="--dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100"
+            # $bars is split on purpose: it holds several flags.
+            # shellcheck disable=SC2086
+            xcrun simctl status_bar "$udid" override --time "$time" $bars \
+              || xcrun simctl status_bar "$udid" override --time 9:41 $bars \
+              || { echo "::warning::The simulator refused a fixed status bar time; screenshots show the real time."
+                   xcrun simctl status_bar "$udid" override $bars; }
             xcrun simctl install "$udid" "$app"
             launch() {
               xcrun simctl launch --terminate-running-process "$udid" "$bundle" \
