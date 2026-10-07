@@ -619,7 +619,6 @@ struct AddMemberView: View {
                 Section {
                     MemberFormAvatar(name: name, color: color, picked: photo?.image, loading: loadingPhoto,
                                      selection: $photoItem)
-                        .disabled(working)
                         .frame(maxWidth: .infinity)
                         .listRowBackground(Color.clear)
                 }
@@ -634,12 +633,13 @@ struct AddMemberView: View {
                 }
                 Section("Photo") {
                     MemberPhotoRows(selection: $photoItem, hasPhoto: photo != nil) { photo = nil }
-                        .disabled(loadingPhoto || working)
+                        .disabled(loadingPhoto)
                 }
                 Section("Color") {
                     ColorPalettePicker(selection: $color)
                 }
             }
+            .disabled(working)  // what's on screen is what gets saved
             .scrollContentBackground(.hidden)
             .screenBackground()
             .navigationTitle("Add member")
@@ -831,7 +831,6 @@ struct MemberEditor: View {
                                          picked: newPhoto?.image,
                                          loading: loadingPhoto,
                                          selection: canChangePhoto ? $photoItem : nil)
-                            .disabled(working)
                         if isMe {
                             Text("This is you").font(.caption.weight(.semibold)).foregroundStyle(Theme.muted)
                         }
@@ -855,7 +854,7 @@ struct MemberEditor: View {
                             newPhoto = nil
                             removingPhoto = true
                         }
-                        .disabled(loadingPhoto || working)
+                        .disabled(loadingPhoto)
                     } else {
                         Text("\(firstName) chose their own photo in their profile.")
                             .foregroundStyle(Theme.muted)
@@ -884,6 +883,7 @@ struct MemberEditor: View {
                     }
                 }
             }
+            .disabled(working)  // what's on screen is what gets saved
             .scrollContentBackground(.hidden)
             .screenBackground()
             .navigationTitle(isMe ? "You" : member.displayName)

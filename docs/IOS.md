@@ -148,14 +148,14 @@ pick one with `PhotosPicker`; it's cropped to a 512 px square JPEG, uploaded
 to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
 policy), and `profiles.avatar_path` is set. The header and the photo buttons
 go by the photo that shows for you: yours, else the family's photo a parent
-set on your member row. **Remove photo** clears both, and deletes the files
-it may (a kid can't delete files in the family's folder; those go with the
-family). Also
+set on your member row. **Remove photo** clears both, the hidden family photo
+first so nothing else shows in between, and deletes the files it may (a kid
+can't delete files in the family's folder; those go with the family). Also
 shows your email, family and role; a family picker when you belong to more
-than one; **Manage family** (see Family management); the **Assistant**
-switch (see Assistant → AI consent); the Siri tip; **Privacy policy** and
-**Help and support** (`https://ohanaos.co/privacy` and `/support`, `Config`);
-and **Sign out**.
+than one; **Manage family** (see Family management); the **Assistant** switch
+(see Assistant → AI consent); the Siri tip; **Privacy policy** and **Help and
+support** (`https://ohanaos.co/privacy` and `/support`, `Config`); and **Sign
+out**.
 
 **Delete account** sits below Sign out. Its alert says what happens for the
 family on screen: if nobody else in it has a login, the family is deleted
@@ -185,10 +185,11 @@ versions them.
   member strip opens the same editors.
 - **Adding** (parents): name, role, color and an optional photo. The photo
   is uploaded first, under the new member's client-made id, and the row is
-  inserted with its `avatar_path`. If the server refuses the insert, the file
-  is deleted; if the connection drops, it stays, since the insert may have
-  gone through. Either way nothing is half-added, and a failure keeps the
-  sheet open. Trying again reuses the id: when the last try did go through
+  inserted with its `avatar_path`. If PostgREST or Postgres refuses the
+  insert (their errors carry a code), the file is deleted; after a dropped
+  connection or a gateway error it stays, since the insert may have gone
+  through. Either way nothing is half-added, and a failure keeps the sheet
+  open. Trying again reuses the id: when the last try did go through
   (`23505` on the primary key), the member is there and the new upload is
   deleted, so nobody is added twice.
 - **Members.** Tap a member to edit. Parents can change anyone's name, color
@@ -201,17 +202,16 @@ versions them.
   **Choose a new photo** / **Remove photo**, stage a change that **Save**
   applies. While a picked photo is being prepared (a `.task` on the picker's
   item, cancelled if the sheet closes), the circle shows a spinner and
-  Add/Save wait; while saving, the photo controls are off. Your own photo is
-  your profile photo, and Remove takes away whichever photo shows for you,
-  as in Profile. A parent sets the family's photo of anyone whose account has
-  no photo of its own (usually a kid without a login): it's cropped to a
-  512 px square JPEG, uploaded to
-  `avatars/<family_id>/<member_id>-<random>.jpg`, and `members.avatar_path`
-  is set; then the old file is deleted (or the new one, if the server
-  refuses the update). Once a member's account has its own photo, that one
-  shows and their editor says so instead. A kid who gets a login keeps the
-  family's photo until they pick their own; Profile shows it too. See
-  PLATFORM_SPEC.md §1.7.
+  Add/Save wait; while saving, the whole form is off, so what's on screen is
+  what gets saved. Your own photo is your profile photo, and Remove takes away
+  whichever photo shows for you, as in Profile. A parent sets the family's
+  photo of anyone whose account has no photo of its own (usually a kid without
+  a login): it's cropped to a 512 px square JPEG, uploaded to
+  `avatars/<family_id>/<member_id>-<random>.jpg`, and `members.avatar_path` is
+  set; then the old file is deleted (or the new one, if the server refuses the
+  update). Once a member's account has its own photo, that one shows and their
+  editor says so instead. A kid who gets a login keeps the family's photo
+  until they pick their own; Profile shows it too. See PLATFORM_SPEC.md §1.7.
 - **Invites** (parents). **Invite** opens a form: who it's for ("Someone new"
   with a role, or an existing member without a login, who then claims their row
   and points), an optional email (only that address can use it), and how long

@@ -633,23 +633,22 @@ final class FamilyStore {
     }
 
     /// Removes your photo: your profile photo, and the one a parent set on your
-    /// member row, which would otherwise show in its place.
+    /// member row, which would otherwise show in its place. The family's goes
+    /// first: it's hidden behind yours, so nothing else shows in between.
     @discardableResult
     func removeAvatar() async -> Bool {
-        if let uid = currentUserId, let path = myProfile?.avatarPath {
-            let ok = await perform {
-                let clear: [String: AnyJSON] = ["avatar_path": .null]
-                try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
-                _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [path])
-            }
-            AvatarCache.shared.forget(path: path)
-            if family == nil { await loadProfiles() }
-            guard ok else { return false }
-        }
         if let me = self.me, me.avatarPath != nil {
-            return await removeMemberPhoto(for: me)
+            guard await removeMemberPhoto(for: me) else { return false }
         }
-        return true
+        guard let uid = currentUserId, let path = myProfile?.avatarPath else { return true }
+        let ok = await perform {
+            let clear: [String: AnyJSON] = ["avatar_path": .null]
+            try await supabase.from("profiles").update(clear).eq("id", value: uid.uuidString).execute()
+            _ = try await supabase.storage.from(Config.avatarBucket).remove(paths: [path])
+        }
+        AvatarCache.shared.forget(path: path)
+        if family == nil { await loadProfiles() }
+        return ok
     }
 
     /// A profile's photo in the `avatars` bucket, versioned by `updated_at`.
@@ -693,8 +692,8 @@ final class FamilyStore {
     }
 
     /// Clears a member's family photo, then deletes its file. The update goes
-    /// out even when this phone has no path, so trying again after a failure
-    /// still reaches the server.
+    /// out even when this phone has no path left, so trying again after a
+    /// failure still reaches the server (a file it can't name stays behind).
     func removeMemberPhoto(for member: Member) async -> Bool {
         let path = self.member(member.id)?.avatarPath ?? member.avatarPath
         if let i = members.firstIndex(where: { $0.id == member.id }) { members[i].avatarPath = nil }
@@ -702,11 +701,7 @@ final class FamilyStore {
             let clear: [String: AnyJSON] = ["avatar_path": .null]
             try await supabase.from("members").update(clear).eq("id", value: member.id.uuidString).execute()
         }
-        if ok {
-            if let path { await removeMemberPhotoFile(path, in: member.familyId) }
-        } else if let path, let i = members.firstIndex(where: { $0.id == member.id }), members[i].avatarPath == nil {
-            members[i].avatarPath = path  // the reload failed too; keep the path for the next try
-        }
+        if ok, let path { await removeMemberPhotoFile(path, in: member.familyId) }
         return ok
     }
 
@@ -721,11 +716,12 @@ final class FamilyStore {
         return path
     }
 
-    /// After a write that failed, deletes the photo uploaded for it, unless the
-    /// connection dropped before the answer: the write may have gone through
-    /// then, and a file left behind goes with the family's folder later.
+    /// After a write that failed, deletes the photo uploaded for it, but only
+    /// when PostgREST or Postgres refused it: their errors carry a code. A
+    /// dropped connection or a gateway error can come after the write went
+    /// through, and a file left behind goes with the family's folder later.
     private func discardUpload(_ path: String, in familyId: UUID, after error: Error) async {
-        guard !(error is URLError || error is CancellationError) else { return }
+        guard let refusal = error as? PostgrestError, refusal.code != nil else { return }
         await removeMemberPhotoFile(path, in: familyId)
     }
 
