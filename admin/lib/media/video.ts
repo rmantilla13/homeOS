@@ -1,9 +1,12 @@
 // Rules for family photos and videos in the private Vercel Blob store.
 // Profile avatars stay in the Supabase `avatars` bucket.
 // Pathnames are `<family_id>/<media_id>.<ext>`, the same shape as Storage objects.
+// Each item's poster is `<family_id>/<media_id>-thumb.jpg` (a JPEG, at most 256 KiB).
 
 export const VIDEO_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 export const PHOTO_MAX_BYTES = 50 * 1024 * 1024;
+export const THUMB_MAX_BYTES = 256 * 1024;
+export const THUMB_CONTENT_TYPE = "image/jpeg";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -52,24 +55,37 @@ export function isPhotoExtension(ext: string): boolean {
   return PHOTO_EXTENSIONS.has(ext);
 }
 
-export type MediaPath = { familyId: string; mediaId: string; ext: string };
+// `thumb` is true for an item's poster, `<uuid>/<uuid>-thumb.jpg`.
+export type MediaPath = { familyId: string; mediaId: string; ext: string; thumb: boolean };
 
 // Rejects traversal, extra folders, and anything that isn't
-// `<uuid>/<uuid>.<photo or video ext>`. Ids come back lowercase.
+// `<uuid>/<uuid>.<photo or video ext>` or `<uuid>/<uuid>-thumb.jpg`.
+// Ids come back lowercase.
 export function parseMediaPath(pathname: string): MediaPath | null {
   if (pathname.includes("..") || pathname.includes("\\") || pathname.includes("%") || pathname.startsWith("/")) {
     return null;
   }
   const match =
-    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(jpg|jpeg|png|webp|heic|gif|mp4|mov|m4v|webm|mkv|3gp|3g2)$/i.exec(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(-thumb\.jpg|\.(?:jpg|jpeg|png|webp|heic|gif|mp4|mov|m4v|webm|mkv|3gp|3g2))$/i.exec(
       pathname,
     );
   if (!match) return null;
-  return { familyId: match[1].toLowerCase(), mediaId: match[2].toLowerCase(), ext: match[3].toLowerCase() };
+  const tail = match[3].toLowerCase();
+  const thumb = tail === "-thumb.jpg";
+  return { familyId: match[1].toLowerCase(), mediaId: match[2].toLowerCase(), ext: thumb ? "jpg" : tail.slice(1), thumb };
 }
 
 export function mediaPathname(familyId: string, mediaId: string, ext: string): string {
   return `${familyId.toLowerCase()}/${mediaId.toLowerCase()}.${ext}`;
+}
+
+export function thumbPathname(familyId: string, mediaId: string): string {
+  return `${familyId.toLowerCase()}/${mediaId.toLowerCase()}-thumb.jpg`;
+}
+
+// The canonical (lowercase) pathname of a parsed file or poster.
+export function pathnameOf(path: MediaPath): string {
+  return path.thumb ? thumbPathname(path.familyId, path.mediaId) : mediaPathname(path.familyId, path.mediaId, path.ext);
 }
 
 export type UploadRequest = {
@@ -77,6 +93,12 @@ export type UploadRequest = {
   contentType: string;
   bytes: number;
   extension: string;
+  // Size of the JPEG poster the phone will PUT next to the file, or null
+  // (older apps send none).
+  thumbnailBytes: number | null;
+  // thumbnail_bytes was sent but isn't a usable size. The poster is only a
+  // nicety, so the file is still signed; the route logs this.
+  thumbnailIgnored: boolean;
 };
 
 export function parseUploadRequest(body: unknown): { ok: true; value: UploadRequest } | { ok: false; error: string } {
@@ -94,7 +116,11 @@ export function parseUploadRequest(body: unknown): { ok: true; value: UploadRequ
     const noun = isPhotoExtension(extension) ? "Photo" : "Video";
     return { ok: false, error: `${noun} must be between 1 byte and ${limit}.` };
   }
-  return { ok: true, value: { familyId, contentType, bytes, extension } };
+  const poster = record.thumbnail_bytes;
+  const thumbnailBytes =
+    typeof poster === "number" && Number.isInteger(poster) && poster >= 1 && poster <= THUMB_MAX_BYTES ? poster : null;
+  const thumbnailIgnored = thumbnailBytes === null && poster !== undefined && poster !== null;
+  return { ok: true, value: { familyId, contentType, bytes, extension, thumbnailBytes, thumbnailIgnored } };
 }
 
 export function parsePathList(body: unknown): { ok: true; paths: unknown[] } | { ok: false; error: string } {
@@ -105,11 +131,20 @@ export function parsePathList(body: unknown): { ok: true; paths: unknown[] } | {
   return { ok: true, paths };
 }
 
-export function parseDeleteRequest(body: unknown): { ok: true; pathname: string; familyId: string } | { ok: false; error: string } {
+// Phones delete by the file's path; its poster goes with it. A poster path
+// on its own is refused, so a row can't be left pointing at a deleted poster.
+export function parseDeleteRequest(
+  body: unknown,
+): { ok: true; pathname: string; thumbnailPathname: string; familyId: string } | { ok: false; error: string } {
   if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON object." };
   const pathname = (body as Record<string, unknown>).pathname;
   if (typeof pathname !== "string") return { ok: false, error: "That isn't a media path." };
   const parsed = parseMediaPath(pathname);
-  if (!parsed) return { ok: false, error: "That isn't a media path." };
-  return { ok: true, pathname: mediaPathname(parsed.familyId, parsed.mediaId, parsed.ext), familyId: parsed.familyId };
+  if (!parsed || parsed.thumb) return { ok: false, error: "That isn't a media path." };
+  return {
+    ok: true,
+    pathname: pathnameOf(parsed),
+    thumbnailPathname: thumbPathname(parsed.familyId, parsed.mediaId),
+    familyId: parsed.familyId,
+  };
 }

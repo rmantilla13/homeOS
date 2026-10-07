@@ -4,12 +4,15 @@ import { test } from "node:test";
 import { handleMediaDelete, handleMediaUpload, handleMediaUrls } from "../lib/media/api.ts";
 import {
   PHOTO_MAX_BYTES,
+  THUMB_MAX_BYTES,
   VIDEO_MAX_BYTES,
   mediaExtension,
   mediaPathname,
   parseDeleteRequest,
   parseMediaPath,
   parseUploadRequest,
+  pathnameOf,
+  thumbPathname,
 } from "../lib/media/video.ts";
 
 const FAMILY = "00000000-0000-0000-0000-00000000f001";
@@ -74,11 +77,12 @@ test("pathnames stay inside one family folder", () => {
   const pathname = mediaPathname(FAMILY, MEDIA, "mov");
   assert.equal(pathname, `${FAMILY}/${MEDIA}.mov`);
   const parsed = parseMediaPath(pathname.toUpperCase());
-  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "mov" });
+  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "mov", thumb: false });
   assert.deepEqual(parseMediaPath(mediaPathname(FAMILY, MEDIA, "jpg")), {
     familyId: FAMILY,
     mediaId: MEDIA,
     ext: "jpg",
+    thumb: false,
   });
 
   const attacks = [
@@ -100,16 +104,82 @@ test("pathnames stay inside one family folder", () => {
   assert.equal(foreign?.familyId === FAMILY, false);
 });
 
+test("a poster is <family>/<media>-thumb.jpg and nothing looser", () => {
+  assert.equal(thumbPathname(FAMILY.toUpperCase(), MEDIA.toUpperCase()), `${FAMILY}/${MEDIA}-thumb.jpg`);
+  const parsed = parseMediaPath(`${FAMILY.toUpperCase()}/${MEDIA}-THUMB.JPG`);
+  assert.deepEqual(parsed, { familyId: FAMILY, mediaId: MEDIA, ext: "jpg", thumb: true });
+  assert.equal(pathnameOf(parsed), `${FAMILY}/${MEDIA}-thumb.jpg`);
+  assert.equal(pathnameOf(parseMediaPath(`${FAMILY}/${MEDIA}.MOV`)), `${FAMILY}/${MEDIA}.mov`);
+  const near = [
+    `${FAMILY}/${MEDIA}-thumb.png`,
+    `${FAMILY}/${MEDIA}-thumb.jpeg`,
+    `${FAMILY}/${MEDIA}-thumb.mov`,
+    `${FAMILY}/${MEDIA}-thumb`,
+    `${FAMILY}/${MEDIA}-thumb.jpg/x`,
+    `${FAMILY}/${MEDIA}.mov-thumb.jpg`,
+    `${FAMILY}/${MEDIA}-thumb-thumb.jpg`,
+    `${FAMILY}/${MEDIA}-poster.jpg`,
+    `${FAMILY}/../${MEDIA}-thumb.jpg`,
+    `/${FAMILY}/${MEDIA}-thumb.jpg`,
+    `${FAMILY}/%2e%2e-thumb.jpg`,
+    `${FAMILY}/x-thumb.jpg`,
+    `not-a-uuid/${MEDIA}-thumb.jpg`,
+  ];
+  for (const value of near) assert.equal(parseMediaPath(value), null, value);
+});
+
+test("upload body: an optional poster size up to 256 KB that never fails the upload", () => {
+  const body = { family_id: FAMILY, content_type: "video/mp4", bytes: 10 };
+  for (const absent of [body, { ...body, thumbnail_bytes: null }]) {
+    const parsed = parseUploadRequest(absent);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      assert.equal(parsed.value.thumbnailBytes, null);
+      assert.equal(parsed.value.thumbnailIgnored, false);
+    }
+  }
+  for (const good of [1, 40_000, THUMB_MAX_BYTES]) {
+    const parsed = parseUploadRequest({ ...body, content_type: "image/jpeg", thumbnail_bytes: good });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      assert.equal(parsed.value.thumbnailBytes, good);
+      assert.equal(parsed.value.thumbnailIgnored, false);
+    }
+  }
+  // A bad poster size drops the poster, not the upload.
+  for (const bad of [0, -1, 1.5, THUMB_MAX_BYTES + 1, "40000", true, {}, Number.NaN]) {
+    const parsed = parseUploadRequest({ ...body, thumbnail_bytes: bad });
+    assert.equal(parsed.ok, true, String(bad));
+    if (parsed.ok) {
+      assert.equal(parsed.value.thumbnailBytes, null, String(bad));
+      assert.equal(parsed.value.thumbnailIgnored, true, String(bad));
+      assert.equal(parsed.value.bytes, 10);
+    }
+  }
+  // The file's own checks still apply when a poster is asked for.
+  assert.equal(parseUploadRequest({ ...body, bytes: 0, thumbnail_bytes: 100 }).ok, false);
+});
+
 test("delete body normalizes a media path and refuses other files", () => {
   const video = parseDeleteRequest({ pathname: `${FAMILY.toUpperCase()}/${MEDIA}.MP4` });
   assert.equal(video.ok, true);
   if (video.ok) {
     assert.equal(video.pathname, `${FAMILY}/${MEDIA}.mp4`);
+    // The file's poster goes with it.
+    assert.equal(video.thumbnailPathname, `${FAMILY}/${MEDIA}-thumb.jpg`);
     assert.equal(video.familyId, FAMILY);
   }
   const photo = parseDeleteRequest({ pathname: `${FAMILY}/${MEDIA}.JPG` });
   assert.equal(photo.ok, true);
-  if (photo.ok) assert.equal(photo.pathname, `${FAMILY}/${MEDIA}.jpg`);
+  if (photo.ok) {
+    assert.equal(photo.pathname, `${FAMILY}/${MEDIA}.jpg`);
+    assert.equal(photo.thumbnailPathname, `${FAMILY}/${MEDIA}-thumb.jpg`);
+  }
+  // Only files: a poster is removed with its file, never on its own.
+  assert.deepEqual(parseDeleteRequest({ pathname: `${FAMILY}/${MEDIA}-thumb.jpg` }), {
+    ok: false,
+    error: "That isn't a media path.",
+  });
   assert.equal(parseDeleteRequest({ pathname: `${FAMILY}/${MEDIA}.txt` }).ok, false);
   assert.equal(parseDeleteRequest({ pathname: `${FAMILY}/../../etc/passwd` }).ok, false);
   assert.equal(parseDeleteRequest({}).ok, false);
