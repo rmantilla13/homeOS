@@ -32,6 +32,9 @@ Rectangle {
         visible: status === Image.Ready
         fillMode: tile.fillMode
         asynchronous: true
+        // Upright as the phone shows it: a JPEG can keep its pixels sideways
+        // with an EXIF orientation, which Qt ignores unless asked.
+        autoTransform: true
         sourceSize.width: tile.thumbnail ? 480 : 1920
         opacity: status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.smooth } }

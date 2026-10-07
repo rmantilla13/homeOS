@@ -67,7 +67,7 @@ Useful flags and variables:
 | `--windowed` | Run in a window instead of full screen |
 | `--demo` | Use sample data even if a backend is configured |
 | `HOMEOS_IDLE_SECONDS=30` | Seconds before the screen saver starts (default 120) |
-| `HOMEOS_SCREENSAVER=photos\|collage\|video` | Screen saver style (otherwise chosen on the Media page) |
+| `HOMEOS_SCREENSAVER=photos\|collage\|frame\|memories\|video\|clock\|today` | Screen saver style (otherwise chosen on the Media page) |
 | `HOMEOS_NIGHT_MODE=on\|off` | Force the night theme on or off |
 | `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |

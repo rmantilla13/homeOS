@@ -88,6 +88,11 @@ qt_add_qml_module(homeos-display
         qml/screensaver/SlideshowSaver.qml
         qml/screensaver/CollageSaver.qml
         qml/screensaver/VideoSaver.qml
+        qml/screensaver/SmartFrameSaver.qml
+        qml/screensaver/MemoriesSaver.qml
+        qml/screensaver/ClockSaver.qml
+        qml/screensaver/TodaySaver.qml
+        qml/screensaver/Picks.js
         qml/screensaver/ScreenSaverOptions.qml
         qml/screensaver/ScreenSaverPicker.qml
         qml/screens/PairingScreen.qml
