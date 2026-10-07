@@ -13,6 +13,7 @@
 
 #include "backend/SupabaseClient.h"
 #include "hardware/DisplayController.h"
+#include "hardware/PanelPower.h"
 #include "hardware/SystemController.h"
 #include "models/Assistant.h"
 #include "models/FamilyStore.h"
@@ -152,6 +153,7 @@ int main(int argc, char *argv[])
     Assistant assistant(&client, &store, &voice);
     DisplayController display;
     app.installEventFilter(&display);
+    PanelPower panelPower(&display);
     SystemController system;
     system.start();
 

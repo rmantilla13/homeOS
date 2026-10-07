@@ -62,10 +62,11 @@ fi
 # Boot video: the ffmpeg package includes ffplay, which draws on the KMS/DRM
 # screen before the app starts. ffmpeg itself is the framebuffer fallback.
 # v4l-utils: v4l2-ctl shows the HEVC decoder when checking video by hand.
+# qt6-base-private-dev: lets the app switch the HDMI panel off when it sleeps.
 sudo apt-get update
 sudo apt-get install -y \
     build-essential cmake git \
-    qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev qt6-qpa-plugins \
+    qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev qt6-qpa-plugins \
     qt6-shadertools-dev libqt6websockets6 \
     qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
     qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtqml-workerscript \

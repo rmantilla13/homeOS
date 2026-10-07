@@ -20,6 +20,7 @@
 - [x] Docker simulator of the device (Debian arm64 + VNC)
 - [ ] First boot on the real Pi 5 + 10.1" panel (EGLFS, touch, HDMI audio)
 - [ ] Video playback in the photo frame (HEVC hardware decode)
+- [x] Sleep: screen off after a set time, overnight or on demand (HDMI standby through DPMS)
 - [ ] Wake on mmWave presence, auto-brightness, night mode
 - [ ] Watchdog and remote logging
 

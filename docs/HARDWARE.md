@@ -51,7 +51,8 @@ Note on brightness: this panel is an HDMI monitor, so its backlight can't be
 set from `/sys/class/backlight`. The app's dimming applies only to panels wired
 over DSI or eDP. For an HDMI panel, the options are DDC/CI (if the monitor
 supports it, via `ddcutil`) or a darker night theme. The night theme is already
-in place.
+in place. Sleep (Settings → Sleep) does switch an HDMI panel off: the app puts
+it in DPMS standby, as if its source were unplugged.
 
 ## Custom device (later)
 

@@ -22,6 +22,8 @@ ApplicationWindow {
     property string voiceTarget: ""
 
     function showToast(message) {
+        if (Device.screenOff)
+            return // nobody would see it, and it would redraw a sleeping panel
         toastLabel.text = message
         toastAnim.restart()
     }
@@ -131,7 +133,7 @@ ApplicationWindow {
     RowLayout {
         anchors.fill: parent
         spacing: 0
-        visible: Store.mode !== "pairing"
+        visible: Store.mode !== "pairing" && !sleepCover.covering
 
         NavRail {
             Layout.fillHeight: true
@@ -209,7 +211,7 @@ ApplicationWindow {
 
     PairingScreen {
         anchors.fill: parent
-        visible: Store.mode === "pairing"
+        visible: Store.mode === "pairing" && !sleepCover.covering
         onWifiRequested: { window.dismissKeyboard(); settings.openWifi() }
     }
 
@@ -218,7 +220,7 @@ ApplicationWindow {
     // Dialogs and sheets (Controls popups, z 0) are drawn over everything in
     // the window. What has to stay above them sits in Layers, bottom to top:
     // the keyboard (z 2, in KeyboardPanel), the toast (3), the screen saver
-    // (4) and the wake-word card (5).
+    // (4), the wake-word card (5) and the black of a sleeping screen (6).
 
     // On-screen keyboard (QT_IM_MODULE=qtvirtualkeyboard on the device).
     Loader {
@@ -270,12 +272,22 @@ ApplicationWindow {
 
     // The photo frame covers everything but the wake-word card. It needs no
     // input of its own: DisplayController swallows the waking tap app-wide.
+    // When the screen goes off it stays up only if it was already showing,
+    // until the black has faded in over it, so the page under it never shows
+    // through on the way to dark.
+    property bool saverUnderSleep: false
+    Connections {
+        target: Device
+        function onScreenOffChanged() { window.saverUnderSleep = Device.screenOff && saverLayer.opacity > 0 }
+    }
     Layer {
+        id: saverLayer
         z: 4
         width: window.width
         height: window.height
         visible: opacity > 0
-        opacity: Device.idle && Store.mode !== "pairing" ? 1 : 0
+        opacity: Device.idle && Store.mode !== "pairing"
+                 && (!Device.screenOff || (window.saverUnderSleep && !sleepCover.covering)) ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
         ScreenSaver { anchors.fill: parent }
     }
@@ -293,6 +305,32 @@ ApplicationWindow {
                 quick.dismiss(false)
                 assistant.open = true
             }
+        }
+    }
+
+    // Sleep (Settings → Sleep) covers everything: fade to black, then hide
+    // what's under it so nothing redraws while the panel is off (PanelPower).
+    // Like the photo frame it needs no input: the waking tap goes no further.
+    Layer {
+        z: 6
+        width: window.width
+        height: window.height
+        visible: sleepCover.opacity > 0
+        Rectangle {
+            id: sleepCover
+            readonly property bool covering: Device.screenOff && opacity === 1
+            anchors.fill: parent
+            color: "black"
+            opacity: 0
+            states: State {
+                name: "off"
+                when: Device.screenOff
+                PropertyChanges { target: sleepCover; opacity: 1 }
+            }
+            transitions: [
+                Transition { to: "off"; NumberAnimation { property: "opacity"; duration: 800; easing.type: Easing.InOutQuad } },
+                Transition { from: "off"; NumberAnimation { property: "opacity"; duration: Theme.smooth } }
+            ]
         }
     }
 

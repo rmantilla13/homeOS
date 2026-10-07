@@ -169,6 +169,18 @@ are shown upright: the display applies a JPEG's EXIF orientation. Which
 photo goes where is in `qml/screensaver/Picks.js`. The first touch only
 wakes the screen.
 
+## Sleep
+
+Settings → Sleep turns the screen off after a set time without a touch (5
+minutes to 4 hours; never by default), overnight between a bedtime and a
+wake-up time, or right away. Overnight, a screen nobody is using goes off
+instead of to the screen saver, and the screen saver comes back at the
+wake-up time. The screen fades to black and everything under it is hidden,
+so nothing redraws. A DSI or eDP backlight goes to zero, and an HDMI panel
+goes to standby through DPMS (`PanelPower`, built when Qt's private headers,
+`qt6-base-private-dev`, are installed). A tap or the wake word turns it back
+on, and the tap goes no further.
+
 ## Media
 
 The Media page shows photos and videos newest first: a featured photo, then a
@@ -279,7 +291,8 @@ VoiceClient  ─ WebSocket to the voice service: wake, transcripts, speech
      │
 SupabaseClient ─ REST (PostgREST) and streamed function calls (SSE)
      │
-DisplayController ─ idle → screen saver, backlight, presence wake
+DisplayController ─ idle → screen saver → sleep, backlight, presence wake
+PanelPower   ─ HDMI panel standby (DPMS) while the screen sleeps
 SystemController ─ Wi-Fi, screen speakers (mute and volume), restart, reboot
 ```
 
