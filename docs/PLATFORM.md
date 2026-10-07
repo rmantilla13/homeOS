@@ -225,14 +225,17 @@ is skipped.
 
 Set a family's overrides with `admin_set_family_limits`. Pass
 `use_platform_storage_limit => true` (or the matching flag for the assistant
-limit or the item cap) to clear an override. The iPhone writes `byte_size`,
-`content_type` and a thumbnail path; an older app that omits `byte_size` can
-still upload, and the object size is what gets billed once Storage is
-present. A file that isn't an image or video the app uploads, a path outside
-`<family_id>/<file>`, or an upload past the quota is refused by the database.
-Removing an item is `admin_delete_media` plus the `admin` function's
-`delete_media`, which also deletes the file and the thumbnail and writes
-`delete_media` and `delete_media_files` to the audit log.
+limit or the item cap) to clear an override. The iPhone writes `byte_size`
+(the file only; posters are not billed), `content_type` and a thumbnail
+path; an older app that omits `byte_size` can still upload, and the object
+size is what gets billed once Storage is present. A file that isn't an
+image or video the app uploads, a path outside `<family_id>/<file>`, or an
+upload past the quota is refused by the database. Removing an item is
+`admin_delete_media` plus the `admin` function's `delete_media`, which also
+deletes the file and the thumbnail from Storage and writes `delete_media`
+and `delete_media_files` to the audit log. For a Blob row it doesn't touch
+the Blob store: the file and poster stay there until the family is
+deleted.
 
 ## Revoking a display
 
