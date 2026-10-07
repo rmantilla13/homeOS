@@ -581,10 +581,12 @@ dates, so `UNTIL=20261020T000000Z` still includes Oct 20.
 
 - Display (live mode): `event_occurrences` over its calendar window, and
   `chores_due(fid, today)` as today's chores.
-- iOS: `event_occurrences` from 45 days back to 120 days ahead. An occurrence
-  is identified by `id` and `starts_at`; editing one occurrence of a
-  repeating event moves the whole series by the same amount.
-  `chores_due(fid, today)` decides what's due today.
+- iOS: `event_occurrences` from 45 days back to 120 days ahead, paged past
+  PostgREST's 1000-row cap. An occurrence is identified by `id` and
+  `starts_at`; editing one occurrence of a repeating event moves the whole
+  series by the same number of calendar days, to the edited local time,
+  keeping its local length. `chores_due(fid, today)` decides what's due
+  today.
 - Assistant: `event_occurrences` from a day ago to 14 days ahead, and
   `chores_due` for the family's today.
 

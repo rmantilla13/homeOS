@@ -1,3 +1,4 @@
+import Network
 import SwiftUI
 import UIKit
 
@@ -15,14 +16,33 @@ struct OhanaOSApp: App {
                 // ohanaos://invite/<CODE> and ohanaos://auth-callback (URL scheme in project.yml).
                 .onOpenURL { store.handleOpenURL($0) }
                 // Chores due are worked out per day. Back in the foreground on a
-                // new day, or at midnight with the app open, load the new day's.
+                // new day, at midnight with the app open, or back online after
+                // that load failed, load the new day's.
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { Task { await store.refreshIfNewDay() } }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
                     Task { await store.refreshIfNewDay() }
                 }
+                .task {
+                    for await _ in networkUp() { await store.refreshIfNewDay() }
+                }
         }
+    }
+}
+
+/// Ticks whenever the network is usable: at the start if it already is, and
+/// each time it comes back or changes route. NWPathMonitor calls back on its
+/// own queue; the stream carries just the tick, and keeps only the latest
+/// while the last one is still being handled.
+private func networkUp() -> AsyncStream<Void> {
+    AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { path in
+            if path.status == .satisfied { continuation.yield() }
+        }
+        continuation.onTermination = { _ in monitor.cancel() }
+        monitor.start(queue: DispatchQueue(label: "com.ohanaos.network"))
     }
 }
 

@@ -484,11 +484,15 @@ struct EventDetailView: View {
     @State private var confirmingDelete = false
     @State private var showingEdit = false
 
-    /// The row after a save, so the sheet shows the new time and people. A
-    /// new start changes a repeat's id; then it's the series' nearest repeat.
+    /// The row after a save, so the sheet shows the new time and people: the
+    /// series' repeat nearest to where this one went, as an edit moves the
+    /// series start with it. Unchanged, that's this repeat. Not found by `id`:
+    /// after a move by whole weeks, another repeat sits at the old start.
     private var live: FamilyEvent {
-        if let same = store.events.first(where: { $0.id == event.id }) { return same }
-        let distance = { (other: FamilyEvent) -> TimeInterval in abs(other.startsAt.timeIntervalSince(event.startsAt)) }
+        let distance = { (other: FamilyEvent) -> TimeInterval in
+            let moved = event.startsAt.addingTimeInterval(other.seriesStartsAt.timeIntervalSince(event.seriesStartsAt))
+            return abs(other.startsAt.timeIntervalSince(moved))
+        }
         return store.events.filter { $0.eventId == event.eventId }.min { distance($0) < distance($1) } ?? event
     }
 

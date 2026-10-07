@@ -58,6 +58,7 @@ final class FamilyStore {
     /// The chores up on `dueDay` ("yyyy-MM-dd"), as the server's `chores_due` worked them out.
     private(set) var dueTaskIds: Set<UUID> = []
     private(set) var dueDay: String?
+    @ObservationIgnored private var loadingNewDay = false
     /// The last 30 days of completions plus anything still pending.
     var completions: [TaskCompletion] = []
     var rewards: [Reward] = []
@@ -237,18 +238,13 @@ final class FamilyStore {
         let mealsFrom = DayKey.string(today.addingTimeInterval(-86_400))
         let mealsTo = DayKey.string(today.addingTimeInterval(8 * 86_400))
         let dayKey = DayKey.string(today)
-        struct EventWindow: Encodable { let fid: UUID; let range_start: String; let range_end: String }
         struct ChoreDay: Encodable { let fid: UUID; let day: String }
         do {
             async let members: [Member] = supabase.from("members").select().eq("family_id", value: fid)
                 .order("sort_order").execute().value
             async let devices: [Device] = supabase.from("devices").select("id, name, last_seen_at").eq("family_id", value: fid)
                 .order("created_at").execute().value
-            // One row per occurrence overlapping the window, repeats included,
-            // in start order. Each carries its member_ids.
-            async let events: [FamilyEvent] = supabase
-                .rpc("event_occurrences", params: EventWindow(fid: family.id, range_start: eventsFrom, range_end: eventsTo))
-                .execute().value
+            async let events: [FamilyEvent] = Self.eventOccurrences(family.id, from: eventsFrom, to: eventsTo)
             // Every chore, for managing them; `due` says which are up today.
             async let tasks: [FamilyTask] = supabase.from("tasks").select().eq("family_id", value: fid)
                 .eq("archived", value: false).order("created_at").execute().value
@@ -305,6 +301,25 @@ final class FamilyStore {
         } catch {
             report(error)
         }
+    }
+
+    /// One row per occurrence overlapping the window, repeats included, in
+    /// start order. Each carries its member_ids. PostgREST cuts a response off
+    /// at 1000 rows (`max_rows`), which daily repeats over the window can pass,
+    /// so this reads a page at a time until one comes back short.
+    private static func eventOccurrences(_ familyId: UUID, from: String, to: String) async throws -> [FamilyEvent] {
+        struct EventWindow: Encodable { let fid: UUID; let range_start: String; let range_end: String }
+        let window = EventWindow(fid: familyId, range_start: from, range_end: to)
+        let pageSize = 1000
+        var rows: [FamilyEvent] = []
+        var page: [FamilyEvent]
+        repeat {
+            page = try await supabase.rpc("event_occurrences", params: window)
+                .range(from: rows.count, to: rows.count + pageSize - 1)
+                .execute().value
+            rows += page
+        } while page.count == pageSize
+        return rows
     }
 
     func refreshMedia() async {
@@ -721,21 +736,17 @@ final class FamilyStore {
 
     /// Changes the title, place, time, and who an event is for. Recurrence (`rrule`) is left as stored.
     /// `event` may be one repeat of a series: the change then applies to the
-    /// whole series, so the stored start and end move by as much as this
-    /// repeat's did and every repeat keeps the new time and length.
+    /// whole series (`seriesTimes`), and every repeat keeps the new time and length.
     func updateEvent(_ event: FamilyEvent, title: String, location: String?, start: Date, end: Date, allDay: Bool, memberIds: Set<UUID>) async {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         let end = max(end, start)
-        let seriesStart = event.isRecurring
-            ? event.seriesStartsAt.addingTimeInterval(start.timeIntervalSince(event.startsAt)) : start
-        let seriesEnd = event.isRecurring
-            ? max(event.seriesEndsAt.addingTimeInterval(end.timeIntervalSince(event.endsAt)), seriesStart) : end
+        let series = event.isRecurring ? Self.seriesTimes(moving: event, to: start, end) : (start: start, end: end)
         let eventId = event.eventId.uuidString
         await perform {
             try await supabase.from("events")
-                .update(EventPatch(title: title, location: blankToNil(location), startsAt: seriesStart,
-                                    endsAt: seriesEnd, allDay: allDay))
+                .update(EventPatch(title: title, location: blankToNil(location), startsAt: series.start,
+                                    endsAt: series.end, allDay: allDay))
                 .eq("id", value: eventId)
                 .execute()
             try await supabase.from("event_members").delete().eq("event_id", value: eventId).execute()
@@ -744,6 +755,37 @@ final class FamilyStore {
                 try await supabase.from("event_members").insert(links).execute()
             }
         }
+    }
+
+    /// The stored times for a series whose repeat `occurrence` is edited to
+    /// `start`–`end`. The server repeats a series at its local time of day and
+    /// local length, so the move is local too: the start goes as many calendar
+    /// days as the repeat did, at the new time of day, and the end follows at
+    /// the new length. Moved across a DST change, a 4:30pm series stays at
+    /// 4:30pm and an all-day one at midnight. Unchanged times keep it as stored.
+    private static func seriesTimes(moving occurrence: FamilyEvent, to start: Date, _ end: Date) -> (start: Date, end: Date) {
+        if start == occurrence.startsAt && end == occurrence.endsAt {
+            return (occurrence.seriesStartsAt, occurrence.seriesEndsAt)
+        }
+        let calendar = Calendar.current
+        // Counted noon to noon, so a clock change at midnight can't lose a day.
+        func days(from a: Date, to b: Date) -> Int {
+            guard let noonA = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: a),
+                  let noonB = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: b) else { return 0 }
+            return calendar.dateComponents([.day], from: noonA, to: noonB).day ?? 0
+        }
+        // `count` calendar days after `day`, at `time`'s time of day.
+        func moved(_ day: Date, by count: Int, at time: Date) -> Date? {
+            let clock = calendar.dateComponents([.hour, .minute, .second], from: time)
+            return calendar.date(byAdding: .day, value: count, to: day).flatMap {
+                calendar.date(bySettingHour: clock.hour ?? 0, minute: clock.minute ?? 0, second: clock.second ?? 0, of: $0)
+            }
+        }
+        let seriesStart = moved(occurrence.seriesStartsAt, by: days(from: occurrence.startsAt, to: start), at: start)
+            ?? occurrence.seriesStartsAt.addingTimeInterval(start.timeIntervalSince(occurrence.startsAt))
+        let seriesEnd = moved(seriesStart, by: days(from: start, to: end), at: end)
+            ?? seriesStart.addingTimeInterval(end.timeIntervalSince(start))
+        return (seriesStart, max(seriesEnd, seriesStart))
     }
 
     /// Deletes the stored event, so every repeat of a repeating one goes too.
@@ -784,18 +826,32 @@ final class FamilyStore {
         }
     }
 
+    /// Whether the chores on hand were worked out for today. After midnight
+    /// they're yesterday's until `refreshIfNewDay` gets through (it can't
+    /// offline), and screens say so rather than "No chores today".
+    var choresLoadedToday: Bool { dueDay == DayKey.today }
+
     /// Whether a chore is up today. The server works that out (`chores_due`:
     /// repeats, and one-time chores until someone finishes them) for the day
     /// the data was loaded, so only today is supported. Past midnight nothing
     /// is due until `refreshIfNewDay` loads the new day.
     func isDue(_ task: FamilyTask) -> Bool {
-        dueDay == DayKey.today && dueTaskIds.contains(task.id)
+        choresLoadedToday && dueTaskIds.contains(task.id)
+    }
+
+    /// Chores that aren't up today: another day's repeat, or a rule that has
+    /// run out. Empty while today's haven't loaded, as every chore would look like one.
+    var choresNotDueToday: [FamilyTask] {
+        choresLoadedToday ? tasks.filter { !dueTaskIds.contains($0.id) } : []
     }
 
     /// Reloads when the chores on screen were worked out for an earlier day:
-    /// back in the foreground the next morning, or at midnight.
+    /// back in the foreground the next morning, at midnight, or back online
+    /// after that load failed. Those can come together; one reload serves them.
     func refreshIfNewDay() async {
-        guard family != nil, dueDay != DayKey.today else { return }
+        guard family != nil, !choresLoadedToday, !loadingNewDay else { return }
+        loadingNewDay = true
+        defer { loadingNewDay = false }
         await refresh()
     }
 
