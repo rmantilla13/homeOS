@@ -44,6 +44,12 @@ target_compile_definitions(homeos-display PRIVATE HOMEOS_VERSION="${PROJECT_VERS
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
+# Open-source games kept as their authors wrote them (display/games/README.md).
+# GamesScreen.qml loads them from the resources when one is opened.
+file(GLOB_RECURSE homeos_vendored_games RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS
+    games/samegame/*.qml games/samegame/*.js games/samegame/qmldir games/samegame/*.png
+    games/maroon/*.qml games/maroon/*.js games/maroon/*.png games/maroon/*.wav)
+
 qt_add_qml_module(homeos-display
     URI HomeOS
     VERSION 1.0
@@ -88,9 +94,17 @@ qt_add_qml_module(homeos-display
         qml/screens/AssistantPanel.qml
         qml/screens/QuickAnswer.qml
         qml/screens/SettingsSheet.qml
+        qml/screens/GamesScreen.qml
+        qml/games/Game2048.qml
+        qml/games/TrafficJam.qml
+        qml/games/TicTacToe.qml
+        games/2048/game.js
+        games/traffic/rush.js
+        games/traffic/puzzles.js
     RESOURCES
         resources/demo/family.json
         qml/components/KeyboardPanel.qml
+        ${homeos_vendored_games}
 )
 
 # ShaderEffect fragment shaders, baked to .qsb at build time (qrc:/HomeOS/shaders/).
