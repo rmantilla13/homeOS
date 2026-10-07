@@ -120,6 +120,10 @@ jobs:
         run: |
           cmake -S display -B build/display -DCMAKE_BUILD_TYPE=Release
           cmake --build build/display -j"$(nproc)"
+      # Sleep switches an HDMI panel off through Qt's private headers. A build
+      # without them still passes, so check that the switch made it in.
+      - name: Built with HDMI panel power
+        run: grep -q -- -DHOMEOS_PANEL_POWER build/display/CMakeFiles/homeos-display.dir/flags.make
       - name: Unit tests
         run: ctest --test-dir build/display --output-on-failure
       - name: Smoke run (--demo, 5 s)
@@ -171,6 +175,10 @@ jobs:
           cp -r "$GITHUB_WORKSPACE" /home/pi/homeOS
           chown -R pi:pi /home/pi/homeOS
           sudo -u pi -H bash -c 'cd ~/homeOS && ./display/deploy/install-pi.sh --with-voice'
+      # Qt 6.8 lists its private headers differently from 6.4; this is the
+      # build that has to switch the Pi's HDMI panel off.
+      - name: Built with HDMI panel power
+        run: grep -q -- -DHOMEOS_PANEL_POWER /home/pi/homeOS/build/display/CMakeFiles/homeos-display.dir/flags.make
       - name: Smoke run of the installed app (--demo, 5 s)
         run: |
           set -a; . /etc/homeos/display.env; set +a

@@ -16,9 +16,12 @@ constexpr int kOffDelayMs = 1500;
 PanelPower::PanelPower(DisplayController *display, QObject *parent)
     : QObject(parent), m_display(display)
 {
-#ifdef HOMEOS_PANEL_POWER
     if (QGuiApplication::platformName() != QLatin1String("eglfs"))
         return;
+#ifndef HOMEOS_PANEL_POWER
+    qWarning("homeOS display: built without Qt's private headers (qt6-base-private-dev), "
+             "so an HDMI panel stays lit while the screen is off. Run install-pi.sh again.");
+#else
     if (qEnvironmentVariable("HOMEOS_PANEL_POWER") == QLatin1String("off")) {
         qInfo("homeOS display: HOMEOS_PANEL_POWER=off, the panel stays powered while the screen is off");
         return;
