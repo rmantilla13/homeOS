@@ -71,6 +71,8 @@ qt_add_qml_module(homeos-display
         qml/components/VoiceOrb.qml
         qml/components/FormDialog.qml
         qml/components/FormField.qml
+        qml/components/FocusFlickable.qml
+        qml/components/Layer.qml
         qml/screens/HomeScreen.qml
         qml/screens/CalendarScreen.qml
         qml/screens/TasksScreen.qml
@@ -90,7 +92,24 @@ qt_add_qml_module(homeos-display
         qml/screens/SettingsSheet.qml
     RESOURCES
         resources/demo/family.json
+        # The on-screen keyboard is optional at run time, so these are not
+        # compiled: KeyboardPanel loads them only when the module is there.
         qml/components/KeyboardPanel.qml
+        qml/keyboard/layouts/en_US/main.qml
+        qml/keyboard/layouts/en_US/symbols.qml
+        qml/keyboard/layouts/en_US/digits.qml
+        qml/keyboard/layouts/en_US/numbers.qml
+        qml/keyboard/layouts/en_US/dialpad.qml
+)
+
+# The keyboard's look, where VirtualKeyboardSettings.styleName finds it:
+# QtQuick/VirtualKeyboard/Styles/<name>/style.qml under an import path
+# (qrc:/keyboard, added in main.cpp).
+set_source_files_properties(qml/keyboard/style.qml
+    PROPERTIES QT_RESOURCE_ALIAS QtQuick/VirtualKeyboard/Styles/homeos/style.qml)
+qt_add_resources(homeos-display "keyboard_style"
+    PREFIX /keyboard
+    FILES qml/keyboard/style.qml
 )
 
 # ShaderEffect fragment shaders, baked to .qsb at build time (qrc:/HomeOS/shaders/).

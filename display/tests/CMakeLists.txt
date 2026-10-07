@@ -46,21 +46,26 @@ qt_add_resources(tst_assistant "demo_data"
 add_test(NAME tst_assistant COMMAND tst_assistant)
 set_tests_properties(tst_assistant PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# QML tests copy the files they use into a HomeOS module directory of their
+# own (<dir>/HomeOS), since the app's module is built into the binary.
+function(homeos_test_qml_module dir)
+    set(qmldir "module HomeOS\n")
+    foreach(file ${ARGN})
+        configure_file(${PROJECT_SOURCE_DIR}/qml/${file} ${dir}/HomeOS/${file} COPYONLY)
+        get_filename_component(type ${file} NAME_WE)
+        if(type STREQUAL "Theme")
+            string(APPEND qmldir "singleton ")
+        endif()
+        string(APPEND qmldir "${type} 1.0 ${file}\n")
+    endforeach()
+    file(WRITE ${dir}/HomeOS/qmldir "${qmldir}")
+endfunction()
+
 # The wake-word card (QuickAnswer.qml) with the real assistant and voice
-# client. Its QML and the few components it uses are copied into a module
-# directory of their own, since the app's module is built into the binary.
-set(quick_qml_dir ${CMAKE_CURRENT_BINARY_DIR}/qml/HomeOS)
-set(quick_qmldir "module HomeOS\n")
-foreach(file Theme.qml components/Icon.qml components/IconButton.qml components/PillButton.qml
-             components/VoiceOrb.qml screens/QuickAnswer.qml)
-    configure_file(${PROJECT_SOURCE_DIR}/qml/${file} ${quick_qml_dir}/${file} COPYONLY)
-    get_filename_component(type ${file} NAME_WE)
-    if(type STREQUAL "Theme")
-        string(APPEND quick_qmldir "singleton ")
-    endif()
-    string(APPEND quick_qmldir "${type} 1.0 ${file}\n")
-endforeach()
-file(WRITE ${quick_qml_dir}/qmldir "${quick_qmldir}")
+# client.
+homeos_test_qml_module(${CMAKE_CURRENT_BINARY_DIR}/qml
+    Theme.qml components/Icon.qml components/IconButton.qml components/PillButton.qml
+    components/VoiceOrb.qml screens/QuickAnswer.qml)
 
 qt_add_executable(tst_quickanswer tst_quickanswer.cpp
     ../src/models/Assistant.h    ../src/models/Assistant.cpp
@@ -72,3 +77,16 @@ target_compile_definitions(tst_quickanswer PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_
 target_link_libraries(tst_quickanswer PRIVATE homeos-core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Concurrent Qt6::Test)
 add_test(NAME tst_quickanswer COMMAND tst_quickanswer)
 set_tests_properties(tst_quickanswer PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The wall dialogs' shell (FormDialog.qml) under a Layer, the way Main.qml
+# stacks the on-screen keyboard over dialogs; and closing when the display
+# goes idle.
+homeos_test_qml_module(${CMAKE_CURRENT_BINARY_DIR}/qml-dialogs
+    Theme.qml components/PillButton.qml components/FormField.qml components/FocusFlickable.qml
+    components/FormDialog.qml components/Layer.qml)
+qt_add_executable(tst_dialogs tst_dialogs.cpp)
+target_compile_options(tst_dialogs PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_dialogs PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/qml-dialogs")
+target_link_libraries(tst_dialogs PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+add_test(NAME tst_dialogs COMMAND tst_dialogs)
+set_tests_properties(tst_dialogs PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

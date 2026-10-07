@@ -108,6 +108,10 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/"));
+    // The on-screen keyboard's style (QtQuick/VirtualKeyboard/Styles/homeos/).
+    // The keyboard builds the style's URL as <import path> + "/QtQuick/...",
+    // which "qrc:/" would turn into qrc://QtQuick/..., so it gets a path of its own.
+    engine.addImportPath(QStringLiteral("qrc:/keyboard"));
     engine.rootContext()->setContextProperty("startWindowed", parser.isSet(windowed));
 
     const QUrl mainUrl(QStringLiteral("qrc:/HomeOS/qml/Main.qml"));
