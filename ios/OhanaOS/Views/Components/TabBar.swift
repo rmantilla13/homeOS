@@ -22,6 +22,7 @@ struct FloatingTabBar: View {
     @Binding var selection: AppTab
     @Namespace private var namespace
     @Environment(\.mood) private var mood
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         HStack(spacing: 2) {
@@ -62,6 +63,8 @@ struct FloatingTabBar: View {
         .padding(6)
         .background(Theme.surface, in: Capsule())
         .shadow(color: .black.opacity(0.10), radius: 20, y: 8)
+        // Phone-sized on the iPhone Duo's inner display, not stretched across it.
+        .frame(maxWidth: sizeClass == .regular ? 520 : nil)
         .padding(.horizontal, 16)
         .sensoryFeedback(.selection, trigger: selection)
     }

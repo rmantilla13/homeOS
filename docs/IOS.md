@@ -682,6 +682,37 @@ bounce, and point balances roll with `.numericText`. List inserts and removals
 have transitions, and the glow slowly breathes. The onboarding, invite and
 profile screens reuse the glow header, pills and cards.
 
+## iPhone Duo
+
+The iPhone Duo (iOS 27.1) has a 5.4" outer display and a 7.6" inner one.
+Closed, it behaves like any iPhone: compact width, and the portrait lock in
+`Info.plist` is honored. Open, the inner display is regular width and regular
+height in every pose, and it **ignores** `UISupportedInterfaceOrientations`,
+so the app shows in landscape there too. The app resizes live as the phone
+opens and closes, and Split View on the inner display can put system buttons
+down one side, so safe areas aren't symmetric.
+
+What the app does about it:
+
+- Layout keys off `horizontalSizeClass`, never orientation, idiom or
+  `UIScreen.main` (the app uses none of those).
+- `readableColumn()` (`Theme.swift`) caps Home, Chores, Family and the
+  assistant chat at 680 pt and centers them on a regular-width screen. On a
+  compact iPhone it does nothing.
+- The floating tab bar stops at 520 pt wide.
+- The media grid goes from three fixed columns to adaptive 130 pt tiles.
+- Calendar keeps the full width; the week grid uses it.
+- Backgrounds go edge to edge with `ignoresSafeArea()`; content stays inside
+  the safe area on each side separately.
+
+Test it in Xcode 27.1's iPhone Duo simulator (Device Hub): open, close, rotate
+and fold the device, and drag the app into Split View on the inner display.
+Check every tab, the assistant, the media viewer, the onboarding screens and
+the sheets in each pose. Not done yet: a sidebar (`NavigationSplitView`) on
+the inner display, `ReservedRegion` for the custom tab bar, and lifting the
+portrait lock on the outer display. The app still builds with the iOS 17
+deployment target and Xcode 16+, so none of this needs `#available`.
+
 ## Data notes
 
 - Pull to refresh reloads everything. Realtime subscriptions aren't wired up

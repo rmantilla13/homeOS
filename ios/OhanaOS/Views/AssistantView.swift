@@ -73,6 +73,7 @@ struct AssistantView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    .readableColumn()
                     .animation(Theme.springy, value: store.chat.count)
                     .animation(.easeInOut(duration: 0.2), value: store.isThinking)
                 }
@@ -83,7 +84,7 @@ struct AssistantView: View {
                 // Follow the reply as it streams in.
                 .onChange(of: store.chat.last?.text) { proxy.scrollTo(bottomId, anchor: .bottom) }
             }
-            inputBar
+            inputBar.readableColumn()
         }
         .background {
             ZStack(alignment: .top) {

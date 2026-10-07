@@ -38,6 +38,7 @@ struct ChoresView: View {
                 }
                 .padding(.horizontal, Theme.page)
                 .padding(.bottom, 24)
+                .readableColumn()
             }
             .screenBackground()
             .refreshable { await store.refresh() }

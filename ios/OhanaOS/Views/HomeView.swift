@@ -24,6 +24,7 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, Theme.page)
                 .padding(.bottom, 24)
+                .readableColumn()
                 .animation(Theme.springy, value: store.pendingCompletions)
             }
             .screenBackground()

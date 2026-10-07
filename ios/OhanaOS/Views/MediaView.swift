@@ -20,7 +20,15 @@ struct MediaView: View {
     @State private var selected: Set<UUID> = []
     @State private var confirmingDelete = false
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 3)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    /// Three across on a phone; more, at about the same tile size, on the
+    /// iPhone Duo's inner display.
+    private var columns: [GridItem] {
+        sizeClass == .regular
+            ? [GridItem(.adaptive(minimum: 130), spacing: 3)]
+            : Array(repeating: GridItem(.flexible(), spacing: 3), count: 3)
+    }
 
     private var items: [MediaItem] {
         let sorted = store.media.sorted { $0.date > $1.date }
