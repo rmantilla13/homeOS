@@ -29,11 +29,16 @@ constexpr qint64 kCheckInIntervalMs = 5 * 60 * 1000;
 // it at boot) is noticed between syncs and in demo mode too.
 constexpr qint64 kDayCheckMaxMs = 15 * 60 * 1000;
 const QString kMediaBucket = QStringLiteral("family-media");
-// Signed media URLs last 6 hours: Supabase signs for that long here, and the
-// admin's Blob URLs too (admin/lib/media/api.ts PLAYBACK_TTL_MS). They're
-// renewed only within an hour of running out.
-constexpr int kSignedUrlSecs = 6 * 3600;
-constexpr int kRenewUrlSecs = 3600;
+// Signed media URLs last 6 h: Supabase expiresIn here, PLAYBACK_TTL_MS in the admin app.
+constexpr int kSignedUrlTtlSec = 6 * 3600;
+// /api/media/urls takes at most 200 paths; 200 rows with posters are 400.
+constexpr int kBlobSignChunk = 200;
+// "" from a good reply: an older admin app, or a poster that isn't there.
+// Ask again now and then, not on every refresh.
+constexpr qint64 kEmptyUrlRetryMs = 15 * 60 * 1000;
+
+QString signKey(bool blob, const QString &path) { return (blob ? QStringLiteral("b:") : QStringLiteral("s:")) + path; }
+bool isBlob(const QVariantMap &row) { return row.value(QStringLiteral("file_store")).toString() == QLatin1String("blob"); }
 
 QString key(const QString &taskId, const QString &memberId) { return taskId + '|' + memberId; }
 
@@ -81,10 +86,10 @@ FamilyStore::FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent
     });
     connect(m_client, &SupabaseClient::sessionLost, this, [this]() {
         ++m_generation;
+        forgetMedia();
         m_settings.remove("device/refreshToken");
         m_client->clearSession();
         m_syncTimer.stop();
-        forgetMedia();
         startPairing();
     });
 }
@@ -94,6 +99,24 @@ void FamilyStore::setMediaApiUrl(const QString &url)
     m_mediaApiUrl = url.trimmed();
     while (m_mediaApiUrl.endsWith(QLatin1Char('/')))
         m_mediaApiUrl.chop(1);
+}
+
+void FamilyStore::setUrlRefreshAfterMs(qint64 ms)
+{
+    m_urlRefreshMs = ms;
+    for (SignedUrl &s : m_signedUrls) {
+        if (s.refreshAt.remainingTime() > ms)
+            s.refreshAt = QDeadlineTimer(ms);
+    }
+}
+
+void FamilyStore::setUrlDropAfterMs(qint64 ms)
+{
+    m_urlDropMs = ms;
+    for (SignedUrl &s : m_signedUrls) {
+        if (s.dropAt.remainingTime() > ms)
+            s.dropAt = QDeadlineTimer(ms);
+    }
 }
 
 void FamilyStore::start()
@@ -348,107 +371,132 @@ void FamilyStore::loadLive()
     });
 }
 
-// Signs Supabase paths and Blob paths separately, then keeps the row order.
-// A URL signed earlier is reused until it's within an hour of expiring: a new
-// URL string for the same file would make every image (and its color) load
-// again on each sync. A missing media URL leaves Blob photos and videos with
-// an empty url. Rows still in Supabase play.
+// Gives each row a signed URL for its file (url) and its poster (thumbUrl).
+// A URL is reused until it is due to be signed again (4 h of its 6), so a
+// refresh doesn't make players and images load the file again. Only new or
+// due paths are signed: rows still in Supabase there, Blob rows by the
+// admin app. A missing media URL leaves Blob photos and videos with an
+// empty url; rows still in Supabase play.
 void FamilyStore::attachMediaUrls(const QVariantList &rows, int generation)
 {
     if (generation != m_generation)
         return;
+    m_mediaRows = rows;
 
-    const QDateTime signedAt = now();
-    QStringList keys;
+    QStringList storageNeed, blobNeed;
     QSet<QString> listed;
-    QList<int> storageAt, blobAt;
-    QStringList storagePaths, blobPaths;
-    for (int i = 0; i < rows.size(); ++i) {
-        const QVariantMap row = rows.at(i).toMap();
-        const QString store = row.value(QStringLiteral("file_store")).toString();
-        const QString path = row.value(QStringLiteral("storage_path")).toString();
-        const QString urlKey = store + QLatin1Char('|') + path;
-        keys << urlKey;
-        listed.insert(urlKey);
-        const auto cached = m_signedUrls.constFind(urlKey);
-        if (cached != m_signedUrls.cend() && cached->expires > signedAt.addSecs(kRenewUrlSecs))
-            continue;
-        if (store == QLatin1String("blob")) {
-            blobAt << i;
-            blobPaths << path;
-        } else {
-            storageAt << i;
-            storagePaths << path;
+    for (const QVariant &v : rows) {
+        const QVariantMap row = v.toMap();
+        const bool blob = isBlob(row);
+        for (const QString &column : {QStringLiteral("storage_path"), QStringLiteral("thumbnail_path")}) {
+            const QString path = row.value(column).toString();
+            const QString key = signKey(blob, path);
+            if (path.isEmpty() || listed.contains(key))
+                continue;
+            listed.insert(key);
+            const auto it = m_signedUrls.constFind(key);
+            const bool fresh = it != m_signedUrls.cend() && !it->refreshAt.hasExpired();
+            // A path already being signed (two loads close together) waits for that answer.
+            if (!fresh && !m_signing.contains(key))
+                (blob ? blobNeed : storageNeed) << path;
         }
     }
-    // Forget the URLs of media that's gone.
-    for (auto it = m_signedUrls.begin(); it != m_signedUrls.end();)
-        it = listed.contains(it.key()) ? std::next(it) : m_signedUrls.erase(it);
-
-    struct Pending {
-        QList<QString> urls;
-        int remaining = 2;
-    };
-    const auto pending = std::make_shared<Pending>();
-    pending->urls = QList<QString>(rows.size());
-
-    const auto finish = [this, rows, keys, signedAt, generation, pending]() {
-        if (--pending->remaining > 0 || generation != m_generation)
-            return;
-        const QDateTime current = now();
-        m_rawMedia.clear();
-        for (int i = 0; i < rows.size(); ++i) {
-            QString url = pending->urls.at(i);
-            const auto cached = m_signedUrls.constFind(keys.at(i));
-            // Keep a URL that's still good: one not due for renewal (another
-            // sync may have just signed it), or any unexpired one if signing failed.
-            if (cached != m_signedUrls.cend()
-                && cached->expires > (url.isEmpty() ? current : current.addSecs(kRenewUrlSecs)))
-                url = cached->url;
-            else if (!url.isEmpty())
-                m_signedUrls.insert(keys.at(i), {url, signedAt.addSecs(kSignedUrlSecs)});
-            QVariantMap item = rows.at(i).toMap();
-            item.insert(QStringLiteral("url"), url);
-            m_rawMedia << item;
-        }
-        rebuild();
-    };
-
-    m_client->signUrls(kMediaBucket, storagePaths, kSignedUrlSecs, [pending, storageAt, finish](const QStringList &urls) {
-        for (int i = 0; i < storageAt.size() && i < urls.size(); ++i)
-            pending->urls[storageAt.at(i)] = urls.at(i);
-        finish();
-    });
-
-    if (blobPaths.isEmpty()) {
-        finish();
-        return;
+    // Rows that are gone take their URLs with them.
+    for (auto it = m_signedUrls.begin(); it != m_signedUrls.end();) {
+        if (listed.contains(it.key()))
+            ++it;
+        else
+            it = m_signedUrls.erase(it);
     }
-    if (m_mediaApiUrl.isEmpty()) {
+
+    if (!storageNeed.isEmpty())
+        signMedia(false, storageNeed, generation);
+    if (!blobNeed.isEmpty() && m_mediaApiUrl.isEmpty()) {
         qWarning() << "HOMEOS_MEDIA_URL is not set; photos and videos in Blob storage have no playback URL";
-        finish();
-        return;
+    } else {
+        for (qsizetype at = 0; at < blobNeed.size(); at += kBlobSignChunk)
+            signMedia(true, blobNeed.mid(at, kBlobSignChunk), generation);
     }
 
-    QJsonArray paths;
-    for (const QString &path : blobPaths)
-        paths << path;
+    // The rows go out once nothing is still being signed, so the list
+    // doesn't pass through half-signed states.
+    if (m_signRequests == 0)
+        publishMedia();
+}
+
+void FamilyStore::signMedia(bool blob, const QStringList &paths, int generation)
+{
+    for (const QString &path : paths)
+        m_signing.insert(signKey(blob, path));
+    ++m_signRequests;
+    const auto done = [this, blob, paths, generation](const QStringList &urls, bool ok) {
+        if (generation != m_generation)
+            return; // re-paired meanwhile; forgetMedia() reset the counts
+        for (const QString &path : paths)
+            m_signing.remove(signKey(blob, path));
+        rememberUrls(blob, paths, urls, ok && urls.size() == paths.size());
+        if (--m_signRequests == 0)
+            publishMedia();
+    };
+    if (!blob) {
+        m_client->signUrls(kMediaBucket, paths, kSignedUrlTtlSec,
+                           [done](const QStringList &urls) { done(urls, !urls.isEmpty()); });
+        return;
+    }
     m_client->postAbsolute(QUrl(m_mediaApiUrl + QStringLiteral("/api/media/urls")),
-                           QJsonObject{{QStringLiteral("paths"), paths}},
-                           [pending, blobAt, finish](const QJsonDocument &doc, const QString &error) {
+                           QJsonObject{{QStringLiteral("paths"), QJsonArray::fromStringList(paths)}},
+                           [done](const QJsonDocument &doc, const QString &error) {
                                if (!error.isEmpty())
                                    qWarning() << "signing blob media failed:" << error;
-                               const QJsonArray urls = doc.object().value(QStringLiteral("urls")).toArray();
-                               for (int i = 0; i < blobAt.size() && i < urls.size(); ++i)
-                                   pending->urls[blobAt.at(i)] = urls.at(i).toString();
-                               finish();
+                               QStringList urls;
+                               for (const QJsonValue &u : doc.object().value(QStringLiteral("urls")).toArray())
+                                   urls << u.toString();
+                               done(urls, error.isEmpty());
                            });
 }
 
-// Signed URLs and photo colors belong to the family this display was paired with.
+// A failed signing call keeps the URLs we had: they stay good for hours.
+void FamilyStore::rememberUrls(bool blob, const QStringList &paths, const QStringList &urls, bool ok)
+{
+    if (!ok)
+        return;
+    for (int i = 0; i < paths.size(); ++i) {
+        const QString url = urls.at(i);
+        const qint64 refreshMs = url.isEmpty() ? qMin(kEmptyUrlRetryMs, m_urlRefreshMs) : m_urlRefreshMs;
+        m_signedUrls.insert(signKey(blob, paths.at(i)), SignedUrl{url, QDeadlineTimer(refreshMs), QDeadlineTimer(m_urlDropMs)});
+    }
+}
+
+// The URL for a path, or "" when there is none, or when it is so old that
+// it has expired or is about to (signing it again kept failing).
+QString FamilyStore::signedUrl(bool blob, const QString &path) const
+{
+    if (path.isEmpty())
+        return {};
+    const auto it = m_signedUrls.constFind(signKey(blob, path));
+    return it == m_signedUrls.cend() || it->dropAt.hasExpired() ? QString() : it->url;
+}
+
+void FamilyStore::publishMedia()
+{
+    m_rawMedia.clear();
+    for (const QVariant &v : std::as_const(m_mediaRows)) {
+        QVariantMap item = v.toMap();
+        const bool blob = isBlob(item);
+        item.insert(QStringLiteral("url"), signedUrl(blob, item.value(QStringLiteral("storage_path")).toString()));
+        item.insert(QStringLiteral("thumbUrl"), signedUrl(blob, item.value(QStringLiteral("thumbnail_path")).toString()));
+        m_rawMedia << item;
+    }
+    rebuild();
+}
+
+// Signed URLs and sampled colors belong to the family this display left.
 void FamilyStore::forgetMedia()
 {
     m_signedUrls.clear();
+    m_signing.clear();
+    m_signRequests = 0;
+    m_mediaRows.clear();
     m_colors.clear();
 }
 
@@ -827,9 +875,9 @@ void FamilyStore::unpair()
     m_rawMeals.clear();
     m_rawLists.clear();
     m_rawMedia.clear();
+    forgetMedia();
     m_completedToday.clear();
     m_points.clear();
-    forgetMedia();
     rebuild();
 
     startPairing();
@@ -983,8 +1031,7 @@ void FamilyStore::rebuild()
     m_meals = m_rawMeals;
     m_lists = m_rawLists;
     // Media: newest first, with display labels and a color for dynamic tints.
-    m_media.clear();
-    m_photos.clear();
+    QVariantList media, photos;
     QHash<QString, QString> nameById;
     for (const QVariant &v : std::as_const(m_rawMembers))
         nameById.insert(v.toMap().value("id").toString(), v.toMap().value("display_name").toString());
@@ -1002,27 +1049,42 @@ void FamilyStore::rebuild()
         m.insert("durationLabel", secs > 0 ? QStringLiteral("%1:%2").arg(secs / 60).arg(secs % 60, 2, 10, QChar('0')) : QString());
         m.insert("uploaderName", nameById.value(m.value("uploaded_by").toString()));
 
+        // The uploaded poster (thumbUrl) stands in for a video until it plays.
+        // Demo videos bring their own.
+        const QString thumbUrl = m.value("thumbUrl").toString();
+        if (isVideo && m.value("posterUrl").toString().isEmpty() && !thumbUrl.isEmpty())
+            m.insert("posterUrl", thumbUrl);
         const QString imageUrl = isVideo ? m.value("posterUrl").toString() : m.value("url").toString();
-        // By id, not URL: a renewed signed URL is still the same photo. (Demo
-        // media has no id; its file URLs never change.)
-        const QString colorKey = m.value("id").toString().isEmpty() ? imageUrl : m.value("id").toString();
-        QColor tint = m_colors.cached(colorKey);
-        if (!tint.isValid())
-            m_colors.sample(colorKey, imageUrl);
+        // Grid tiles and color sampling take the small poster when there is one.
+        const QString tileUrl = thumbUrl.isEmpty() ? imageUrl : thumbUrl;
+        m.insert("thumbUrl", thumbUrl);
         m.insert("imageUrl", imageUrl);
+        m.insert("tileUrl", tileUrl);
+        // Keyed by the stored path, which stays put when the URL is signed
+        // again. Demo media has none: its file URLs never change.
+        const QString storagePath = m.value("storage_path").toString();
+        const QString colorKey = storagePath.isEmpty() ? imageUrl : storagePath;
+        QColor tint = m_colors.cached(colorKey);
+        if (!tint.isValid() && !tileUrl.isEmpty())
+            m_colors.sample(colorKey, tileUrl);
         if (!tint.isValid())
             tint = QColor(m.value("color").toString());
         if (!tint.isValid())
             tint = QColor("#5B7CF5");
         m.insert("tint", tint.name());
         m.insert("tintDeep", tint.darker(260).name());
-        m_media << m;
+        media << m;
         if (!isVideo && m.value("show_on_frame", true).toBool())
-            m_photos << m;
+            photos << m;
     }
-    std::stable_sort(m_media.begin(), m_media.end(), [](const QVariant &a, const QVariant &b) {
+    std::stable_sort(media.begin(), media.end(), [](const QVariant &a, const QVariant &b) {
         return a.toMap().value("takenMs").toLongLong() > b.toMap().value("takenMs").toLongLong();
     });
+    if (media != m_media || photos != m_photos) {
+        m_media = media;
+        m_photos = photos;
+        emit mediaChanged();
+    }
     emit dataChanged();
 }
 

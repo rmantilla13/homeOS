@@ -106,6 +106,29 @@ target_link_libraries(tst_calendar PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Tes
 add_test(NAME tst_calendar COMMAND tst_calendar)
 set_tests_properties(tst_calendar PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Media URLs, posters and colors in live mode, against a fake Supabase and
+# admin app (FakeServer.h).
+qt_add_executable(tst_media tst_media.cpp FakeServer.h
+    ../src/models/FamilyStore.h  ../src/models/FamilyStore.cpp
+    ../src/models/ColorSampler.h ../src/models/ColorSampler.cpp
+)
+target_compile_options(tst_media PRIVATE ${HOMEOS_WARNINGS})
+target_link_libraries(tst_media PRIVATE homeos-core Qt6::Gui Qt6::Concurrent Qt6::Test)
+add_test(NAME tst_media COMMAND tst_media)
+set_tests_properties(tst_media PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The video screensaver (VideoSaver.qml) with a stand-in Store, from a module
+# directory of its own like tst_quickanswer's.
+homeos_test_qml_module(${CMAKE_CURRENT_BINARY_DIR}/qml-videosaver
+    Theme.qml components/PhotoTile.qml screensaver/VideoSaver.qml)
+
+qt_add_executable(tst_videosaver tst_videosaver.cpp)
+target_compile_options(tst_videosaver PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_videosaver PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/qml-videosaver")
+target_link_libraries(tst_videosaver PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Multimedia Qt6::Test)
+add_test(NAME tst_videosaver COMMAND tst_videosaver)
+set_tests_properties(tst_videosaver PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The Games tab: GamesScreen.qml and every game, with the real theme. They are
 # copied into a module directory laid out like the app's resources
 # (qrc:/HomeOS/...), so the relative paths between them are the app's.

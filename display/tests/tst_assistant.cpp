@@ -11,8 +11,9 @@
 #include "models/FamilyStore.h"
 
 // The assistant and the family store in live mode, against a small stand-in
-// for Supabase (auth, PostgREST and RPC, Storage signing, the assistant and
-// pair-device functions); and the family store's day rollover in demo mode.
+// for Supabase (auth, PostgREST and RPC, the assistant and pair-device
+// functions); and the family store's day rollover in demo mode. Media URLs
+// and colors are tst_media's.
 class TestAssistant : public QObject
 {
     Q_OBJECT
@@ -102,7 +103,7 @@ class TestAssistant : public QObject
         FamilyStore store;
         Assistant ai;
     };
-    // `setup` runs before the store starts (a clock, the media API URL).
+    // `setup` runs before the store starts (a clock).
     std::unique_ptr<Rig> signedIn(const std::function<void(Rig &)> &setup = {})
     {
         auto rig = std::make_unique<Rig>(baseUrl());
@@ -135,13 +136,6 @@ class TestAssistant : public QObject
             if (t.toMap().value("id").toString() == id)
                 return t.toMap();
         return {};
-    }
-    static QHash<QString, QString> mediaUrls(const FamilyStore &store)
-    {
-        QHash<QString, QString> out;
-        for (const QVariant &m : store.media())
-            out.insert(m.toMap().value("id").toString(), m.toMap().value("url").toString());
-        return out;
     }
     void routeMembers()
     {
@@ -469,92 +463,6 @@ private slots:
         QTest::qWait(100);
         QVERIFY(postsTo("/rest/v1/task_completions").isEmpty());
         QCOMPARE(taskById(rig->store, "t1").value("status").toString(), QStringLiteral("rejected"));
-    }
-
-    // ── Signed media URLs ──
-
-    void signedMediaUrlsAreReused()
-    {
-        auto listed = std::make_shared<QStringList>(QStringList{"fam/p1.jpg", "fam/p2.jpg", "fam/v1.mp4"});
-        route("/rest/v1/media_items", [listed](const Request &) {
-            QJsonArray rows;
-            for (const QString &path : std::as_const(*listed)) {
-                const bool blob = path.endsWith(".mp4");
-                rows << QJsonObject{{"id", path}, {"kind", blob ? "video" : "photo"}, {"storage_path", path},
-                                    {"file_store", blob ? "blob" : "supabase"}};
-            }
-            return json(QJsonDocument(rows).toJson(QJsonDocument::Compact));
-        });
-        auto signings = std::make_shared<int>(0);
-        route("/storage/v1/object/sign/family-media", [signings](const Request &r) {
-            if (r.method != "POST")
-                return json("{}", 404); // the color sampler fetching a signed URL
-            ++*signings;
-            QJsonArray out;
-            for (const QJsonValue &p : r.body.value("paths").toArray())
-                out << QJsonObject{{"signedURL", QStringLiteral("/object/sign/family-media/%1?token=%2").arg(p.toString()).arg(*signings)}};
-            return json(QJsonDocument(out).toJson(QJsonDocument::Compact));
-        });
-        auto blobSignings = std::make_shared<int>(0);
-        route("/api/media/urls", [blobSignings](const Request &r) {
-            ++*blobSignings;
-            QJsonArray urls;
-            for (const QJsonValue &p : r.body.value("paths").toArray())
-                urls << QStringLiteral("https://blob.example/%1?sig=%2").arg(p.toString()).arg(*blobSignings);
-            return json(QJsonDocument(QJsonObject{{"urls", urls}}).toJson(QJsonDocument::Compact));
-        });
-        auto skewMs = std::make_shared<qint64>(0);
-        auto rig = signedIn([this, skewMs](Rig &r) {
-            r.store.setMediaApiUrl(baseUrl().toString());
-            r.store.setClock([skewMs]() { return QDateTime::currentDateTime().addMSecs(*skewMs); });
-        });
-        QTRY_COMPARE(mediaUrls(rig->store).size(), 3);
-        QTRY_VERIFY(!mediaUrls(rig->store).value("fam/v1.mp4").isEmpty());
-        const QHash<QString, QString> first = mediaUrls(rig->store);
-        QVERIFY(first.value("fam/p1.jpg").endsWith("fam/p1.jpg?token=1"));
-        QCOMPARE(first.value("fam/v1.mp4"), QStringLiteral("https://blob.example/fam/v1.mp4?sig=1"));
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").size(), 1);
-        QCOMPARE(postsTo("/api/media/urls").size(), 1);
-
-        auto syncAndSettle = [&]() {
-            const qsizetype before = requestsTo("/rest/v1/media_items").size();
-            rig->store.refresh();
-            QTRY_VERIFY(requestsTo("/rest/v1/media_items").size() > before);
-            QTest::qWait(300);
-        };
-
-        // The next sync signs nothing and hands out the very same strings.
-        syncAndSettle();
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").size(), 1);
-        QCOMPARE(postsTo("/api/media/urls").size(), 1);
-        QCOMPARE(mediaUrls(rig->store), first);
-
-        // Only a new photo is signed.
-        listed->append("fam/p3.jpg");
-        syncAndSettle();
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").size(), 2);
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").last().body.value("paths").toArray(),
-                 QJsonArray{"fam/p3.jpg"});
-        QCOMPARE(mediaUrls(rig->store).value("fam/p1.jpg"), first.value("fam/p1.jpg"));
-        QVERIFY(mediaUrls(rig->store).value("fam/p3.jpg").endsWith("?token=2"));
-
-        // A photo that left the list is forgotten: back again, it's signed again.
-        listed->removeAll("fam/p1.jpg");
-        syncAndSettle();
-        listed->append("fam/p1.jpg");
-        syncAndSettle();
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").size(), 3);
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").last().body.value("paths").toArray(),
-                 QJsonArray{"fam/p1.jpg"});
-
-        // Within an hour of expiring (6 h), everything is signed afresh.
-        *skewMs = 5 * 3600 * 1000 + 60 * 1000;
-        syncAndSettle();
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").size(), 4);
-        QCOMPARE(postsTo("/storage/v1/object/sign/family-media").last().body.value("paths").toArray().size(), 3);
-        QCOMPARE(postsTo("/api/media/urls").size(), 2);
-        QCOMPARE(mediaUrls(rig->store).value("fam/v1.mp4"), QStringLiteral("https://blob.example/fam/v1.mp4?sig=2"));
-        QVERIFY(mediaUrls(rig->store).value("fam/p2.jpg").endsWith("?token=4"));
     }
 
     // ── A new day ──

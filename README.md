@@ -73,6 +73,7 @@ Useful flags and variables:
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |
 | `HOMEOS_VOICE_URL` | Voice service address (default `ws://127.0.0.1:8765`) |
 | `HOMEOS_MEDIA_URL` | Admin app origin that signs private photo and video URLs (Vercel Blob) |
+| `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,` | Decode video on the CPU only. On the Pi (eglfs) the app uses `drm`, the Pi 5's HEVC decoder, unless this is set ([docs/PI_SETUP.md](docs/PI_SETUP.md#video-decoding)) |
 
 To connect it to the backend, set:
 

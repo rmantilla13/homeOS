@@ -6,7 +6,16 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { BlobNotFoundError, del, issueSignedToken, presignUrl } from "@vercel/blob";
 import { blobReady, supabaseConfig } from "../env.ts";
-import { mediaPathname, parseDeleteRequest, parseMediaPath, parsePathList, parseUploadRequest } from "./video.ts";
+import {
+  THUMB_CONTENT_TYPE,
+  mediaPathname,
+  parseDeleteRequest,
+  parseMediaPath,
+  parsePathList,
+  parseUploadRequest,
+  pathnameOf,
+  thumbPathname,
+} from "./video.ts";
 
 const UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
 const PLAYBACK_TTL_MS = 6 * 60 * 60 * 1000;
@@ -101,40 +110,62 @@ async function mediaUpload(request: Request): Promise<Response> {
   if (allowed !== true) return allowed;
   if (!blobReady()) return storageDown();
 
+  const { familyId, contentType, bytes, extension, thumbnailBytes } = upload.value;
+  if (upload.value.thumbnailIgnored) {
+    console.warn("media upload: thumbnail_bytes must be between 1 byte and 256 KB; signing without a poster");
+  }
   const id = crypto.randomUUID();
-  const pathname = mediaPathname(upload.value.familyId, id, upload.value.extension);
+  const pathname = mediaPathname(familyId, id, extension);
+  const posterPathname = thumbPathname(familyId, id);
   const validUntil = Date.now() + UPLOAD_TTL_MS;
-  try {
-    const issued = await issueSignedToken({
-      pathname,
-      operations: ["put"],
-      validUntil,
-      allowedContentTypes: [upload.value.contentType],
-      maximumSizeInBytes: upload.value.bytes,
-    });
-    const { presignedUrl } = await presignUrl(issued, {
-      access: "private",
-      operation: "put",
-      pathname,
-      validUntil,
-      allowedContentTypes: [upload.value.contentType],
-      maximumSizeInBytes: upload.value.bytes,
-      allowOverwrite: false,
-      addRandomSuffix: false,
-    });
-    // The phone's half of the trail: a ticket here with no media_items row
-    // afterwards means the Blob PUT or the row insert failed on the phone.
-    console.info(`media upload: signed ${upload.value.contentType}, ${upload.value.bytes} bytes`);
-    return json({
-      id,
-      pathname,
-      upload_url: presignedUrl,
-      content_type: upload.value.contentType,
-    });
-  } catch (err) {
-    console.error("media upload URL failed:", err);
+  // Both are signed at once to save the phone a round trip. The poster is a
+  // nicety: when it can't be signed, the file still uploads without one.
+  const [file, poster] = await Promise.allSettled([
+    presignedPut(pathname, contentType, bytes, validUntil),
+    thumbnailBytes === null ? null : presignedPut(posterPathname, THUMB_CONTENT_TYPE, thumbnailBytes, validUntil),
+  ]);
+  if (file.status === "rejected") {
+    console.error("media upload URL failed:", file.reason);
     return json({ error: "Couldn't start the upload." }, 502);
   }
+  if (poster.status === "rejected") console.error("media poster URL failed:", poster.reason);
+  const posterUrl = poster.status === "fulfilled" ? poster.value : null;
+  const thumbnail = posterUrl ? { pathname: posterPathname, upload_url: posterUrl, content_type: THUMB_CONTENT_TYPE } : null;
+  // The phone's half of the trail: a ticket here with no media_items row
+  // afterwards means the Blob PUT or the row insert failed on the phone.
+  console.info(
+    `media upload: signed ${contentType}, ${bytes} bytes` + (thumbnail ? `, poster ${thumbnailBytes} bytes` : ", no poster"),
+  );
+  return json({
+    id,
+    pathname,
+    upload_url: file.value,
+    content_type: contentType,
+    ...(thumbnail ? { thumbnail } : {}),
+  });
+}
+
+// A PUT for exactly this pathname, type and size. No overwrite: ids are
+// fresh, so a second PUT to the same name is a replay.
+async function presignedPut(pathname: string, contentType: string, bytes: number, validUntil: number): Promise<string> {
+  const issued = await issueSignedToken({
+    pathname,
+    operations: ["put"],
+    validUntil,
+    allowedContentTypes: [contentType],
+    maximumSizeInBytes: bytes,
+  });
+  const { presignedUrl } = await presignUrl(issued, {
+    access: "private",
+    operation: "put",
+    pathname,
+    validUntil,
+    allowedContentTypes: [contentType],
+    maximumSizeInBytes: bytes,
+    allowOverwrite: false,
+    addRandomSuffix: false,
+  });
+  return presignedUrl;
 }
 
 export async function handleMediaUrls(request: Request): Promise<Response> {
@@ -172,11 +203,10 @@ async function mediaUrls(request: Request): Promise<Response> {
         urls.push("");
         continue;
       }
-      const pathname = mediaPathname(path.familyId, path.mediaId, path.ext);
       const { presignedUrl } = await presignUrl(issued, {
         access: "private",
         operation: "get",
-        pathname,
+        pathname: pathnameOf(path),
         validUntil,
       });
       urls.push(presignedUrl);
@@ -204,6 +234,16 @@ async function mediaDelete(request: Request): Promise<Response> {
   if (allowed !== true) return allowed;
   if (!blobReady()) return storageDown();
 
+  // The poster goes first. If the file then fails, the phone keeps the row
+  // and it still plays, just without a poster. A poster that won't go is
+  // only logged: it is small, and family cleanup removes the whole folder.
+  // One del() per object, so a missing poster (rows from before posters)
+  // can't get in the way of the file.
+  try {
+    await del(target.thumbnailPathname);
+  } catch (err) {
+    if (!(err instanceof BlobNotFoundError)) console.error("media poster delete failed:", err);
+  }
   try {
     await del(target.pathname);
   } catch (err) {
