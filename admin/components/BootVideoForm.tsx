@@ -102,7 +102,7 @@ export function BootVideoForm({ video, demo }: { video: BootVideo | null; demo: 
           <video key={preview} src={preview} controls preload="auto" aria-label="Boot video preview" />
         </div>
       ) : (
-        <p className={ui.hint}>Displays play the built-in clip until you upload one.</p>
+        <p className={ui.hint}>Displays show the Ohana logo until you upload one.</p>
       )}
 
       {video && !file ? (

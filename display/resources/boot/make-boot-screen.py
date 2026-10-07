@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Regenerate the boot screen layers in display/resources/boot/.
 
-The homeOS boot screen: warm canvas (#F1EFEB), the day-palette glow arch
-(blue, coral, amber), a house mark and the homeOS wordmark. The app draws it
+The Ohana boot screen: warm canvas (#F1EFEB), the day-palette glow arch
+(blue, coral, amber), a house mark and the Ohana wordmark. The app draws it
 itself (qml/screens/BootScreen.qml), so it is three PNGs for a 1920x1200
 stage rather than a video:
 
@@ -160,7 +160,7 @@ def draw_wordmark(stage: np.ndarray, font: str, tmp: str) -> np.ndarray:
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-i", src,
         "-vf", (
-            f"drawtext=fontfile='{font}':text='homeOS':fontsize=116:"
+            f"drawtext=fontfile='{font}':text='Ohana':fontsize=116:"
             f"fontcolor=0x1C1C1F:x=(w-text_w)/2:y={WORDMARK_Y}"
         ),
         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", dst,
