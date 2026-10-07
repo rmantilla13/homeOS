@@ -137,8 +137,9 @@ export default function PrivacyPage() {
       </ul>
       <p>
         A parent can remove a connected calendar at any time, which removes its events from Ohana. Disconnecting a
-        Google account also tells Google to withdraw our access. When a parent leaves a family or deletes their account,
-        the Google accounts they connected go with them.
+        Google account also tells Google to withdraw our access, unless the same Google account is still connected in
+        another family on Ohana. When a parent leaves a family or deletes their account, the Google accounts they
+        connected go with them.
       </p>
       <p>
         You can also email us to delete your account, a family, or particular data, or to get a copy of your data.

@@ -112,7 +112,7 @@ struct ConnectedCalendarsView: View {
                 }
             }
         } message: {
-            Text("Its calendars and their events leave the family calendar, and Ohana loses access to the account. Nothing changes in Google Calendar.")
+            Text("Its calendars and their events leave this family's calendar, and Google withdraws Ohana's access unless the account is still connected in another family. Nothing changes in Google Calendar.")
         }
         .showsStoreErrors()
     }
