@@ -1,6 +1,10 @@
 # Big videos: accept 500 MB+ clips and make a 1080p copy on the server
 
-Status: **proposed, waiting for approval**. Branch `claude/elegant-lamport-rdwcm8`.
+Status: **approved for phases 0–6** (2026-10-07). Phase 7 touches production and
+needs its own go-ahead. Branch `claude/elegant-lamport-rdwcm8`, PR #40.
+
+Answers: Vercel Sandbox; the team is on **Pro**; replace originals; this PR
+is the server pipeline, iOS background/resumable uploads come next.
 
 ## The problem, measured
 
@@ -101,13 +105,13 @@ about 20–35 clips that size.
 | # | Decision | Why |
 |---|---|---|
 | D1 | Keep the phone's optimizing and add server copies on top | Phone compute is free and makes the upload 5–10× smaller; the server makes sure everything ends up wall-ready. |
-| D2 | Compute: Vercel Sandbox *(Q1)* | Same Vercel project; OIDC instead of a new credential; up to 8 vCPU; about $0.12 per 500 MB clip. |
-| D3 | How ffmpeg gets into the sandbox: decided in Phase 0 | Can't be checked from here (vercel.com and github.com are blocked in this container). Preference: a fixed image, else a static build pinned by sha256. |
+| D2 | Compute: Vercel Sandbox (answered) | Same Vercel project; OIDC instead of a new credential; up to 8 vCPU; about $0.12 per 500 MB clip. |
+| D3 | ffmpeg in the sandbox: use it if the image has it on `PATH`, otherwise download a static Linux build (`MEDIA_FFMPEG_URL`, default BtbN n7.1 GPL; optional `MEDIA_FFMPEG_SHA256`). `worker.mjs --self-test` plus `scripts/media-sandbox-check.mjs` prove it on the real account during Phase 7. | Phase 0 couldn't run: the Vercel connector answered 403 on creating a sandbox and this container has no Vercel CLI login. A failed install only fails that job (the original stays), so building on it is safe. |
 | D4 | Target: HEVC 8-bit `hvc1`, ≤ 1920 px, ≤ 30 fps, SDR BT.709, CRF 26 `fast`, AAC 128k, `+faststart`, metadata dropped. A file that already fits is left as is; one with its index at the end is only remuxed. | Matches the phone and the Pi's HEVC decoder; 11× smaller in the benchmark. |
-| D5 | Replace the original *(Q3)*; delete it ≥ 6 h after the swap | Same "one file per item" rule as the phone; quota counts what is stored; the delay covers displays' 4 h signed-URL reuse. |
+| D5 | Replace the original (answered); delete it ≥ 6 h after the swap | Same "one file per item" rule as the phone; quota counts what is stored; the delay covers displays' 4 h signed-URL reuse. |
 | D6 | Privileged row writes only through the `media-jobs` edge function, authenticated by a shared secret | The admin app still never holds the service role key. A leaked secret can only swap a video to its own `-wall.mp4` with a smaller size. |
 | D7 | `byte_size` comes from Blob `head()`, never from the worker | The sandbox processes untrusted files; the quota must not depend on it. |
-| D8 | Phone call to `/api/media/process` plus a cron sweep; at most 2 jobs at once, 3 tries | Fast when the phone is open; nothing gets lost when it isn't; bounded cost. |
+| D8 | Phone call to `/api/media/process` plus a cron sweep every 10 minutes (Pro); at most 2 jobs at once, 3 tries | Fast when the phone is open; nothing gets lost when it isn't; bounded cost. |
 | D9 | Off unless `MEDIA_JOBS_SECRET` is set | Merging and deploying changes nothing until setup is done. |
 | D10 | The copy is `<family>/<id>-wall.mp4` | Keeps the media id in the name, so delete and poster logic keep working; never collides with an `.mp4` original. |
 
@@ -130,7 +134,7 @@ about 20–35 clips that size.
 
 | Phase | State | Notes |
 |---|---|---|
-| 0 Spike | not started | |
+| 0 Spike | blocked: moved into Phase 7 | Connector 403 on `POST /v4/sandboxes`. Replaced by the self-test script (D3). |
 | 1 Database | not started | |
 | 2 media-jobs | not started | |
 | 3 Worker | not started | |
