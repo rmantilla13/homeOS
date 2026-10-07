@@ -18,7 +18,8 @@ Rectangle {
     readonly property var shown: content.item ? content.item.shown : null
     // Clock and Today show the time themselves.
     readonly property bool ownClock: style === "clock" || style === "today"
-    // The collage takes the next layout each time the screen saver starts.
+    // The collage's layout: the one picked under Media → Screen saver, or
+    // with Auto the next one each time the screen saver starts.
     property int collageTurn: 0
     readonly property var sources: ({
         collage: "CollageSaver.qml", video: "VideoSaver.qml", frame: "SmartFrameSaver.qml",
@@ -45,6 +46,10 @@ Rectangle {
         onLoaded: {
             if (saver.style !== "collage")
                 return
+            if (Picks.TURNS.indexOf(Device.collageLayout) >= 0) {
+                item.layoutName = Device.collageLayout
+                return
+            }
             item.layoutName = Picks.TURNS[saver.collageTurn % Picks.TURNS.length]
             saver.collageTurn++
         }

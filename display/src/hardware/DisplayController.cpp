@@ -57,6 +57,7 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
     m_screensaver = qEnvironmentVariable("HOMEOS_SCREENSAVER");
     if (m_screensaver.isEmpty())
         m_screensaver = QSettings().value("display/screensaver", "photos").toString();
+    m_collageLayout = QSettings().value("display/collageLayout", "auto").toString();
     m_animatedTiles = QSettings().value("display/animatedTiles", true).toBool();
     m_darkMode = QSettings().value("display/darkMode", false).toBool();
     m_offAfterSec = qBound(0, QSettings().value("display/offAfterSeconds", 0).toInt(), kSecondsPerDay);
@@ -250,6 +251,16 @@ void DisplayController::setScreensaver(const QString &style)
     m_screensaver = style;
     QSettings().setValue("display/screensaver", style);
     emit screensaverChanged();
+}
+
+void DisplayController::setCollageLayout(const QString &layout)
+{
+    static const QStringList layouts{"auto", "classic", "grid", "mosaic", "trio", "columns"};
+    if (!layouts.contains(layout) || layout == m_collageLayout)
+        return;
+    m_collageLayout = layout;
+    QSettings().setValue("display/collageLayout", layout);
+    emit collageLayoutChanged();
 }
 
 void DisplayController::setAnimatedTiles(bool on)

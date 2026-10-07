@@ -5,6 +5,7 @@
 #include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQuickItem>
 #include <QQuickWindow>
 
 // Stands in for FamilyStore: the screen savers read photos, media, events
@@ -49,14 +50,17 @@ class FakeDevice : public QObject
     Q_PROPERTY(bool animatedTiles READ animatedTiles CONSTANT)
     Q_PROPERTY(bool idle READ idle CONSTANT)
     Q_PROPERTY(QString screensaver MEMBER m_screensaver NOTIFY screensaverChanged)
+    Q_PROPERTY(QString collageLayout MEMBER m_collageLayout NOTIFY collageLayoutChanged)
 public:
     QString mood() const { return QStringLiteral("evening"); }
     bool darkMode() const { return false; }
     bool animatedTiles() const { return true; }
     bool idle() const { return true; }
     QString m_screensaver = QStringLiteral("collage");
+    QString m_collageLayout = QStringLiteral("auto");
 signals:
     void screensaverChanged();
+    void collageLayoutChanged();
 };
 
 // The screen savers: which photos go where (Picks.js), the collage's
@@ -123,6 +127,20 @@ class TestSavers : public QObject
             ids << id(v.value<QObject *>()->property("current"));
         return ids;
     }
+    // By objectName through the visual tree: Repeater delegates and popup
+    // content aren't QObject children of the window.
+    static QQuickItem *findItem(QQuickItem *root, const QString &name)
+    {
+        if (!root)
+            return nullptr;
+        if (root->objectName() == name)
+            return root;
+        for (QQuickItem *child : root->childItems())
+            if (QQuickItem *found = findItem(child, name))
+                return found;
+        return nullptr;
+    }
+
     static bool distinct(const QStringList &ids)
     {
         return QSet<QString>(ids.cbegin(), ids.cend()).size() == ids.size() && !ids.contains(QString());
@@ -147,7 +165,8 @@ private slots:
     {
         m_store.setPhotos({});
         m_store.setData({}, {});
-        m_device.m_screensaver = QStringLiteral("collage");
+        m_device.setProperty("screensaver", QStringLiteral("collage"));
+        m_device.setProperty("collageLayout", QStringLiteral("auto"));
     }
 
     // ── Picks.js ──
@@ -350,6 +369,75 @@ private slots:
             host->setProperty("visible", true);
         }
         QCOMPARE(turns, (QStringList{"classic", "grid", "mosaic", "trio", "columns", "classic"}));
+    }
+
+    // A layout picked under Media → Screen saver stays, start after start.
+    void hostUsesThePinnedLayout()
+    {
+        m_store.setPhotos(landscapes(10));
+        m_device.setProperty("collageLayout", QStringLiteral("trio"));
+        auto host = create("ScreenSaver { width: 1280; height: 800 }");
+        QVERIFY(host);
+        for (int i = 0; i < 3; ++i) {
+            QObject *item = host->findChild<QObject *>("saverContent")->property("item").value<QObject *>();
+            QVERIFY(item);
+            QCOMPARE(item->property("layoutName").toString(), QStringLiteral("trio"));
+            QTRY_COMPARE(item->property("layout").value<QJSValue>().property("name").toString(), QStringLiteral("trio"));
+            host->setProperty("visible", false);
+            host->setProperty("visible", true);
+        }
+    }
+
+    // ── The picker (ScreenSaverOptions) ──
+
+    // In a dialog's ColumnLayout, as on the Media page. A GridLayout there
+    // left the seventh card a sliver; every card now gets a quarter.
+    void everyCardGetsItsWidth()
+    {
+        auto window = create("import QtQuick\nimport QtQuick.Layouts\n"
+                             "Window { width: 900; height: 700; visible: true\n"
+                             "ColumnLayout { width: 836\n ScreenSaverOptions { Layout.fillWidth: true } } }");
+        QVERIFY(window);
+        auto *quick = qobject_cast<QQuickWindow *>(window.get());
+        QVERIFY(QTest::qWaitForWindowExposed(quick));
+        const double expected = (836 - 16 * 3) / 4.0;
+        for (const char *key : {"photos", "collage", "frame", "memories", "video", "clock", "today"}) {
+            auto *card = findItem(quick->contentItem(), QStringLiteral("saverCard-%1").arg(key));
+            QVERIFY2(card, key);
+            QTRY_COMPARE(card->width(), expected);
+        }
+        // The layouts show for the collage only.
+        auto *layouts = findItem(quick->contentItem(), QStringLiteral("collageLayouts"));
+        QVERIFY(layouts && layouts->isVisible());
+        m_device.setProperty("screensaver", QStringLiteral("clock"));
+        QVERIFY(!layouts->isVisible());
+    }
+
+    // Tapping a card or a layout chooses it and goes no further: the Media
+    // page under the picker opened a photo on the same tap.
+    void tapsStayInThePicker()
+    {
+        auto window = create("import QtQuick\nimport QtQuick.Controls\n"
+                             "Window { width: 1280; height: 800; visible: true\n"
+                             "Item { objectName: \"under\"; anchors.fill: parent; property int taps: 0\n"
+                             "  TapHandler { onTapped: parent.taps++ } }\n"
+                             "Popup { modal: true; visible: true; x: 150; y: 60; width: 900; height: 680\n"
+                             "  contentItem: ScreenSaverOptions { } } }");
+        QVERIFY(window);
+        auto *quick = qobject_cast<QQuickWindow *>(window.get());
+        QVERIFY(QTest::qWaitForWindowExposed(quick));
+        auto tap = [&](const QString &name) {
+            QQuickItem *item = nullptr;
+            QTRY_VERIFY((item = findItem(quick->contentItem(), name)) && item->width() > 0 && item->isVisible());
+            const QPointF at = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+            QTest::mouseClick(quick, Qt::LeftButton, {}, at.toPoint());
+        };
+        tap(QStringLiteral("layoutChip-mosaic"));
+        QTRY_COMPARE(m_device.property("collageLayout").toString(), QStringLiteral("mosaic"));
+        tap(QStringLiteral("saverCard-today"));
+        QTRY_COMPARE(m_device.property("screensaver").toString(), QStringLiteral("today"));
+        QTest::qWait(100);
+        QCOMPARE(findItem(quick->contentItem(), QStringLiteral("under"))->property("taps").toInt(), 0);
     }
 
     // ── Every style ──

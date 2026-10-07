@@ -1386,8 +1386,10 @@ says which (`media service:`).
 `video`, `clock`, `today`. `qml/screensaver/Picks.js` decides which photo
 goes where, and `tst_savers` tests it:
 
-- Collage: `TURNS` (classic, grid, mosaic, trio, columns) advance by one
-  each time the screen saver starts. `layout(turn, n)` falls back to a
+- Collage: `Device.collageLayout` (QSettings `display/collageLayout`):
+  `auto` (default) or one of `TURNS` (classic, grid, mosaic, trio,
+  columns). A pinned layout is used every time; `auto` advances by one each
+  time the screen saver starts. `layout(turn, n)` falls back to a
   smaller layout when there are fewer photos than tiles. `pick()` never
   takes a photo on screen or one that left less than 60 s ago, prefers the
   tile's shape, then the photo off screen longest (new photos first, newest
@@ -1400,6 +1402,12 @@ goes where, and `tst_savers` tests it:
   next or last, around New Year) is within 3 days of today, same day first.
   With none, the newest photos and their date labels.
 - Clock and Today hide the shared clock overlay and draw their own.
+- The picker (`ScreenSaverOptions.qml`, on Media and in Settings): seven
+  short cards, four to a row and sized from its width (not a GridLayout,
+  which left the last card a sliver), the chosen style's line, and for the
+  collage six layout chips with a drawing of each. Taps use
+  `TapHandler.WithinBounds` like `IconButton`; the default policy let the
+  tap reach the page under the dialog.
 
 **Settings sheet:** a gear button in the nav rail, above the moon, opens
 `SettingsSheet.qml` with:
