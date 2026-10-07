@@ -69,6 +69,9 @@
     { "file": "photo07.jpg", "kind": "photo", "caption": "Grandma's garden",    "hoursAgo": 700, "uploaded_by": "m1", "color": "#5B7CF5", "color2": "#F07F5A" },
     { "file": "photo08.jpg", "kind": "photo", "caption": "Fireworks",           "hoursAgo": 900, "uploaded_by": "m2", "color": "#2E3A59", "color2": "#F6B94A" },
     { "file": "photo09.jpg", "kind": "photo", "caption": "Aquarium",            "hoursAgo": 1100,"uploaded_by": "m1", "color": "#7FD1C7", "color2": "#FBE6B0" },
-    { "file": "photo10.jpg", "kind": "photo", "caption": "Pumpkin patch",       "hoursAgo": 1500,"uploaded_by": "m2", "color": "#E9775B", "color2": "#FFE3C2" }
+    { "file": "photo10.jpg", "kind": "photo", "caption": "Pumpkin patch",       "hoursAgo": 1500,"uploaded_by": "m2", "color": "#E9775B", "color2": "#FFE3C2" },
+    { "file": "photo11.jpg", "kind": "photo", "caption": "Lemonade stand",      "hoursAgo": 50,  "uploaded_by": "m1", "color": "#F2A261", "color2": "#D66880" },
+    { "file": "photo12.jpg", "kind": "photo", "caption": "First steps",         "yearsAgo": 2,   "uploaded_by": "m2", "color": "#8CA8E6", "color2": "#F0BEDC" },
+    { "file": "photo13.jpg", "kind": "photo", "caption": "Apple picking",       "yearsAgo": 1, "daysAgo": 2, "uploaded_by": "m1", "color": "#F6B44E", "color2": "#78BE78" }
   ]
 }

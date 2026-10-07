@@ -147,11 +147,13 @@ enum MediaTools {
         return UIImage(cgImage: frame.image)
     }
 
-    /// Redraws upright at most `maxPixel` on the long side.
+    /// Redraws upright at most `maxPixel` on the long side. A small image
+    /// that isn't upright is redrawn too: its JPEG would otherwise keep the
+    /// pixels sideways with an EXIF orientation, which the wall ignores.
     static func downscale(_ image: UIImage, maxPixel: CGFloat) -> UIImage {
         let size = image.size
         let scale = min(1, maxPixel / max(size.width, size.height, 1))
-        guard scale < 1 else { return image }
+        guard scale < 1 || image.imageOrientation != .up else { return image }
         let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

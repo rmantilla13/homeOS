@@ -30,7 +30,7 @@
 - [x] Dynamic time-of-day palette and photo-driven colors
 - [x] Smooth page transitions and micro-animations
 - [x] Media page (photos and videos, month groups, full-screen viewer with video playback)
-- [x] Screen savers: photos (drifting), collage, full-screen video
+- [x] Screen savers: photos (drifting), collage (five layouts), smart frame, on this day, full-screen video, clock, today
 - [ ] Assistant in the iOS app
 - [ ] Voice input (speech-to-text) and spoken replies
 

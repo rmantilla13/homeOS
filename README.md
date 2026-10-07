@@ -67,12 +67,12 @@ Useful flags and variables:
 | `--windowed` | Run in a window instead of full screen |
 | `--demo` | Use sample data even if a backend is configured |
 | `HOMEOS_IDLE_SECONDS=30` | Seconds before the screen saver starts (default 120) |
-| `HOMEOS_SCREENSAVER=photos\|collage\|video` | Screen saver style (otherwise chosen on the Media page) |
+| `HOMEOS_SCREENSAVER=photos\|collage\|frame\|memories\|video\|clock\|today` | Screen saver style (otherwise chosen on the Media page) |
 | `HOMEOS_NIGHT_MODE=on\|off` | Force the night theme on or off |
 | `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |
 | `HOMEOS_VOICE_URL` | Voice service address (default `ws://127.0.0.1:8765`) |
-| `HOMEOS_MEDIA_URL` | Admin app origin that signs private photo and video URLs (Vercel Blob) |
+| `HOMEOS_MEDIA_URL` | Admin app origin that signs private photo and video URLs (Vercel Blob). Default `https://ohanaos.co`, the same as the iOS app |
 | `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,` | Decode video on the CPU only. On the Pi (eglfs) the app uses `drm`, the Pi 5's HEVC decoder, unless this is set ([docs/PI_SETUP.md](docs/PI_SETUP.md#video-decoding)) |
 
 To connect it to the backend, set:

@@ -100,16 +100,36 @@ overrides it). A video playing in the media viewer counts as a touch, so a
 long one isn't cut off:
 
 - **Photos:** one photo at a time, cross-fading, with a slow zoom and drift.
-- **Collage:** one large and four small tiles; a random tile swaps to a new
-  photo every few seconds.
+- **Collage:** photos cropped to fill rounded tiles, in a new layout each
+  time the screen saver starts: classic (one large, four small), grid (3×2),
+  mosaic (seven tiles of mixed sizes), trio (one large, two small) and
+  columns (four tall). With fewer photos than tiles it takes a smaller
+  layout, so no tile is empty or repeats a photo. Portrait photos go to tall
+  tiles when there's a choice. Every few seconds one tile cross-fades to a
+  photo that isn't showing and hasn't been for a minute, so photos don't hop
+  between tiles.
+- **Smart frame:** like Photos, but two portrait photos share the screen
+  side by side; a portrait left without a partner stands whole over a
+  blurred copy of itself.
+- **On this day:** photos taken on this date in earlier years ("2 years ago
+  today"), then within three days of it ("this week"); with none, the newest
+  photos with their dates. It draws on the photos the display has loaded
+  (the newest 200 by date).
 - **Video:** family videos full screen and muted, one after another; a
   single video loops. The poster shows until the first frame. A clip that
   fails, or stops moving for 10 seconds, is skipped after a 2-second pause;
   when every clip fails (offline, say), it tries again every 30 seconds.
   Falls back to Photos if there are no videos.
+- **Clock:** a big clock, the date and the next three events on the
+  time-of-day gradient, no photos. It shifts a few pixels every minute.
+- **Today:** the time, today's events, a photo that changes every 15
+  seconds and how many chores each person has left, in the app's colors.
 
-Every style shows the clock, the date and the next event over a shade in the
-colors of what's on screen. The first touch only wakes the screen.
+The photo styles show the clock, the date and the next event over a shade in
+the colors of what's on screen; Clock and Today lay out their own. Photos
+are shown upright: the display applies a JPEG's EXIF orientation. Which
+photo goes where is in `qml/screensaver/Picks.js`. The first touch only
+wakes the screen.
 
 ## Media
 
@@ -245,8 +265,9 @@ the project and company are OhanaOS. `xcodegen generate` replaces it.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Vercel
   Blob through the admin app (`Config.mediaAPIURL`), with a size, a content
   type and a JPEG poster. Videos are made at most 1080p (mostly HEVC) for
-  the wall first. They appear on the wall frame within seconds once the
-  display has `HOMEOS_MEDIA_URL`. Profile photos stay in Supabase. Files
+  the wall first. They appear on the wall frame within a minute; the
+  display signs them through the same admin app (`HOMEOS_MEDIA_URL`, by
+  default `https://ohanaos.co`). Profile photos stay in Supabase. Files
   already in Storage keep playing from that bucket.
 - Parents approve chore completions and manage rewards.
 - **Pair a display**: the screen shows a 6-digit code and a QR code; the app

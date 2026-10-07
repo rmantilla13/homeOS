@@ -156,3 +156,36 @@ target_compile_definitions(tst_games PRIVATE HOMEOS_GAMES_QML_DIR="${CMAKE_CURRE
 target_link_libraries(tst_games PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
 add_test(NAME tst_games COMMAND tst_games)
 set_tests_properties(tst_games PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The screen savers (Picks.js and every style) with the real theme and tiles,
+# in a module directory of their own like the video saver's.
+set(savers_qml_dir ${CMAKE_CURRENT_BINARY_DIR}/qml-savers/HomeOS)
+set(savers_qmldir "module HomeOS\n")
+foreach(file Theme.qml components/PhotoTile.qml components/GradientTile.qml components/MemberAvatar.qml
+             components/Icon.qml screensaver/ScreenSaverOptions.qml screensaver/ScreenSaver.qml screensaver/SlideshowSaver.qml screensaver/CollageSaver.qml
+             screensaver/VideoSaver.qml screensaver/SmartFrameSaver.qml screensaver/MemoriesSaver.qml
+             screensaver/ClockSaver.qml screensaver/TodaySaver.qml)
+    configure_file(${PROJECT_SOURCE_DIR}/qml/${file} ${savers_qml_dir}/${file} COPYONLY)
+    get_filename_component(type ${file} NAME_WE)
+    if(type STREQUAL "Theme")
+        string(APPEND savers_qmldir "singleton ")
+    endif()
+    string(APPEND savers_qmldir "${type} 1.0 ${file}\n")
+endforeach()
+configure_file(${PROJECT_SOURCE_DIR}/qml/screensaver/Picks.js ${savers_qml_dir}/screensaver/Picks.js COPYONLY)
+file(WRITE ${savers_qml_dir}/qmldir "${savers_qmldir}")
+
+qt_add_executable(tst_savers tst_savers.cpp)
+# The gradient tile's shader, at the path it has in the app.
+qt_add_shaders(tst_savers "saver_shaders"
+    PREFIX /HomeOS
+    BASE ${PROJECT_SOURCE_DIR}
+    FILES ${PROJECT_SOURCE_DIR}/shaders/gradienttile.frag
+)
+target_compile_options(tst_savers PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_savers PRIVATE
+    HOMEOS_SAVERS_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/qml-savers"
+    HOMEOS_DEMO_MEDIA_DIR="${PROJECT_SOURCE_DIR}/resources/demo/media")
+target_link_libraries(tst_savers PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Multimedia Qt6::Test)
+add_test(NAME tst_savers COMMAND tst_savers)
+set_tests_properties(tst_savers PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
