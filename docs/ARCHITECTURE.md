@@ -136,7 +136,7 @@ running in the `assistant` edge function.
   the **family memory**. Nothing is fine-tuned, so answers always reflect
   today's data.
 - **Family memory** (`family_memories` table) holds lasting facts the assistant
-  saves with its `remember` tool, such as "Leo is allergic to peanuts" or
+  saves with its `remember` tool, such as "Leo's favorite snack is apple slices" or
   "soccer carpool is with the Parks". Parents can delete memories.
 - **Tools:** `add_event`, `add_list_item`, `add_chore`, `set_meal`, `remember`,
   and `forget` (parents only). Points, approvals and rewards are deliberately

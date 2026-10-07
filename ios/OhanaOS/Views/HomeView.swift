@@ -4,6 +4,10 @@ struct HomeView: View {
     @Environment(FamilyStore.self) private var store
     @Binding var selectedTab: AppTab
     @State private var launch: AssistantLaunch?
+    /// A suggestion waiting for the person to allow the AI assistant.
+    @State private var consentLaunch: AssistantLaunch?
+    /// Allowed: the chat opens once the consent sheet has closed.
+    @State private var allowedLaunch: AssistantLaunch?
     @State private var planningDinner = false
     @State private var showingProfile = false
 
@@ -12,7 +16,7 @@ struct HomeView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     header
-                    AssistantHeroCard(name: store.me?.displayName) { launch = $0 }
+                    AssistantHeroCard(name: store.me?.displayName) { openAssistant($0) }
                     approvals
                     choreProgress
                     upcoming
@@ -26,10 +30,47 @@ struct HomeView: View {
             .refreshable { await store.refresh() }
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $launch) { AssistantView(launch: $0) }
+            .sheet(item: $consentLaunch, onDismiss: { openAllowedLaunch() }) { pending in
+                AIConsentSheet(
+                    onAllow: {
+                        store.allowAI()
+                        allowedLaunch = pending
+                        consentLaunch = nil
+                    },
+                    onNotNow: { consentLaunch = nil })
+            }
             .sheet(isPresented: $planningDinner) { MealEditor(day: DayKey.today) }
             .sheet(isPresented: $showingProfile) { ProfileView() }
             .showsStoreErrors()
+            #if DEBUG
+            .task {
+                // -OhanaScreen assistant: open the chat once Home is on screen.
+                guard DemoMode.opensAssistant else { return }
+                DemoMode.assistantShown = true
+                try? await Task.sleep(for: .milliseconds(400))
+                launch = AssistantLaunch()
+            }
+            #endif
         }
+    }
+
+    /// A suggestion sends its question as the chat opens, so it waits for
+    /// consent here. The ask pill and the mic only open the chat, which asks
+    /// before it sends anything.
+    private func openAssistant(_ next: AssistantLaunch) {
+        if next.prompt != nil, !store.hasAIConsent {
+            consentLaunch = next
+        } else {
+            launch = next
+        }
+    }
+
+    /// After Allow, opens the chat once the consent sheet is gone. A new
+    /// presentation can't start while another one is closing.
+    private func openAllowedLaunch() {
+        guard let next = allowedLaunch else { return }
+        allowedLaunch = nil
+        launch = next
     }
 
     private var header: some View {

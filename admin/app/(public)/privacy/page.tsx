@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 // Keep this in step with what the apps actually do: the iOS privacy manifest
 // (ios/OhanaOS/PrivacyInfo.xcprivacy), the App Store privacy answers in
-// docs/IOS.md, and account deletion (delete_my_account). Update
+// docs/APP_STORE.md (section 4), and account deletion (delete_my_account). Update
 // PRIVACY_UPDATED in lib/site.ts with every change.
 export default function PrivacyPage() {
   return (
@@ -26,12 +26,13 @@ export default function PrivacyPage() {
       <h2>What we store</h2>
       <ul>
         <li>
-          <strong>Your account:</strong> your email address, your name, and a password (stored only as a secure
-          hash). Optionally, a profile photo.
+          <strong>Your account:</strong> your email address, your name, an account id, and a password (stored only
+          as a secure hash). Optionally, a profile photo.
         </li>
         <li>
-          <strong>What your family adds:</strong> calendar events, chores and points, rewards, shopping lists, meal
-          plans, notes saved to the family memory, and photos and videos.
+          <strong>What your family adds:</strong> the names of the people in your family, calendar events, chores
+          and points, rewards, shopping lists, meal plans, notes saved to the family memory, photos and videos, and
+          invites (with the email of the person invited, if one is given).
         </li>
         <li>
           <strong>Assistant chats:</strong> the questions you ask the Ohana assistant, in the app, through Siri or at
@@ -41,8 +42,8 @@ export default function PrivacyPage() {
           <strong>Wall displays:</strong> each paired display&apos;s name and when it last checked in.
         </li>
         <li>
-          <strong>Usage counts:</strong> how many assistant questions a family asks each day, to keep within daily
-          limits.
+          <strong>Usage counts:</strong> a record of each assistant question (who asked, when, and how much text the
+          assistant read and wrote for it), to keep each family within its daily limit.
         </li>
       </ul>
       <p>
@@ -72,7 +73,7 @@ export default function PrivacyPage() {
           <strong>Service providers</strong> that host and process data for us, only to provide Ohana Display:
           Supabase (database, sign-in and file storage), Vercel (the ohanaos.co website and photo and video storage)
           and Anthropic (the AI model behind the assistant, which receives your question and the family details
-          needed to answer it).
+          needed to answer it). The iPhone app asks for your permission before your first question.
         </li>
         <li>
           <strong>Apple:</strong> dictation in the app uses Apple&apos;s speech recognition, which may send your

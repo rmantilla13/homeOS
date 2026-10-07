@@ -258,7 +258,7 @@ struct FamilyView: View {
     private var memorySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader("Family memory")
-            Text("Things Ohana remembers about your family, like allergies or who carpools with whom.")
+            Text("Things Ohana remembers about your family, like routines or who carpools with whom.")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
             VStack(alignment: .leading, spacing: 12) {

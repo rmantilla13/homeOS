@@ -126,12 +126,20 @@ extension EnvironmentValues {
 struct MoodProvider: ViewModifier {
     func body(content: Content) -> some View {
         TimelineView(.everyMinute) { context in
-            let mood = Mood(date: context.date)
+            let mood = Self.mood(at: context.date)
             content
                 .environment(\.mood, mood)
                 .tint(mood.accent)
                 .animation(.easeInOut(duration: 1.2), value: mood)
         }
+    }
+
+    nonisolated private static func mood(at date: Date) -> Mood {
+        #if DEBUG
+        // -OhanaMood pins the palette, so screenshots don't follow the clock.
+        if let pinned = DemoMode.mood { return pinned }
+        #endif
+        return Mood(date: date)
     }
 }
 

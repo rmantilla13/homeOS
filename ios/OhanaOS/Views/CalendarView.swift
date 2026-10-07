@@ -6,7 +6,11 @@ enum CalendarMode: String, CaseIterable {
 
 struct CalendarView: View {
     @Environment(FamilyStore.self) private var store
+    #if DEBUG
+    @State private var mode: CalendarMode = DemoMode.calendarMode
+    #else
     @State private var mode: CalendarMode = .month
+    #endif
     @State private var focusDate = Date.now
     @State private var showingAdd = false
     @State private var selectedEvent: FamilyEvent?
@@ -256,7 +260,11 @@ struct TimeGrid: View {
     }
 
     private var scrollHour: Int {
-        days.contains(where: calendar.isDateInToday)
+        #if DEBUG
+        // Screenshots show the same hours whatever the runner's clock says.
+        if DemoMode.isOn { return DemoMode.firstGridHour }
+        #endif
+        return days.contains(where: calendar.isDateInToday)
             ? max(0, calendar.component(.hour, from: .now) - 1)
             : 7
     }
@@ -367,7 +375,7 @@ struct DayColumn: View {
                     .frame(width: max(0, laneWidth - 3), height: item.height)
                     .offset(x: laneWidth * CGFloat(item.lane) + 1.5, y: item.top)
                 }
-                if Calendar.current.isDateInToday(day) {
+                if Calendar.current.isDateInToday(day), showsNowLine {
                     NowLine(hourHeight: hourHeight)
                 }
             }
@@ -376,6 +384,15 @@ struct DayColumn: View {
         .overlay(alignment: .leading) {
             if compact { Rectangle().fill(Theme.divider.opacity(0.6)).frame(width: 1) }
         }
+    }
+
+    /// Demo screenshots show 9:41 in the status bar; the real time would not match it.
+    private var showsNowLine: Bool {
+        #if DEBUG
+        return !DemoMode.isOn
+        #else
+        return true
+        #endif
     }
 }
 
