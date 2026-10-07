@@ -24,7 +24,9 @@ Item {
                                         : (a.day < b.day ? -1 : 1))
         .slice(0, 6)
 
-    Timer { interval: 1000; running: true; repeat: true; onTriggered: home.now = new Date() }
+    // Paused while hidden (another tab, or the screen is off), so a hidden
+    // clock doesn't keep redrawing the window.
+    Timer { interval: 1000; running: home.visible; repeat: true; triggeredOnStart: true; onTriggered: home.now = new Date() }
 
     function greeting() {
         const h = now.getHours()

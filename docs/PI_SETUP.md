@@ -195,7 +195,8 @@ check, and the built-in clip plays from the boot after that.
 Tap the chores and rewards to try it. Videos under **Media** play with sound
 from the screen's speakers. After two minutes without a touch, the photo
 frame starts; a tap wakes it. A video playing in the viewer counts as a
-touch, so a long one isn't cut off.
+touch, so a long one isn't cut off. To turn the screen off too, see
+[Sleep](#sleep).
 
 ## 5. Connect it to your family
 
@@ -319,6 +320,31 @@ line afterwards; it is noisy.
 QT_LOGGING_RULES="qt.multimedia.ffmpeg.hwaccel.debug=true;qt.multimedia.playbackengine.codec.debug=true"
 ```
 
+## Sleep
+
+Tap the gear. The **Sleep** group turns the screen off:
+
+- **Turn screen off**: after 5 minutes to 4 hours without a touch. The
+  default is never, so the photo frame stays up.
+- **Off overnight**: between **Bedtime** and **Wake up** (10:00 PM and
+  6:30 AM to start, in half-hour steps), the photo frame goes off instead of
+  starting. Someone using the screen at bedtime keeps it on until they leave
+  it alone. At wake-up time the photo frame comes back on.
+- **Turn off now**: until the next tap.
+
+A tap or the wake word turns the screen back on; that first tap doesn't press
+anything. The choices are kept across restarts and updates.
+
+The screen fades to black, then the app puts the HDMI panel in standby
+(DPMS), as if its source were unplugged. Some screens show "No signal" for a
+few seconds before going dark, and take a second or two to come back. The
+log says `homeOS display: panel off` and `homeOS display: panel on`. This
+needs `qt6-base-private-dev`, which the install script adds; without it the
+screen only turns black. If your screen keeps showing "No signal" instead of
+going dark, or doesn't wake when tapped, keep it powered with a black picture:
+add `HOMEOS_PANEL_POWER=off` to `/etc/homeos/display.env` and run
+`sudo systemctl restart homeos-display`.
+
 ## Everyday commands
 
 | Task | Command |
@@ -368,6 +394,8 @@ journalctl -u homeos-display -b --no-pager
 | Slow or hot (`vcgencmd measure_temp` above 80 °C) | Check that the cooler's cable is in the **FAN** connector. The fan only spins above 50 °C. |
 | `homeos.local` not found, or Wi-Fi drops | Wait two minutes after power-on. Check the Wi-Fi name, password and country you set in Imager. A network cable always works. |
 | Typing lags in an SSH terminal | Re-run `./display/deploy/install-pi.sh`, or write `IPQoS cs0 cs0` and `UseDNS no` to `/etc/ssh/sshd_config.d/homeos.conf` and run `sudo systemctl reload ssh`. Stay in this session; a reboot is not required. That fixes the stutter even when the Pi is idle. If keystrokes still stutter, run `top`: a `homeos-display` restart loop pegging a core is a different problem. |
+| The screen shows "No signal" when it sleeps, or a tap doesn't wake it | Add `HOMEOS_PANEL_POWER=off` to `display.env` and restart the app. The screen then turns black instead of going to standby. See [Sleep](#sleep). |
+| Sleep turns the screen off at the wrong time | Bedtime and wake-up follow the Pi's clock. Check the time zone (next row). |
 | Wrong time | `timedatectl` should say `System clock synchronized: yes` (it needs the internet). Set the zone with `sudo timedatectl set-timezone America/New_York` (or yours). |
 | Everything too big or too small | Change `QT_SCALE_FACTOR` in `display.env`: 1.5 for this screen, 1.25 for a little more room. |
 | Wrong keyboard layout or date format | Set `LANG` in `display.env`, for example `en_US.UTF-8`. |

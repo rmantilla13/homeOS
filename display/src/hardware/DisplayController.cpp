@@ -11,6 +11,15 @@ constexpr int kDefaultIdleSec = 120;
 constexpr qreal kNightBrightness = 0.25;
 const QTime kNightStart(21, 30);
 const QTime kNightEnd(6, 30);
+constexpr int kMinutesPerDay = 24 * 60;
+constexpr int kSecondsPerDay = kMinutesPerDay * 60;
+constexpr int kDefaultBedtime = 22 * 60;        // 10:00 PM
+constexpr int kDefaultWakeTime = 6 * 60 + 30;   // 6:30 AM
+
+int wrapMinute(int minute)
+{
+    return ((minute % kMinutesPerDay) + kMinutesPerDay) % kMinutesPerDay;
+}
 } // namespace
 
 DisplayController::DisplayController(QObject *parent) : QObject(parent)
@@ -18,11 +27,21 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
     const int idleSec = qEnvironmentVariableIntValue("HOMEOS_IDLE_SECONDS");
     m_idleTimer.setInterval((idleSec > 0 ? idleSec : kDefaultIdleSec) * 1000);
     m_idleTimer.setSingleShot(true);
-    connect(&m_idleTimer, &QTimer::timeout, this, [this]() { setIdle(true); });
-    m_idleTimer.start();
+    connect(&m_idleTimer, &QTimer::timeout, this, [this]() {
+        // Overnight, a screen nobody is using goes off rather than to the screen saver.
+        if (m_overnight)
+            turnOffNow();
+        else
+            setIdle(true);
+    });
+    m_offTimer.setSingleShot(true);
+    connect(&m_offTimer, &QTimer::timeout, this, &DisplayController::turnOffNow);
 
     m_clockTimer.setInterval(60 * 1000);
-    connect(&m_clockTimer, &QTimer::timeout, this, &DisplayController::updateNightMode);
+    connect(&m_clockTimer, &QTimer::timeout, this, [this]() {
+        updateNightMode();
+        applySchedule(QTime::currentTime());
+    });
     m_clockTimer.start();
 
     if (qEnvironmentVariable("HOMEOS_MOOD") == "cycle") {
@@ -40,6 +59,12 @@ DisplayController::DisplayController(QObject *parent) : QObject(parent)
         m_screensaver = QSettings().value("display/screensaver", "photos").toString();
     m_animatedTiles = QSettings().value("display/animatedTiles", true).toBool();
     m_darkMode = QSettings().value("display/darkMode", false).toBool();
+    m_offAfterSec = qBound(0, QSettings().value("display/offAfterSeconds", 0).toInt(), kSecondsPerDay);
+    m_offAtNight = QSettings().value("display/offAtNight", false).toBool();
+    m_bedtime = wrapMinute(QSettings().value("display/bedtime", kDefaultBedtime).toInt());
+    m_wakeTime = wrapMinute(QSettings().value("display/wakeTime", kDefaultWakeTime).toInt());
+    m_overnight = m_offAtNight && inWindow(QTime::currentTime().msecsSinceStartOfDay() / 60000, m_bedtime, m_wakeTime);
+    restartTimers();
 
     const QDir backlights(QStringLiteral("/sys/class/backlight"));
     const QStringList devices = backlights.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -74,20 +99,71 @@ void DisplayController::setBrightness(qreal level)
 
 void DisplayController::wake()
 {
+    setScreenOff(false);
     setIdle(false);
-    m_idleTimer.start();
+    restartTimers();
 }
 
 void DisplayController::sleepNow()
 {
-    m_idleTimer.stop();
+    // Overnight, the preview goes off after the usual idle time. Otherwise
+    // the timer finds the screen already idle and does nothing.
+    m_idleTimer.start();
+    setScreenOff(false);
     setIdle(true);
 }
 
 void DisplayController::keepAwake()
 {
     if (!m_idle)
-        m_idleTimer.start();
+        restartTimers();
+}
+
+// Activity: the screen saver and sleep both count from now.
+void DisplayController::restartTimers()
+{
+    m_idleTimer.start();
+    if (m_offAfterSec > 0)
+        m_offTimer.start(m_offAfterSec * 1000);
+    else
+        m_offTimer.stop();
+}
+
+void DisplayController::turnOffNow()
+{
+    m_idleTimer.stop();
+    m_offTimer.stop();
+    setIdle(true);
+    setScreenOff(true);
+}
+
+void DisplayController::applySchedule(const QTime &now)
+{
+    const bool overnight = m_offAtNight && inWindow(now.msecsSinceStartOfDay() / 60000, m_bedtime, m_wakeTime);
+    if (overnight == m_overnight)
+        return;
+    m_overnight = overnight;
+    if (overnight) {
+        // Bedtime: the screen saver goes off. Someone using the screen keeps
+        // it; it goes off once they leave it (the idle timer).
+        if (m_idle)
+            turnOffNow();
+    } else if (m_screenOff) {
+        // Wake time: back to the screen saver, which sleeps again after the
+        // usual time if nobody touches it.
+        setScreenOff(false);
+        if (m_offAfterSec > 0)
+            m_offTimer.start(m_offAfterSec * 1000);
+    }
+}
+
+bool DisplayController::inWindow(int minuteOfDay, int start, int end)
+{
+    if (start == end)
+        return false;
+    if (start < end)
+        return minuteOfDay >= start && minuteOfDay < end;
+    return minuteOfDay >= start || minuteOfDay < end;
 }
 
 bool DisplayController::eventFilter(QObject *watched, QEvent *event)
@@ -100,7 +176,7 @@ bool DisplayController::eventFilter(QObject *watched, QEvent *event)
             wake();
             return true; // the wake-up tap shouldn't also press a button
         }
-        m_idleTimer.start();
+        restartTimers();
         break;
     default:
         break;
@@ -115,6 +191,15 @@ void DisplayController::setIdle(bool idle)
     m_idle = idle;
     applyBacklight();
     emit idleChanged();
+}
+
+void DisplayController::setScreenOff(bool off)
+{
+    if (m_screenOff == off)
+        return;
+    m_screenOff = off;
+    applyBacklight();
+    emit screenOffChanged();
 }
 
 void DisplayController::updateNightMode()
@@ -150,6 +235,8 @@ void DisplayController::applyBacklight()
     qreal level = m_brightness;
     if (m_nightMode)
         level = qMin(level, kNightBrightness);
+    if (m_screenOff)
+        level = 0;
     QFile out(m_backlightPath + "/brightness");
     if (out.open(QIODevice::WriteOnly))
         out.write(QByteArray::number(qRound(level * m_maxBacklight)));
@@ -181,4 +268,51 @@ void DisplayController::setDarkMode(bool on)
     m_darkMode = on;
     QSettings().setValue("display/darkMode", on);
     emit darkModeChanged();
+}
+
+void DisplayController::setOffAfterSec(int seconds)
+{
+    seconds = qBound(0, seconds, kSecondsPerDay);
+    if (seconds == m_offAfterSec)
+        return;
+    m_offAfterSec = seconds;
+    QSettings().setValue("display/offAfterSeconds", seconds);
+    // Counts from now, like a touch (it was one: this is set from Settings).
+    if (seconds == 0)
+        m_offTimer.stop();
+    else if (!m_screenOff)
+        m_offTimer.start(seconds * 1000);
+    emit sleepSettingsChanged();
+}
+
+void DisplayController::setOffAtNight(bool on)
+{
+    if (on == m_offAtNight)
+        return;
+    m_offAtNight = on;
+    QSettings().setValue("display/offAtNight", on);
+    applySchedule(QTime::currentTime());
+    emit sleepSettingsChanged();
+}
+
+void DisplayController::setBedtime(int minuteOfDay)
+{
+    minuteOfDay = wrapMinute(minuteOfDay);
+    if (minuteOfDay == m_bedtime)
+        return;
+    m_bedtime = minuteOfDay;
+    QSettings().setValue("display/bedtime", minuteOfDay);
+    applySchedule(QTime::currentTime());
+    emit sleepSettingsChanged();
+}
+
+void DisplayController::setWakeTime(int minuteOfDay)
+{
+    minuteOfDay = wrapMinute(minuteOfDay);
+    if (minuteOfDay == m_wakeTime)
+        return;
+    m_wakeTime = minuteOfDay;
+    QSettings().setValue("display/wakeTime", minuteOfDay);
+    applySchedule(QTime::currentTime());
+    emit sleepSettingsChanged();
 }

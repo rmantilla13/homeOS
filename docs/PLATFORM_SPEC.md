@@ -922,6 +922,18 @@ empty `url` and a warning; older Storage files still play.
 
 - screen saver style (reuse the picker content)
 - dark mode on/off (QSettings `display/darkMode`, default off): a warm near-black canvas, light text, and the same blue accent `#4F7CF7`
+- sleep: turn the screen off after a time without a touch (QSettings
+  `display/offAfterSeconds`, 0 = never, the default; the sheet steps through
+  5, 10, 15 and 30 minutes and 1, 2 and 4 hours), off overnight
+  (`display/offAtNight`, default off) from bedtime to wake-up
+  (`display/bedtime` and `display/wakeTime`, minutes after midnight, default
+  22:00 and 06:30, in 30-minute steps), and turn off now. Overnight, the idle
+  timer turns the screen off instead of starting the screen saver; bedtime
+  turns off a screen saver that is showing, and wake-up brings it back. Off
+  is a black cover with everything under it hidden; a sysfs backlight goes to
+  0, and under eglfs the panel goes to DPMS standby 1.5 s later
+  (`QPlatformScreen::setPowerState`) unless `HOMEOS_PANEL_POWER=off`. The
+  first touch, or the wake word, wakes it
 - wake word on/off (`Voice.setWakewordEnabled`, disabled when the service is unavailable)
 - spoken replies on/off (QSettings `voice/speakReplies`, default on)
 - screen speakers on/off and volume, when PipeWire (`wpctl`) is available.

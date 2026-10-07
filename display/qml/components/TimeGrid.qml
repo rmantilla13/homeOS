@@ -16,7 +16,7 @@ Item {
     readonly property real columnWidth: (width - labelWidth) / Math.max(1, days.length)
     property date now: new Date()
 
-    Timer { interval: 60000; running: true; repeat: true; onTriggered: grid.now = new Date() }
+    Timer { interval: 60000; running: grid.visible; repeat: true; triggeredOnStart: true; onTriggered: grid.now = new Date() }
 
     function iso(d) { return Qt.formatDate(d, "yyyy-MM-dd") }
     function eventsFor(day, allDay) {

@@ -50,7 +50,7 @@ homeOS/
 ### Display app (Linux desktop or the device)
 
 ```bash
-sudo apt install qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev \
+sudo apt install qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev qt6-websockets-dev \
   qt6-shadertools-dev \
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
   qml6-module-qtquick-window qml6-module-qtquick-shapes qml6-module-qtmultimedia \
@@ -68,6 +68,7 @@ Useful flags and variables:
 | `--demo` | Use sample data even if a backend is configured |
 | `HOMEOS_IDLE_SECONDS=30` | Seconds before the screen saver starts (default 120) |
 | `HOMEOS_SCREENSAVER=photos\|collage\|video` | Screen saver style (otherwise chosen on the Media page) |
+| `HOMEOS_PANEL_POWER=off` | Keep an HDMI panel powered while the screen sleeps: black instead of standby ([docs/PI_SETUP.md](docs/PI_SETUP.md#sleep)) |
 | `HOMEOS_NIGHT_MODE=on\|off` | Force the night theme on or off |
 | `QT_SCALE_FACTOR=1.5` | UI scale (1.5 for the 10.1" 1920×1200 panel) |
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |

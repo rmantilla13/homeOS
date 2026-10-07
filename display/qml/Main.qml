@@ -22,6 +22,8 @@ ApplicationWindow {
     property string voiceTarget: ""
 
     function showToast(message) {
+        if (Device.screenOff)
+            return // nobody would see it, and it would redraw a sleeping panel
         toastLabel.text = message
         toastAnim.restart()
     }
@@ -131,7 +133,7 @@ ApplicationWindow {
     RowLayout {
         anchors.fill: parent
         spacing: 0
-        visible: Store.mode !== "pairing"
+        visible: Store.mode !== "pairing" && !sleepCover.covering
 
         NavRail {
             Layout.fillHeight: true
@@ -209,13 +211,13 @@ ApplicationWindow {
 
     PairingScreen {
         anchors.fill: parent
-        visible: Store.mode === "pairing"
+        visible: Store.mode === "pairing" && !sleepCover.covering
     }
 
     ScreenSaver {
         anchors.fill: parent
         visible: opacity > 0
-        opacity: Device.idle && Store.mode !== "pairing" ? 1 : 0
+        opacity: Device.idle && !Device.screenOff && Store.mode !== "pairing" ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.smooth; easing.type: Easing.InOutQuad } }
     }
 
@@ -267,6 +269,28 @@ ApplicationWindow {
         z: 1000
         active: Qt.application.arguments.indexOf("--no-keyboard") < 0
         source: "components/KeyboardPanel.qml"
+    }
+
+    // Sleep (Settings → Sleep): fade to black, then hide everything under it
+    // so nothing redraws while the panel is off (PanelPower). A tap wakes it
+    // and the wake-up tap goes no further (DisplayController).
+    Rectangle {
+        id: sleepCover
+        readonly property bool covering: Device.screenOff && opacity === 1
+        anchors.fill: parent
+        z: 2000
+        color: "black"
+        visible: opacity > 0
+        opacity: 0
+        states: State {
+            name: "off"
+            when: Device.screenOff
+            PropertyChanges { target: sleepCover; opacity: 1 }
+        }
+        transitions: [
+            Transition { to: "off"; NumberAnimation { property: "opacity"; duration: 800; easing.type: Easing.InOutQuad } },
+            Transition { from: "off"; NumberAnimation { property: "opacity"; duration: Theme.smooth } }
+        ]
     }
 
     // Offline indicator.

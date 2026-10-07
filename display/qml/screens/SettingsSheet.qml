@@ -5,7 +5,8 @@ import HomeOS
 import HomeOS.Core
 
 // Display settings, from the gear in the nav rail: screen saver, dark mode,
-// voice, Wi-Fi, speaker volume, restart, about this display, and re-pairing.
+// sleep, voice, Wi-Fi, speaker volume, restart, about this display, and
+// re-pairing.
 Popup {
     id: sheet
     modal: true
@@ -60,6 +61,31 @@ Popup {
                                       : Store.mode === "pairing" ? qsTr("Waiting to be paired")
                                       : Store.online ? qsTr("Live · online") : qsTr("Live · offline")
 
+    // Choices for Sleep → Turn screen off, in seconds; 0 is never.
+    readonly property var offChoices: [0, 300, 600, 900, 1800, 3600, 7200, 14400]
+
+    // The next choice up (dir > 0) or down from the current delay, which may
+    // sit between two of them; undefined at either end.
+    function offStep(dir) {
+        const now = Device.offAfterSec
+        if (dir > 0)
+            return offChoices.find(sec => sec > now)
+        return offChoices.slice().reverse().find(sec => sec < now)
+    }
+
+    function durationLabel(sec) {
+        if (sec <= 0)
+            return qsTr("Never")
+        if (sec < 3600)
+            return qsTr("%1 min").arg(Math.round(sec / 60))
+        const hours = Math.round(sec / 360) / 10
+        return hours === 1 ? qsTr("1 hour") : qsTr("%1 hours").arg(hours)
+    }
+
+    function clockLabel(minuteOfDay) {
+        return Qt.formatTime(new Date(2000, 0, 1, Math.floor(minuteOfDay / 60), minuteOfDay % 60), "h:mm AP")
+    }
+
     // Small caps heading above each group.
     component SectionLabel: Label {
         color: Theme.textMuted
@@ -102,6 +128,41 @@ Popup {
             id: slot
             Layout.preferredWidth: childrenRect.width
             Layout.preferredHeight: childrenRect.height
+        }
+    }
+
+    // − value + for a setting that moves in steps.
+    component Stepper: RowLayout {
+        id: stepper
+        property string text: ""
+        property bool canDown: true
+        property bool canUp: true
+        signal down()
+        signal up()
+        spacing: 6
+        IconButton {
+            icon: "minus"
+            fill: Theme.surface
+            implicitWidth: 52
+            implicitHeight: 52
+            enabled: stepper.canDown
+            onClicked: stepper.down()
+        }
+        Label {
+            Layout.preferredWidth: Theme.compact ? 100 : 112
+            text: stepper.text
+            color: Theme.text
+            font.pixelSize: Theme.fontSm
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+        }
+        IconButton {
+            icon: "plus"
+            fill: Theme.surface
+            implicitWidth: 52
+            implicitHeight: 52
+            enabled: stepper.canUp
+            onClicked: stepper.up()
         }
     }
 
@@ -227,6 +288,86 @@ Popup {
                                 Toggle {
                                     checked: Device.animatedTiles
                                     onToggled: on => Device.animatedTiles = on
+                                }
+                            }
+                        }
+                    }
+
+                    SectionLabel { Layout.topMargin: 12; text: qsTr("SLEEP") }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: sleepRows.implicitHeight
+                        radius: 24
+                        color: Theme.surfaceAlt
+                        ColumnLayout {
+                            id: sleepRows
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 18
+                            anchors.rightMargin: 20
+                            spacing: 0
+                            SettingRow {
+                                icon: "clock"
+                                title: qsTr("Turn screen off")
+                                detail: Device.offAfterSec > 0
+                                        ? qsTr("After %1 without a touch. A tap turns it back on.").arg(sheet.durationLabel(Device.offAfterSec))
+                                        : qsTr("Never. The screen saver stays on.")
+                                Stepper {
+                                    text: sheet.durationLabel(Device.offAfterSec)
+                                    canDown: sheet.offStep(-1) !== undefined
+                                    canUp: sheet.offStep(1) !== undefined
+                                    onDown: Device.offAfterSec = sheet.offStep(-1)
+                                    onUp: Device.offAfterSec = sheet.offStep(1)
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                icon: "bed"
+                                title: qsTr("Off overnight")
+                                detail: qsTr("%1 to %2. Off once nobody is using it; a tap still wakes it.")
+                                        .arg(sheet.clockLabel(Device.bedtime)).arg(sheet.clockLabel(Device.wakeTime))
+                                Toggle {
+                                    checked: Device.offAtNight
+                                    onToggled: on => Device.offAtNight = on
+                                }
+                            }
+                            Rectangle { visible: Device.offAtNight; Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                visible: Device.offAtNight
+                                icon: "moon"
+                                title: qsTr("Bedtime")
+                                detail: qsTr("The screen saver turns off")
+                                Stepper {
+                                    text: sheet.clockLabel(Device.bedtime)
+                                    onDown: Device.bedtime = Device.bedtime - 30
+                                    onUp: Device.bedtime = Device.bedtime + 30
+                                }
+                            }
+                            Rectangle { visible: Device.offAtNight; Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                visible: Device.offAtNight
+                                icon: "sun"
+                                title: qsTr("Wake up")
+                                detail: qsTr("The screen saver comes back on")
+                                Stepper {
+                                    text: sheet.clockLabel(Device.wakeTime)
+                                    onDown: Device.wakeTime = Device.wakeTime - 30
+                                    onUp: Device.wakeTime = Device.wakeTime + 30
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; Layout.leftMargin: 68; height: 1; color: Theme.divider }
+                            SettingRow {
+                                icon: "power"
+                                title: qsTr("Turn off now")
+                                detail: qsTr("Until someone taps the screen")
+                                PillButton {
+                                    text: qsTr("Turn off")
+                                    fill: Theme.surface
+                                    ink: Theme.text
+                                    onClicked: {
+                                        sheet.close()
+                                        Device.turnOffNow()
+                                    }
                                 }
                             }
                         }

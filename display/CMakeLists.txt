@@ -36,9 +36,32 @@ qt_add_executable(homeos-display
     src/models/ColorSampler.h      src/models/ColorSampler.cpp
     src/hardware/DisplayController.h src/hardware/DisplayController.cpp
     src/hardware/SystemController.h src/hardware/SystemController.cpp
+    src/hardware/PanelPower.h      src/hardware/PanelPower.cpp
 )
 
 target_include_directories(homeos-display PRIVATE src)
+
+# Turning an HDMI panel off when the screen sleeps (DPMS) goes through Qt's
+# platform screen, a private API: qt6-base-private-dev. Without it the
+# sleeping screen is only black. Qt 6.9 and later ship it as its own package.
+if(NOT TARGET Qt6::GuiPrivate)
+    find_package(Qt6GuiPrivate QUIET)
+endif()
+set(HOMEOS_PANEL_POWER OFF)
+if(TARGET Qt6::GuiPrivate)
+    get_target_property(homeos_qpa_dirs Qt6::GuiPrivate INTERFACE_INCLUDE_DIRECTORIES)
+    foreach(dir IN LISTS homeos_qpa_dirs)
+        if(EXISTS "${dir}/qpa/qplatformscreen.h")
+            set(HOMEOS_PANEL_POWER ON)
+        endif()
+    endforeach()
+endif()
+if(HOMEOS_PANEL_POWER)
+    target_compile_definitions(homeos-display PRIVATE HOMEOS_PANEL_POWER)
+    target_link_libraries(homeos-display PRIVATE Qt6::GuiPrivate)
+else()
+    message(STATUS "Qt private headers not found (qt6-base-private-dev): an HDMI panel stays powered while the screen sleeps")
+endif()
 target_compile_options(homeos-display PRIVATE ${HOMEOS_WARNINGS})
 target_compile_definitions(homeos-display PRIVATE HOMEOS_VERSION="${PROJECT_VERSION}")
 
