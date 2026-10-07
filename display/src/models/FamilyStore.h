@@ -135,6 +135,7 @@ private:
     void forgetMedia();
     void withSession(std::function<void()> fn);
     void checkIn();
+    void syncCalendars(const QString &familyId);
     void startPairing();
     void pollPairing();
     void rebuild();
@@ -165,6 +166,8 @@ private:
     int m_generation = 0;
     // When this display last set devices.last_seen_at (monotonic; invalid until it has).
     QElapsedTimer m_lastCheckIn;
+    // When this display last asked for the family's connected calendars to be refreshed.
+    QElapsedTimer m_lastCalendarSync;
 
     std::function<QDateTime()> m_clock; // tests only; empty means the real clock
     QDate m_today;

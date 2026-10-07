@@ -122,6 +122,16 @@ final class FamilyStore {
     /// The family's invites, newest first (parents only).
     var invites: [FamilyInvite] = []
 
+    // Connected calendars (CalendarSync.swift).
+    /// Calendars whose events are copied in: Google calendars and calendar links.
+    var calendarSources: [CalendarSource] = []
+    /// Connected Google accounts (parents only).
+    var calendarAccounts: [CalendarAccount] = []
+    /// The family's subscribable calendar link, once a parent has made one (parents only).
+    var calendarFeedURL: URL?
+    /// When this iPhone last asked for stale calendars to be refreshed.
+    @ObservationIgnored var calendarsNudgedAt: Date?
+
     // Invite-only onboarding.
     /// A code from an `ohanaos://invite` link or typed on the welcome screen.
     /// Survives relaunches (e.g. while confirming an email) until it's used.
@@ -254,6 +264,7 @@ final class FamilyStore {
         dueTaskIds = []; dueDay = nil
         rewards = []; redemptions = []; points = [:]; media = []
         lists = []; listItems = []; meals = []; memories = []; invites = []
+        calendarSources = []; calendarAccounts = []; calendarFeedURL = nil; calendarsNudgedAt = nil
     }
 
     /// Picks the family to show (or the setup screens when there's none) and loads it.
@@ -373,7 +384,9 @@ final class FamilyStore {
             self.memories = try await memories
             self.profiles = try await profiles
             await loadInvites()
+            await loadCalendars()
             await refreshMedia()
+            refreshStaleCalendars()
         } catch {
             report(error)
         }
@@ -416,7 +429,7 @@ final class FamilyStore {
         }
     }
 
-    private func report(_ error: Error) {
+    func report(_ error: Error) {
         // Closing a screen or ending pull-to-refresh cancels requests; that's no error.
         if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
         errorMessage = Self.message(for: error)

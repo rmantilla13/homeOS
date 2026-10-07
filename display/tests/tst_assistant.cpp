@@ -383,6 +383,32 @@ private slots:
         QCOMPARE(requestsTo("/rest/v1/devices").size(), 1);
     }
 
+    void displayRefreshesConnectedCalendars()
+    {
+        // calendar-sync copies Google and calendar-link events in; the display
+        // asks for the family's stale ones every 15 minutes and reloads when
+        // something changed.
+        QSettings().setValue("device/familyId", "fam-1");
+        route("/functions/v1/calendar-sync", [](const Request &) {
+            return json(R"({"results":[{"source_id":"s1","ok":true,"added":2,"updated":0,"removed":0,"event_count":2}]})");
+        });
+        auto rig = signedIn();
+        QTRY_COMPARE(requestsTo("/functions/v1/calendar-sync").size(), 1);
+        const Request r = requestsTo("/functions/v1/calendar-sync").first();
+        QCOMPARE(r.method, QByteArray("POST"));
+        QCOMPARE(r.auth, QByteArray("Bearer access-1"));
+        QCOMPARE(r.body.value("action").toString(), QStringLiteral("sync"));
+        QCOMPARE(r.body.value("family_id").toString(), QStringLiteral("fam-1"));
+        // New events: the family reloads.
+        QTRY_VERIFY(requestsTo("/rest/v1/rpc/event_occurrences").size() >= 2);
+
+        // Not on every load: at most every 15 minutes.
+        rig->store.refresh();
+        QTRY_VERIFY(requestsTo("/rest/v1/rpc/event_occurrences").size() >= 3);
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/functions/v1/calendar-sync").size(), 1);
+    }
+
     // ── The family store: repeats from the server (PLATFORM_SPEC event_occurrences, chores_due) ──
 
     void repeatsComeFromTheServer()

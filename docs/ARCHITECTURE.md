@@ -45,8 +45,10 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
     the caller is a platform admin. Listing and deleting media rows stays in
     SQL; signing a thumbnail URL is the function, because admins are not
     family members and have no Storage read policy.
-  - Later: push notifications (APNs), recurring-chore generation, and
-    calendar sync with Google and iCloud.
+  - `calendar-sync` brings in connected calendars (Google, calendar links)
+    and serves the family's own calendar as a subscribable link; see
+    Connected calendars below.
+  - Later: push notifications (APNs) and recurring-chore generation.
 
 ### Data model
 
@@ -55,7 +57,9 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | `families` | One household |
 | `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member without a login a photo |
 | `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
-| `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members` |
+| `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members`. Events copied from a connected calendar have `source_id` and are read-only |
+| `calendar_sources` / `calendar_accounts` | Connected calendars (a Google calendar or a calendar link) and the Google accounts behind them. Refresh tokens and links sit in service-only tables |
+| `calendar_feeds` | The token of the family's subscribable calendar link |
 | `tasks` | Chores and to-dos: assignee, points, recurrence, due date, and whether a parent must approve |
 | `task_completions` | A task completed on a date; when approved, it posts points |
 | `rewards` / `reward_redemptions` | The reward catalog and claims |
@@ -74,6 +78,36 @@ functions (`approve_completion`, `redeem_reward`), so balances can't drift.
 Guard triggers also stop non-parents from setting what a chore is worth or
 letting it skip approval, so a child (or the kitchen display) can't award
 themselves points.
+
+## Connected calendars
+
+```
+ Google Calendar ──OAuth, events.list──┐                       ┌── wall display, iPhone, assistant
+ iCloud / Outlook / school ──ICS link──┼─▶ calendar-sync ─▶ events (source_id) ─▶ event_occurrences
+                                       │    (edge function)                       │
+ Apple / Google / Outlook ◀──feed link─┴──────────────────── the family's own events
+```
+
+- **In.** A parent connects a Google account (browser sign-in, read-only
+  scope) and picks calendars, or adds a calendar link (`webcal://` or
+  `https://`: iCloud public calendars, Outlook, Google's secret address,
+  school, team and holiday calendars). `calendar-sync` reads each one,
+  expands repeats itself (ical.js for links; Google expands its own), and
+  hands one row per occurrence, 60 days back to a year ahead, to
+  `calendar_apply_sync`, which updates `events` in place. So the display, the
+  iPhone and the assistant need nothing new: imported events come through
+  `event_occurrences` with a `source_id`, in the calendar's color or its
+  person's, and can't be edited here.
+- **Fresh.** pg_cron calls `calendar-sync` every 15 minutes, a paired display
+  asks every 15 minutes, and the iPhone asks when it opens; the server skips
+  calendars refreshed in the last 10 minutes. Each calendar syncs in its own
+  request, within the edge runtime's CPU budget.
+- **Private.** Refresh tokens and links stay in service-only tables. A
+  calendar can show as "Busy" (no titles or places), and private events
+  always do. A parent's Google account leaves with them.
+- **Out.** A parent makes a secret link that serves the family's own events
+  as ICS, for Apple Calendar, Google Calendar or Outlook to subscribe to.
+  Imported events aren't in it, so nothing loops.
 
 ## Design system: dynamic color and motion
 

@@ -6,7 +6,7 @@ small admin console runs the platform.
 
 | Module    | What it does                                                        |
 |-----------|---------------------------------------------------------------------|
-| Calendar  | Shared family calendar, color-coded per member, synced via the cloud |
+| Calendar  | Shared family calendar, color-coded per member. Brings in Google, iCloud, Outlook and school calendars, and shows up in other calendar apps |
 | Tasks     | Chores and to-dos with assignees, recurrence and due dates          |
 | Rewards   | Points earned from chores, redeemable for family-defined rewards    |
 | Media     | Family photos and videos, plus a photo-frame mode when idle         |
@@ -101,6 +101,7 @@ supabase functions deploy assistant          # Claude: workload identity, docs/P
 
 supabase functions deploy admin
 supabase functions deploy delete-account     # Delete account in the iOS app
+supabase functions deploy calendar-sync      # Connected calendars: docs/PLATFORM.md
 tests/run.sh                         # SQL tests (RLS, invites, admin, ...) on a throwaway Postgres
 ```
 

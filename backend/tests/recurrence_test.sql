@@ -18,7 +18,17 @@ set timezone = 'Asia/Tokyo';
 
 -- Safe to run again (it may have been pasted into the SQL editor before a
 -- push). The privilege checks at the end run after this second pass.
+-- 20261012000001 (calendar sync) later gave event_occurrences a source_id
+-- column. A push re-runs this migration before that one, so the re-run gets
+-- the shape it would meet then, and today's function comes back after it.
+create temp table current_occurrences as
+  select pg_get_functiondef('public.event_occurrences(uuid, timestamptz, timestamptz)'::regprocedure) as def;
+drop function public.event_occurrences(uuid, timestamptz, timestamptz);
 \ir ../supabase/migrations/20261010000002_recurrence.sql
+drop function public.event_occurrences(uuid, timestamptz, timestamptz);
+do $$ begin execute (select def from current_occurrences); end $$;
+revoke execute on function public.event_occurrences(uuid, timestamptz, timestamptz) from public, anon;
+grant execute on function public.event_occurrences(uuid, timestamptz, timestamptz) to authenticated, service_role;
 
 -- ───────────────────────── rrule_occurs_on: single days ─────────────────────────
 
