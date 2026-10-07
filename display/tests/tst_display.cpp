@@ -37,6 +37,22 @@ private slots:
         QVERIFY(!third.darkMode());
     }
 
+    // Media → Screen saver → Collage: a pinned layout stays across restarts;
+    // anything but the known names is refused.
+    void collageLayoutDefaultsToAutoAndIsRemembered()
+    {
+        {
+            DisplayController device;
+            QCOMPARE(device.collageLayout(), QStringLiteral("auto"));
+            device.setCollageLayout(QStringLiteral("mosaic"));
+            device.setCollageLayout(QStringLiteral("hexagons"));
+            QCOMPARE(device.collageLayout(), QStringLiteral("mosaic"));
+        }
+        DisplayController again;
+        QCOMPARE(again.collageLayout(), QStringLiteral("mosaic"));
+        again.setCollageLayout(QStringLiteral("auto"));
+    }
+
     // A playing video calls keepAwake(): it holds off the photo frame like a
     // touch would, but never wakes a screen that has already gone idle.
     void keepAwakeOnlyWhileAwake()

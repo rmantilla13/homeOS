@@ -100,10 +100,11 @@ overrides it). A video playing in the media viewer counts as a touch, so a
 long one isn't cut off:
 
 - **Photos:** one photo at a time, cross-fading, with a slow zoom and drift.
-- **Collage:** photos cropped to fill rounded tiles, in a new layout each
-  time the screen saver starts: classic (one large, four small), grid (3×2),
-  mosaic (seven tiles of mixed sizes), trio (one large, two small) and
-  columns (four tall). With fewer photos than tiles it takes a smaller
+- **Collage:** photos cropped to fill rounded tiles. Its layout is picked
+  under Media → Screen saver (or Settings): classic (one large, four small),
+  grid (3×2), mosaic (seven tiles of mixed sizes), trio (one large, two
+  small) or columns (four tall), or Auto, which takes the next one each time
+  the screen saver starts. With fewer photos than tiles it takes a smaller
   layout, so no tile is empty or repeats a photo. Portrait photos go to tall
   tiles when there's a choice. Every few seconds one tile cross-fades to a
   photo that isn't showing and hasn't been for a minute, so photos don't hop

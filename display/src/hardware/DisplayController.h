@@ -19,8 +19,12 @@ class DisplayController : public QObject
     Q_PROPERTY(int idleTimeoutSec READ idleTimeoutSec WRITE setIdleTimeoutSec NOTIFY idleTimeoutChanged)
     Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness NOTIFY brightnessChanged)
     Q_PROPERTY(bool hasBacklight READ hasBacklight CONSTANT)
-    // Idle screen style: photos | collage | video. Remembered across restarts.
+    // Idle screen style: photos | collage | frame | memories | video | clock |
+    // today. Remembered across restarts.
     Q_PROPERTY(QString screensaver READ screensaver WRITE setScreensaver NOTIFY screensaverChanged)
+    // The collage's layout: auto (the next one each time the screen saver
+    // starts) | classic | grid | mosaic | trio | columns. Remembered.
+    Q_PROPERTY(QString collageLayout READ collageLayout WRITE setCollageLayout NOTIFY collageLayoutChanged)
     // Slow drift on the gradient tiles (Settings → Animated tiles). Remembered across restarts.
     Q_PROPERTY(bool animatedTiles READ animatedTiles WRITE setAnimatedTiles NOTIFY animatedTilesChanged)
     // Settings → Dark mode. Off keeps the time-of-day palette. Remembered across restarts.
@@ -39,6 +43,8 @@ public:
     bool hasBacklight() const { return !m_backlightPath.isEmpty(); }
     QString screensaver() const { return m_screensaver; }
     void setScreensaver(const QString &style);
+    QString collageLayout() const { return m_collageLayout; }
+    void setCollageLayout(const QString &layout);
     bool animatedTiles() const { return m_animatedTiles; }
     void setAnimatedTiles(bool on);
     bool darkMode() const { return m_darkMode; }
@@ -60,6 +66,7 @@ signals:
     void idleTimeoutChanged();
     void brightnessChanged();
     void screensaverChanged();
+    void collageLayoutChanged();
     void animatedTilesChanged();
     void darkModeChanged();
 
@@ -82,6 +89,7 @@ private:
     QString m_backlightPath; // /sys/class/backlight/<dev>
     int m_maxBacklight = 0;
     QString m_screensaver;
+    QString m_collageLayout;
     bool m_animatedTiles = true;
     bool m_darkMode = false;
 };
