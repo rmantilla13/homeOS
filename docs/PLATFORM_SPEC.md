@@ -44,7 +44,7 @@ Migrations are added after the existing ones, never edited in place:
 - `20261009000003_blob_photos.sql`: photos in Blob, extension must match kind (§1.10)
 - `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
 - `20261010000001_recurrence.sql`: `rrule_occurs_on`, `rrule_days`,
-  `event_occurrences` and `chores_due` (§1.11)
+  `event_occurrences` and `chores_due` (§1.11). Safe to run again
 
 `20261009000002` to `20261009000004` were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -486,13 +486,17 @@ or year.
 - `UNTIL`: `YYYYMMDD` or `YYYYMMDDTHHMMSS[Z]`. The date as written is the
   last day that can occur; the time and `Z` are ignored.
 - `COUNT`: only the first COUNT occurrences, counted from dtstart. Counting
-  stops at the COUNTth or at the day asked about.
+  stops at the COUNTth, at the day asked about, or 200 years after dtstart
+  (later occurrences of a COUNT series don't happen).
 - Not supported, and ignored: `BYSETPOS`, `BYYEARDAY`, `BYWEEKNO`, `BYHOUR`,
   `BYMINUTE`, `BYSECOND` and any other part. There are no EXDATE or RDATE
   columns.
 - A bad value in a known part (`INTERVAL=abc`, `COUNT=0`, `UNTIL=20261340`,
   `BYDAY=MO,XX`, `BYMONTH=13`) never raises; that part counts as absent. An
   INTERVAL below 1 is 1.
+- A dtstart outside the years 1 to 9999, or an infinite one, has no days.
+  `rrule_days` raises `range can't be longer than 3660 days` when asked
+  about more days than that at once.
 
 Where this differs from RFC 5545: YEARLY with BYDAY or BYMONTHDAY but no
 BYMONTH stays in dtstart's month (RFC: the whole year), and UNTIL compares
@@ -518,7 +522,18 @@ dates, so `UNTIL=20261020T000000Z` still includes Oct 20.
   (wall-clock) length. A 4:30pm practice stays at 4:30pm across DST, an
   all-day event that ends at 23:59:59 still ends at 23:59:59 on the day the
   clocks change, and the first occurrence is exactly the stored row. An
-  occurrence that began before `range_start` and is still going is included.
+  occurrence that began before `range_start` and is still going is included
+  (looking back at most 800 days).
+- Local times the clocks skip or repeat follow RFC 5545: a repeat whose start
+  falls in the skipped hour starts when the clocks jump and keeps its length
+  (02:00–03:00 on the spring-forward day becomes 03:00–04:00), and a time
+  that happens twice is the first of the two (01:15 on the fall-back day is
+  01:15 daylight time).
+- A repeating event with an infinite `starts_at` or `ends_at` is left out
+  rather than failing the call.
+- Past one-off events are filtered out before the per-row RLS check, so the
+  cost follows the window and the repeating events, not the family's whole
+  history.
 
 **`chores_due`**
 
@@ -530,7 +545,7 @@ dates, so `UNTIL=20261020T000000Z` still includes Oct 20.
   disappears; a rejected try leaves it up.
 - Repeating chore: `rrule_occurs_on(rrule, coalesce(due_date, local date of
   created_at), day, false)`. A weekends chore added on a Wednesday isn't due
-  that Wednesday.
+  that Wednesday. One with an infinite due date is never due.
 
 **Clients**
 

@@ -22,11 +22,14 @@
 -- is the first occurrence even when it doesn't fit the pattern; without it
 -- (chores, anchored at a creation or due date) only matching days count.
 -- Parts this doesn't understand are ignored, and a bad value in a known part
--- counts as if the part weren't there, so a rule never raises.
+-- counts as if the part weren't there, so a rule never raises. A dtstart
+-- outside the years 1 to 9999 (or infinite) has no days. The work is
+-- bounded: at most 3660 days are asked about, and COUNT stops counting 200
+-- years after dtstart.
 -- The day query's plan doesn't depend on the rule, but Postgres kept
 -- re-planning it for every call, which cost more than running it.
-create function public.rrule_days(rule text, dtstart date, from_day date, to_day date,
-                                  dtstart_is_instance boolean default true)
+create or replace function public.rrule_days(rule text, dtstart date, from_day date, to_day date,
+                                             dtstart_is_instance boolean default true)
 returns setof date
 language plpgsql immutable
 set search_path = public
@@ -55,9 +58,9 @@ declare
   mdays   int[];    -- BYMONTHDAY, negative counts from the end of the month
   months  int[];    -- BYMONTH
   dt_wd   int;
-  dt_dom  int := extract(day from dtstart);
-  dt_mon  int := extract(month from dtstart);
-  dt_yr   int := extract(year from dtstart);
+  dt_dom  int;
+  dt_mon  int;
+  dt_yr   int;
   dt_ws   date;     -- start of dtstart's week (WKST)
   last_d  date;
   c0      date;
@@ -65,6 +68,21 @@ declare
   seen    int := 0;
   hit     date;
 begin
+  -- A row someone saved with an infinite or absurd date mustn't break the
+  -- whole family's calendar; it just has no days.
+  if dtstart is null or dtstart not between date '0001-01-01' and date '9999-12-31'
+     or from_day is null or to_day is null then
+    return;
+  end if;
+  from_day := greatest(from_day, date '0001-01-01');
+  to_day := least(to_day, date '9999-12-31');
+  if to_day - greatest(from_day, dtstart) > 3660 then
+    raise exception 'range can''t be longer than 3660 days';
+  end if;
+  dt_dom := extract(day from dtstart);
+  dt_mon := extract(month from dtstart);
+  dt_yr := extract(year from dtstart);
+
   if left(r, 6) = 'RRULE:' then
     r := substr(r, 7);
   end if;
@@ -173,9 +191,11 @@ begin
 
   dt_wd := ((dtstart - date '2001-01-01') % 7 + 7) % 7;  -- 2001-01-01 was a Monday
   dt_ws := dtstart - (dt_wd - wkst + 7) % 7;
-  last_d := least(to_day, until_d);
+  last_d := least(to_day, until_d,
+                  case when cnt is not null and to_day - dtstart > 73048 then dtstart + 73048 end);
   -- COUNT numbers occurrences from dtstart, so count from there. Work through
-  -- the days in chunks and stop at the COUNTth occurrence or at to_day.
+  -- the days in chunks and stop at the COUNTth occurrence, at to_day, or
+  -- (so an ancient series can't make every call walk millennia) 200 years on.
   c0 := case when cnt is null then greatest(from_day, dtstart) else dtstart end;
   while c0 <= last_d loop
     c1 := case when last_d - c0 > 999 then c0 + 999 else last_d end;
@@ -230,8 +250,8 @@ begin
 end $$;
 
 -- Is `day` an occurrence of the series anchored at the local date `dtstart`?
-create function public.rrule_occurs_on(rule text, dtstart date, day date,
-                                       dtstart_is_instance boolean default true)
+create or replace function public.rrule_occurs_on(rule text, dtstart date, day date,
+                                                  dtstart_is_instance boolean default true)
 returns boolean
 language sql immutable set search_path = public as $$
   select exists (select 1 from public.rrule_days(rule, dtstart, day, day, dtstart_is_instance))
@@ -243,8 +263,9 @@ $$;
 -- `id` is the stored event (what edits and deletes name); `starts_at` and
 -- `ends_at` are this occurrence, `series_*` the stored row. A repeat keeps
 -- the series' local start time and local length in the family's time zone,
--- so a 4:30pm practice stays at 4:30pm across a DST change.
-create function public.event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)
+-- so a 4:30pm practice stays at 4:30pm across a DST change. A repeating row
+-- with an infinite start or end is skipped rather than failing the call.
+create or replace function public.event_occurrences(fid uuid, range_start timestamptz, range_end timestamptz)
 returns table (id uuid, family_id uuid, title text, description text, location text,
                starts_at timestamptz, ends_at timestamptz, all_day boolean, rrule text, color text,
                created_by uuid, series_starts_at timestamptz, series_ends_at timestamptz,
@@ -274,6 +295,14 @@ begin
     select e.*, e.starts_at at time zone tz as local_start, e.ends_at at time zone tz as local_end
     from public.events e
     where e.family_id = fid and e.starts_at < range_end
+      -- A past one-off event can't overlap the window. Plain comparisons, so
+      -- Postgres can apply them before the per-row RLS check and the cost
+      -- follows the window, not the family's whole history.
+      and (e.rrule is not null or e.ends_at > range_start or e.starts_at >= range_start)
+  ),
+  rep as (
+    select ev.* from ev
+    where nullif(btrim(ev.rrule), '') is not null and isfinite(ev.starts_at) and isfinite(ev.ends_at)
   ),
   occ as (
     select ev.id as event_id, ev.starts_at as o_start, ev.ends_at as o_end
@@ -281,19 +310,34 @@ begin
     where nullif(btrim(ev.rrule), '') is null
     union all
     -- Repeats: start early enough to catch a long one already under way.
-    select ev.id, s.o_start, greatest(s.o_start, s.o_end)
-    from ev
+    select rep.id, s.o_start, greatest(s.o_start, s.o_end)
+    from rep
     cross join lateral public.rrule_days(
-      ev.rrule, ev.local_start::date,
-      (range_start at time zone tz)::date - (ev.local_end::date - ev.local_start::date) - 1,
+      rep.rrule, rep.local_start::date,
+      greatest(rep.local_start::date,
+               (range_start at time zone tz)::date - least(rep.local_end::date - rep.local_start::date, 800) - 1),
       (range_end at time zone tz)::date, true) as d(day)
     cross join lateral (
-      select case when d.day = ev.local_start::date then ev.starts_at
-                  else (d.day + ev.local_start::time) at time zone tz end as o_start,
-             case when d.day = ev.local_start::date then ev.ends_at
-                  else (d.day + ev.local_start::time + (ev.local_end - ev.local_start)) at time zone tz end as o_end
+      select d.day + rep.local_start::time as ls,
+             d.day + rep.local_start::time + (rep.local_end - rep.local_start) as le
+    ) w
+    cross join lateral (
+      select w.ls at time zone tz as s1, w.le at time zone tz as e1
+    ) u
+    cross join lateral (
+      -- A local time that happens twice (the hour the clocks go back) is the
+      -- first one, as in RFC 5545; Postgres alone would pick the second.
+      select case when (u.s1 - interval '1 hour') at time zone tz = w.ls then u.s1 - interval '1 hour' else u.s1 end as s0,
+             case when (u.e1 - interval '1 hour') at time zone tz = w.le then u.e1 - interval '1 hour' else u.e1 end as e0
+    ) v
+    cross join lateral (
+      select case when d.day = rep.local_start::date then rep.starts_at else v.s0 end as o_start,
+             case when d.day = rep.local_start::date then rep.ends_at
+                  -- A start in the hour the clocks skip moves forward with
+                  -- them (RFC 5545): keep the length rather than the end time.
+                  when v.s0 at time zone tz <> w.ls then v.s0 + (rep.local_end - rep.local_start)
+                  else v.e0 end as o_end
     ) s
-    where nullif(btrim(ev.rrule), '') is not null
   ),
   who as (
     select em.event_id, array_agg(em.member_id order by m.sort_order, em.member_id) as ids
@@ -319,7 +363,7 @@ end $$;
 -- from its due date (or right away) until someone finishes it: it still
 -- shows on the day it was done, then it's gone. A rejected try doesn't
 -- count as finished.
-create function public.chores_due(fid uuid, day date)
+create or replace function public.chores_due(fid uuid, day date)
 returns setof public.tasks
 language plpgsql stable security invoker set search_path = public as $$
 declare

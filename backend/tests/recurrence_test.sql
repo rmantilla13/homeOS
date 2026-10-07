@@ -16,6 +16,10 @@
 -- Nothing below may depend on the session's zone.
 set timezone = 'Asia/Tokyo';
 
+-- Safe to run again (it may have been pasted into the SQL editor before a
+-- push). The privilege checks at the end run after this second pass.
+\ir ../supabase/migrations/20261010000001_recurrence.sql
+
 -- ───────────────────────── rrule_occurs_on: single days ─────────────────────────
 
 create temp table one_day (what text, rule text, dtstart date, day date, inst boolean, expected boolean);
@@ -309,6 +313,21 @@ select tests.eq(
 select tests.eq(array(select rrule_days('FREQ=DAILY', '2026-10-07', '2026-10-10', '2026-10-09')), '{}'::date[],
                 'an empty window has no days');
 
+-- ───────────────────────── Bounds ─────────────────────────
+
+select tests.eq(rrule_occurs_on(null, 'infinity', '2026-10-07'), false, 'an infinite dtstart has no days');
+select tests.eq(rrule_occurs_on('FREQ=DAILY', '-infinity', '2026-10-07'), false, 'nor a minus-infinite one');
+select tests.eq(rrule_occurs_on('FREQ=WEEKLY', '4713-01-01 BC', '2026-10-07'), false, 'nor one before the year 1');
+select tests.eq((select count(*)::int from rrule_days('FREQ=DAILY', '2026-01-01', '2026-01-01', date '2026-01-01' + 3660)),
+                3661, '3660 days at a time is fine');
+select tests.throws(format('select count(*) from rrule_days(%L, %L, %L, %L)', 'FREQ=DAILY', '2026-01-01', '2026-01-01',
+                           date '2026-01-01' + 3661),
+                    'range can''t be longer than 3660 days', 'but no more');
+select tests.eq(rrule_occurs_on('FREQ=YEARLY;COUNT=300', '1800-01-01', '2026-01-01'), false,
+                'COUNT stops counting 200 years after dtstart');
+select tests.eq(rrule_occurs_on('FREQ=YEARLY;COUNT=5;BYMONTH=2;BYMONTHDAY=30', '0001-01-01', '9999-01-01', false), false,
+                'a COUNT that never matches gives up instead of walking millennia');
+
 -- ───────────────────────── Calendar ─────────────────────────
 
 -- The seed family moves to Los Angeles, which leaves DST on 2026-11-01.
@@ -378,6 +397,15 @@ select tests.eq((select bool_and(ends_at - starts_at = interval '1 hour'
                                  and member_ids = array[:'m_mom', :'m_emma']::uuid[])
                  from event_occurrences(:'fam', '2026-10-19 00:00-07', '2026-11-16 00:00-08') where title = 'Soccer'),
                 true, 'every occurrence: same local time and length, the series id and values, members by sort order');
+select tests.logout();
+update members set sort_order = 9 where id = :'m_mom';
+select tests.login(:'mom');
+select tests.eq((select distinct member_ids from event_occurrences(:'fam', '2026-10-19 00:00-07', '2026-11-16 00:00-08')
+                 where title = 'Soccer'),
+                array[:'m_emma', :'m_mom']::uuid[], 'members follow sort_order, not their ids');
+select tests.logout();
+update members set sort_order = 0 where id = :'m_mom';
+select tests.login(:'mom');
 
 -- Fri 6pm to Sun noon: the one that began Friday Oct 30 overlaps a Saturday window
 -- and ends at noon local on Nov 1, after the clocks go back.
@@ -385,6 +413,10 @@ select tests.eq((select array_agg(row(starts_at, ends_at)::text)
                  from event_occurrences(:'fam', '2026-10-31 00:00-07', '2026-11-02 00:00-08') where title = 'Sleepover'),
                 array[row('2026-10-30 18:00-07'::timestamptz, '2026-11-01 12:00-08'::timestamptz)::text],
                 'a long occurrence that began before range_start');
+select tests.eq((select array_agg(row(starts_at, ends_at)::text)
+                 from event_occurrences(:'fam', '2026-11-01 00:00-07', '2026-11-02 00:00-08') where title = 'Sleepover'),
+                array[row('2026-10-30 18:00-07'::timestamptz, '2026-11-01 12:00-08'::timestamptz)::text],
+                'and one that began two days before range_start');
 select tests.eq(array(select title from event_occurrences(:'fam', '2026-10-31 00:00-07', '2026-11-02 00:00-08')),
                 '{Sleepover,Club,Holiday,Early bird,Club}'::text[], 'the DST weekend, all-day first at the same start');
 select tests.eq((select row(starts_at, ends_at)::text
@@ -429,6 +461,35 @@ select tests.throws(format('select * from event_occurrences(%L, %L, %L)', :'fam'
                     'range can''t be longer than 400 days', 'more than 400 days');
 select tests.eq((select count(*)::int from event_occurrences(:'fam', '2026-01-01 00:00Z', '2027-02-05 00:00Z')) > 0,
                 true, '400 days is fine');
+
+-- DST: a repeat in the hour the clocks skip starts when they do and keeps
+-- its length; one in the hour that happens twice is the first (RFC 5545).
+-- Then rows nobody should save but anyone in the family can: they mustn't
+-- break the calendar.
+select tests.logout();
+insert into events (id, family_id, title, starts_at, ends_at, all_day, rrule) values
+  ('e0000000-0000-0000-0000-000000000011', :'fam', 'Night feed', '2027-03-10 02:00-08', '2027-03-10 03:00-08', false, 'FREQ=DAILY'),
+  ('e0000000-0000-0000-0000-000000000012', :'fam', 'Late show',  '2026-10-25 01:15-07', '2026-10-25 01:45-07', false, 'FREQ=WEEKLY'),
+  ('e0000000-0000-0000-0000-000000000013', :'fam', 'Forever',    '2026-10-20 09:00-07', 'infinity', false, 'FREQ=WEEKLY'),
+  ('e0000000-0000-0000-0000-000000000014', :'fam', 'Always',     '-infinity', '2026-10-20 10:00-07', false, 'FREQ=DAILY'),
+  ('e0000000-0000-0000-0000-000000000015', :'fam', 'Ages',       '2026-10-20 11:00-07', '9999-12-31 00:00Z', false, 'FREQ=WEEKLY');
+select tests.login(:'mom');
+select tests.eq((select array_agg(row(starts_at, ends_at)::text order by starts_at)
+                 from event_occurrences(:'fam', '2027-03-13 00:00-08', '2027-03-16 00:00-07') where title = 'Night feed'),
+                array[row('2027-03-13 02:00-08'::timestamptz, '2027-03-13 03:00-08'::timestamptz)::text,
+                      row('2027-03-14 03:00-07'::timestamptz, '2027-03-14 04:00-07'::timestamptz)::text,
+                      row('2027-03-15 02:00-07'::timestamptz, '2027-03-15 03:00-07'::timestamptz)::text],
+                'a repeat in the skipped hour');
+select tests.eq((select array_agg(row(starts_at, ends_at)::text)
+                 from event_occurrences(:'fam', '2026-11-01 00:00-07', '2026-11-02 00:00-08') where title = 'Late show'),
+                array[row('2026-11-01 01:15-07'::timestamptz, '2026-11-01 01:45-07'::timestamptz)::text],
+                'a repeat in the hour that happens twice');
+select tests.eq((select count(*)::int from event_occurrences(:'fam', '2026-10-19 00:00-07', '2026-10-26 00:00-07')
+                 where title in ('Forever', 'Always')), 0, 'repeating rows with infinite dates are skipped');
+select tests.eq((select count(*)::int from event_occurrences(:'fam', '2026-10-19 00:00-07', '2026-10-26 00:00-07')
+                 where title = 'Ages'), 1, 'a repeat lasting thousands of years doesn''t raise');
+select tests.eq((select count(*)::int from event_occurrences(:'fam', '2026-10-19 00:00-07', '2026-10-26 00:00-07')
+                 where title not in ('Forever', 'Always', 'Ages', 'Late show')), 11, 'and the rest of the week is as before');
 
 -- ───────────────────────── Chores ─────────────────────────
 
@@ -496,6 +557,14 @@ select tests.login(:'other');
 select tests.eq((select count(*)::int from chores_due(:'fam', '2026-10-10')), 0, 'a neighbor gets none');
 select tests.eq(array(select title from chores_due(:'fam2', '2026-10-10')), '{Neighbor chore}'::text[],
                 'their own, created in a zone Postgres doesn''t know');
+select tests.logout();
+insert into tasks (family_id, title, rrule, due_date) values
+  (:'fam', 'Never', 'FREQ=DAILY', 'infinity'),
+  (:'fam', 'Ever', 'FREQ=WEEKLY', '-infinity');
+select tests.login(:'mom');
+select tests.eq(array(select title from chores_due(:'fam', '2026-10-10')),
+                '{Clean garage,Fix bike,Sort mail,Feed fish,Weekend tidy}'::text[],
+                'a repeating chore with an infinite due date is never due, and breaks nothing');
 select tests.logout();
 
 -- ───────────────────────── Privileges ─────────────────────────

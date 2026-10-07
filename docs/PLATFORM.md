@@ -394,12 +394,13 @@ new ones in order, and don't edit them in place:
 5. `backend/supabase/migrations/20261009000002_video_blob.sql`
 6. `backend/supabase/migrations/20261009000003_blob_photos.sql`
 7. `backend/supabase/migrations/20261009000004_blob_limits.sql`
+8. `backend/supabase/migrations/20261010000001_recurrence.sql`
 
-`supabase db push` does this. The last three used to be `20261008000001` to
-`20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
-are safe to run again if you pasted them into the SQL editor before; a
-re-run of 3 also removes the anon read on `platform_boot_video` that its
-first draft granted. If you pasted 1, 2 or 4 by hand, record it first so the
+`supabase db push` does this. 5 to 7 used to be `20261008000001` to
+`20261008000003` and shared versions with 1 and 2. They, 3 (`boot_video`)
+and 8 (`recurrence`) are safe to run again if you pasted them into the SQL
+editor before; a re-run of 3 also removes the anon read on
+`platform_boot_video` that its first draft granted. If you pasted 1, 2 or 4 by hand, record it first so the
 push skips it, for example
 `supabase migration repair --status applied 20261008000001`.
 

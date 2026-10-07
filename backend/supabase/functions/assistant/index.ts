@@ -368,7 +368,9 @@ async function loadSnapshot(db: SupabaseClient, family: FamilyInfo): Promise<Sna
     const when = e.all_day ? `${fmtLocalDay(String(e.starts_at), tz)} (all day)` : fmtLocal(String(e.starts_at), tz);
     lines.push(`- ${when}: ${oneLine(e.title, 100)} — ${who}${e.location ? ` @ ${oneLine(e.location, 60)}` : ""}`);
   }
-  if (!events.length) lines.push("- nothing scheduled");
+  // A failed read isn't an empty calendar; don't let Claude say it is.
+  if (results[2].error) lines.push("- (the calendar couldn't be read just now)");
+  else if (!events.length) lines.push("- nothing scheduled");
 
   lines.push(...choreLines(
     tasks as unknown as ChoreRow[],
