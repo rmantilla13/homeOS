@@ -2,8 +2,9 @@ import AppIntents
 import PhotosUI
 import SwiftUI
 
-/// Your account: name, photo, email, which family to show, the assistant and
-/// Siri, privacy and support links, sign out, and deleting the account.
+/// Your account: name, photo, email, the family's members, which family to
+/// show, the assistant and Siri, privacy and support links, sign out, and
+/// deleting the account.
 struct ProfileView: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -81,6 +82,25 @@ struct ProfileView: View {
                     }
                     if let me = store.me {
                         LabeledContent("Role", value: me.role.title)
+                    }
+                }
+                if store.family != nil {
+                    Section {
+                        NavigationLink {
+                            ManageFamilyView()
+                        } label: {
+                            LabeledContent {
+                                Text("\(store.members.count)")
+                            } label: {
+                                Label("Manage family", systemImage: "person.2")
+                            }
+                        }
+                    } header: {
+                        Text("Family")
+                    } footer: {
+                        Text(store.isParent
+                             ? "Add people, and set their names, photos, colors and roles."
+                             : "See who's in the family, and change your own name, photo and color.")
                     }
                 }
                 if store.families.count > 1 {

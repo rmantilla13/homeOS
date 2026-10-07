@@ -282,7 +282,7 @@ struct Tag: View {
 }
 
 /// A member's circle: their profile photo if they have an account with one,
-/// else their initial on their color.
+/// else the photo a parent set, else their initial on their color.
 struct MemberAvatar: View {
     let member: Member?
     var size: CGFloat = 36
@@ -296,11 +296,13 @@ struct MemberAvatar: View {
 }
 
 /// A colored circle with an initial that fades to a photo from the
-/// `avatars` bucket once it has loaded.
+/// `avatars` bucket once it has loaded. `picked` (a photo chosen in a form,
+/// not saved yet) shows instead.
 struct AvatarCircle: View {
     let name: String?
     var color: String?
     var photo: (path: String, version: String)?
+    var picked: UIImage?
     var size: CGFloat = 36
     var ring = false
     @State private var loaded: UIImage?
@@ -309,7 +311,7 @@ struct AvatarCircle: View {
 
     var body: some View {
         let cached = photo.flatMap { AvatarCache.shared.cached(path: $0.path, version: $0.version) }
-        let image = photo == nil ? nil : (cached ?? loaded)  // the current version first
+        let image = picked ?? (photo == nil ? nil : (cached ?? loaded))  // the current version first
         Circle()
             .fill(Color(hex: color ?? "#8E8E93"))
             .frame(width: size, height: size)

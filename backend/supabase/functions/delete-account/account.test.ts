@@ -34,7 +34,7 @@ type Setup = {
 };
 
 function world(setup: Setup = {}) {
-  const avatars = bucket([`${USER}/avatar.jpg`, "someone-else/avatar.jpg"], setup.failList);
+  const avatars = bucket([`${USER}/avatar.jpg`, "someone-else/avatar.jpg", `${FAMILY}/kid-1.jpg`], setup.failList);
   const media = bucket([`${FAMILY}/a.jpg`, `${FAMILY}/b.mp4`, "other-family/c.jpg"]);
   const deleted: string[] = [];
   const logs: string[] = [];
@@ -58,7 +58,7 @@ function world(setup: Setup = {}) {
 Deno.test("SQL removed the account: the photo goes, Auth isn't called", async () => {
   const w = world();
   assertEquals(await deleteAccount(w.deps, USER), { status: 200, body: { ok: true, families_deleted: [] } });
-  assertEquals([...w.avatars], ["someone-else/avatar.jpg"]);
+  assertEquals([...w.avatars], ["someone-else/avatar.jpg", `${FAMILY}/kid-1.jpg`]);
   assertEquals(w.media.size, 3);
   assertEquals(w.deleted, []);
 });
@@ -69,6 +69,7 @@ Deno.test("a family that went with the account loses its files, and Auth removes
   });
   assertEquals(await deleteAccount(w.deps, USER), { status: 200, body: { ok: true, families_deleted: [FAMILY] } });
   assertEquals([...w.media], ["other-family/c.jpg"]);
+  assertEquals([...w.avatars], ["someone-else/avatar.jpg"]);
   assertEquals(w.deleted, [DEVICE, USER]);
 });
 
@@ -118,11 +119,11 @@ Deno.test("the database's refusals pass through as 400s; anything else is a 500"
     body: { error: "you're the only parent with a login in Home" },
   });
   assertEquals(refused.deleted, []);
-  assertEquals(refused.avatars.size, 2, "nothing is touched after a refusal");
+  assertEquals(refused.avatars.size, 3, "nothing is touched after a refusal");
 
   const broken = world({ rows: { data: null, error: { message: "connection reset", code: "08006" } } });
   assertEquals((await deleteAccount(broken.deps, USER)).status, 500);
-  assertEquals(broken.avatars.size, 2);
+  assertEquals(broken.avatars.size, 3);
 });
 
 Deno.test("parseDeletion: only the shape delete_my_account returns", () => {

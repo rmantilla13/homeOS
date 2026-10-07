@@ -65,8 +65,8 @@ ios/OhanaOS/
     ├── Components/           floating tab bar, activity/approval cards, shared bits
     ├── OnboardingViews.swift welcome (invite code, create account, sign in), enter an invite code,
     │                         create family, invite-link sheet
-    ├── ProfileView.swift     name, photo, email, family switcher, assistant switch, Siri tip, privacy and
-    │                         support links, sign out, delete account
+    ├── ProfileView.swift     name, photo, email, manage family link, family switcher, assistant switch,
+    │                         Siri tip, privacy and support links, sign out, delete account
     ├── InviteViews.swift     create invite, code card with share/copy, pending and accepted rows
     ├── HomeView.swift        Home + assistant hero card
     ├── AssistantView.swift   streaming chat, thread history, AI consent sheet
@@ -74,7 +74,8 @@ ios/OhanaOS/
     ├── ChoresView.swift      chores board, add chore
     ├── RewardsView.swift     balances, rewards, redemptions, add reward
     ├── MediaView.swift       media grid, viewer, upload
-    └── FamilyView.swift      members (edit/remove), invites, lists, meals, memory, displays, leave family
+    └── FamilyView.swift      members (add/edit/remove, photos), manage family, invites, lists, meals,
+                              memory, displays, leave family
 ```
 
 ## Screens
@@ -147,9 +148,10 @@ pick one with `PhotosPicker`; it's cropped to a 512 px square JPEG, uploaded
 to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
 policy), and `profiles.avatar_path` is set. **Remove photo** clears both. Also
 shows your email, family and role; a family picker when you belong to more
-than one; the **Assistant** switch (see Assistant → AI consent); the Siri
-tip; **Privacy policy** and **Help and support** (`https://ohanaos.co/privacy`
-and `/support`, `Config`); and **Sign out**.
+than one; **Manage family** (see Family management); the **Assistant**
+switch (see Assistant → AI consent); the Siri tip; **Privacy policy** and
+**Help and support** (`https://ohanaos.co/privacy` and `/support`, `Config`);
+and **Sign out**.
 
 **Delete account** sits below Sign out. Its alert says what happens for the
 family on screen: if nobody else in it has a login, the family is deleted
@@ -164,17 +166,37 @@ only parent with a login in The Smiths. Make someone else there a parent
 first".
 
 Member avatars everywhere (`MemberAvatar`) show the photo of the member's
-account when there is one, else the initial on the member's color. Photos are
+account when there is one, else the photo a parent set for the member
+(`members.avatar_path`), else the initial on the member's color. Photos are
 downloaded from the private bucket with the session and cached per path and
-`profiles.updated_at`, so a new photo replaces the old one on the next refresh.
+`profiles.updated_at`, so a new photo replaces the old one on the next
+refresh. Member photos get a new file name each time, so the path alone
+versions them.
 
 ## Family management
 
+- **Manage family** (Profile → Family, `ManageFamilyView`) lists everyone on
+  the family screen with their role and whether they have a login. Parents
+  get **Add a member** and **Invite someone** there too. The Family tab's
+  member strip opens the same editors.
+- **Adding** (parents): name, role, color and an optional photo. The photo
+  is uploaded first, under the new member's client-made id, and the row is
+  inserted with its `avatar_path`; if the insert fails the file is deleted.
+  Either way nothing is half-added, and a failure keeps the sheet open.
 - **Members.** Tap a member to edit. Parents can change anyone's name, color
-  and role, and remove a member (with their chores and points). Everyone else
-  can edit only their own name and color; other members aren't tappable for
-  them. The server's `members_guard` has the final say: it refuses to remove,
-  demote or unlink the last parent with an account, and the error is shown.
+  and role, and remove a member (with their chores, points and photo).
+  Everyone else can edit only their own name, color and photo; other members
+  aren't tappable for them. The server's `members_guard` has the final say:
+  it refuses to remove, demote or unlink the last parent with an account, and
+  the error is shown.
+- **Photos.** The camera badge on the editor's circle, or **Add a photo** /
+  **Choose a new photo** / **Remove photo**, stage a change that **Save**
+  applies. Your own photo is your profile photo (as in Profile). A parent
+  sets the photo of a member without a login: it's cropped to a 512 px square
+  JPEG, uploaded to `avatars/<family_id>/<member_id>-<random>.jpg`, and
+  `members.avatar_path` is set; then the old file is deleted. A member with a
+  login chooses their own photo, so their editor says so instead. See
+  PLATFORM_SPEC.md §1.7.
 - **Invites** (parents). **Invite** opens a form: who it's for ("Someone new"
   with a role, or an existing member without a login, who then claims their row
   and points), an optional email (only that address can use it), and how long
