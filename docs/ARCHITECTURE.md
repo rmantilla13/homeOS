@@ -52,7 +52,7 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
 | Table | Notes |
 |---|---|
 | `families` | One household |
-| `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member without a login a photo |
+| `members` | Everyone shown on the screen. Kids need no login (`user_id` is null); parents link to an auth user. A parent can give a member whose account has no photo of its own (usually a kid without a login) a photo |
 | `devices` | Paired wall screens; `user_id` is the device's auth user. `family_id` and `user_id` can't be changed after pairing |
 | `events` | Calendar events with an optional RRULE for recurrence; many-to-many with members via `event_members` |
 | `tasks` | Chores and to-dos: assignee, points, recurrence, due date, and whether a parent must approve |

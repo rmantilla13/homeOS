@@ -605,10 +605,13 @@ struct AddMemberView: View {
     @State private var color = memberPalette[0]
     @State private var photoItem: PhotosPickerItem?
     @State private var photo: PickedPhoto?
-    @State private var loadingPhoto = false
     @State private var working = false
+    /// One id for every try, so a try whose answer was lost isn't added twice.
+    @State private var memberId = UUID()
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// A picked photo is being prepared (`preparePickedPhoto` clears the item).
+    private var loadingPhoto: Bool { photoItem != nil }
 
     var body: some View {
         NavigationStack {
@@ -616,6 +619,7 @@ struct AddMemberView: View {
                 Section {
                     MemberFormAvatar(name: name, color: color, picked: photo?.image, loading: loadingPhoto,
                                      selection: $photoItem)
+                        .disabled(working)
                         .frame(maxWidth: .infinity)
                         .listRowBackground(Color.clear)
                 }
@@ -630,7 +634,7 @@ struct AddMemberView: View {
                 }
                 Section("Photo") {
                     MemberPhotoRows(selection: $photoItem, hasPhoto: photo != nil) { photo = nil }
-                        .disabled(loadingPhoto)
+                        .disabled(loadingPhoto || working)
                 }
                 Section("Color") {
                     ColorPalettePicker(selection: $color)
@@ -647,30 +651,32 @@ struct AddMemberView: View {
                         .disabled(trimmedName.isEmpty || working || loadingPhoto)
                 }
             }
-            .onChange(of: photoItem) { _, item in
-                guard let item else { return }
-                loadingPhoto = true  // Add waits for it
-                Task {
-                    let picked = await PickedPhoto(item)
-                    loadingPhoto = false
-                    photoItem = nil
-                    if let picked {
-                        photo = picked
-                    } else {
-                        store.errorMessage = PickedPhoto.unusable
-                    }
-                }
-            }
+            // Cancelled when the sheet closes, so a late answer doesn't land behind it.
+            .task(id: photoItem) { await preparePickedPhoto() }
             .interactiveDismissDisabled(working)
             .showsStoreErrors()
         }
+    }
+
+    private func preparePickedPhoto() async {
+        guard let item = photoItem else { return }
+        let picked = await PickedPhoto(item)
+        guard !Task.isCancelled else { return }
+        if let picked {
+            photo = picked
+        } else {
+            store.errorMessage = PickedPhoto.unusable
+        }
+        photoItem = nil
     }
 
     private func add() async {
         working = true
         defer { working = false }
         // A failure keeps the sheet open, with the error, to try again.
-        if await store.addMember(name: trimmedName, role: role, color: color, photo: photo?.jpeg) { dismiss() }
+        if await store.addMember(id: memberId, name: trimmedName, role: role, color: color, photo: photo?.jpeg) {
+            dismiss()
+        }
     }
 }
 
@@ -774,8 +780,9 @@ struct ColorPalettePicker: View {
 }
 
 /// Edit a member. Parents can change anyone's name, color and role, give a
-/// member without a login a photo, invite them, or remove them; everyone else
-/// edits only themselves. Your own photo is your profile photo.
+/// member whose account has no photo of its own (usually a kid without a
+/// login) the family's photo, invite them, or remove them; everyone else edits
+/// only themselves. Your own photo is your profile photo.
 struct MemberEditor: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -786,7 +793,6 @@ struct MemberEditor: View {
     @State private var role: MemberRole
     @State private var photoItem: PhotosPickerItem?
     @State private var newPhoto: PickedPhoto?
-    @State private var loadingPhoto = false
     @State private var removingPhoto = false
     @State private var working = false
     @State private var confirmingRemove = false
@@ -810,10 +816,10 @@ struct MemberEditor: View {
     /// You change your own profile photo. Parents set the family's photo of anyone
     /// else whose account has none of its own (usually a kid without a login).
     private var canChangePhoto: Bool { isMe || (store.isParent && !hasOwnPhoto) }
-    private var hasPhoto: Bool {
-        let saved = isMe ? store.myProfile?.avatarPath : current.avatarPath
-        return newPhoto != nil || (saved != nil && !removingPhoto)
-    }
+    /// A photo shows, or will once saved. Remove takes away whichever one shows.
+    private var hasPhoto: Bool { newPhoto != nil || (!removingPhoto && store.avatarPath(for: current) != nil) }
+    /// A picked photo is being prepared (`preparePickedPhoto` clears the item).
+    private var loadingPhoto: Bool { photoItem != nil }
 
     var body: some View {
         NavigationStack {
@@ -825,6 +831,7 @@ struct MemberEditor: View {
                                          picked: newPhoto?.image,
                                          loading: loadingPhoto,
                                          selection: canChangePhoto ? $photoItem : nil)
+                            .disabled(working)
                         if isMe {
                             Text("This is you").font(.caption.weight(.semibold)).foregroundStyle(Theme.muted)
                         }
@@ -848,7 +855,7 @@ struct MemberEditor: View {
                             newPhoto = nil
                             removingPhoto = true
                         }
-                        .disabled(loadingPhoto)
+                        .disabled(loadingPhoto || working)
                     } else {
                         Text("\(firstName) chose their own photo in their profile.")
                             .foregroundStyle(Theme.muted)
@@ -858,7 +865,7 @@ struct MemberEditor: View {
                     ColorPalettePicker(selection: $color, colors: palette)
                 }
                 Section("Account") {
-                    if member.userId != nil {
+                    if current.userId != nil {
                         Label(isMe ? "Signed in on this iPhone" : "Has an Ohana Display login", systemImage: "person.crop.circle.badge.checkmark")
                             .foregroundStyle(Theme.text)
                     } else {
@@ -888,21 +895,8 @@ struct MemberEditor: View {
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || working || loadingPhoto)
                 }
             }
-            .onChange(of: photoItem) { _, item in
-                guard let item else { return }
-                loadingPhoto = true  // Save and Remove wait for it
-                Task {
-                    let picked = await PickedPhoto(item)
-                    loadingPhoto = false
-                    photoItem = nil
-                    if let picked {
-                        newPhoto = picked
-                        removingPhoto = false
-                    } else {
-                        store.errorMessage = PickedPhoto.unusable
-                    }
-                }
-            }
+            // Cancelled when the sheet closes, so a late answer doesn't land behind it.
+            .task(id: photoItem) { await preparePickedPhoto() }
             .interactiveDismissDisabled(working)
             .sheet(isPresented: $inviting) { CreateInviteView(preselected: member) }
             .showsStoreErrors()
@@ -930,13 +924,28 @@ struct MemberEditor: View {
             }
             guard saved else { return }
         } else if removingPhoto {
+            let removed: Bool
             if isMe {
-                await store.removeAvatar()
+                removed = await store.removeAvatar()  // and the family's photo, so none shows
             } else {
-                guard await store.removeMemberPhoto(for: current) else { return }
+                removed = await store.removeMemberPhoto(for: current)
             }
+            guard removed else { return }
         }
         dismiss()
+    }
+
+    private func preparePickedPhoto() async {
+        guard let item = photoItem else { return }
+        let picked = await PickedPhoto(item)
+        guard !Task.isCancelled else { return }
+        if let picked {
+            newPhoto = picked
+            removingPhoto = false
+        } else {
+            store.errorMessage = PickedPhoto.unusable
+        }
+        photoItem = nil
     }
 
     private func remove() async {

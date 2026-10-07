@@ -24,6 +24,12 @@ struct ProfileView: View {
         store.myProfile?.displayName.nilIfEmpty ?? store.me?.displayName ?? "You"
     }
 
+    /// Your own photo, else the one a parent set for you on the family screen.
+    /// Remove photo takes away both.
+    private var shownPhoto: (path: String, version: String)? {
+        store.avatarPath(for: store.me) ?? store.photo(of: store.myProfile)
+    }
+
     private var nameChanged: Bool {
         guard !trimmedName.isEmpty else { return false }
         if trimmedName != store.myProfile?.displayName { return true }
@@ -64,11 +70,11 @@ struct ProfileView: View {
                 }
                 Section("Photo") {
                     PhotosPicker(selection: $photoItem, matching: .images) {
-                        Label(store.myProfile?.avatarPath == nil ? "Add a photo" : "Choose a new photo",
+                        Label(shownPhoto == nil ? "Add a photo" : "Choose a new photo",
                               systemImage: "photo.on.rectangle")
                     }
                     .disabled(uploading)
-                    if store.myProfile?.avatarPath != nil {
+                    if shownPhoto != nil {
                         Button("Remove photo", systemImage: "trash", role: .destructive) {
                             Task { await store.removeAvatar() }
                         }
@@ -196,9 +202,7 @@ struct ProfileView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            // Your own photo, else the one a parent set for you before you had a login.
-            AvatarCircle(name: shownName, color: store.me?.color ?? "#8E9CE6",
-                         photo: store.avatarPath(for: store.me) ?? store.photo(of: store.myProfile), size: 96)
+            AvatarCircle(name: shownName, color: store.me?.color ?? "#8E9CE6", photo: shownPhoto, size: 96)
                 .overlay {
                     if uploading {
                         Circle().fill(.black.opacity(0.35))

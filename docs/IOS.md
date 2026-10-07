@@ -146,7 +146,11 @@ From the avatar on Home or Family. Edit your display name (`profiles`), and
 optionally use it on the family screen too (your `members` row). **Photo**:
 pick one with `PhotosPicker`; it's cropped to a 512 px square JPEG, uploaded
 to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
-policy), and `profiles.avatar_path` is set. **Remove photo** clears both. Also
+policy), and `profiles.avatar_path` is set. The header and the photo buttons
+go by the photo that shows for you: yours, else the family's photo a parent
+set on your member row. **Remove photo** clears both, and deletes the files
+it may (a kid can't delete files in the family's folder; those go with the
+family). Also
 shows your email, family and role; a family picker when you belong to more
 than one; **Manage family** (see Family management); the **Assistant**
 switch (see Assistant → AI consent); the Siri tip; **Privacy policy** and
@@ -181,8 +185,12 @@ versions them.
   member strip opens the same editors.
 - **Adding** (parents): name, role, color and an optional photo. The photo
   is uploaded first, under the new member's client-made id, and the row is
-  inserted with its `avatar_path`; if the insert fails the file is deleted.
-  Either way nothing is half-added, and a failure keeps the sheet open.
+  inserted with its `avatar_path`. If the server refuses the insert, the file
+  is deleted; if the connection drops, it stays, since the insert may have
+  gone through. Either way nothing is half-added, and a failure keeps the
+  sheet open. Trying again reuses the id: when the last try did go through
+  (`23505` on the primary key), the member is there and the new upload is
+  deleted, so nobody is added twice.
 - **Members.** Tap a member to edit. Parents can change anyone's name, color
   and role, and remove a member (with their chores, points and photo).
   Everyone else can edit only their own name, color and photo; other members
@@ -191,15 +199,19 @@ versions them.
   the error is shown.
 - **Photos.** The camera badge on the editor's circle, or **Add a photo** /
   **Choose a new photo** / **Remove photo**, stage a change that **Save**
-  applies; while a picked photo is being prepared, the circle shows a
-  spinner and Add/Save wait. Your own photo is your profile photo (as in
-  Profile). A parent sets the family's photo of anyone whose account has no
-  photo of its own (usually a kid without a login): it's cropped to a 512 px
-  square JPEG, uploaded to `avatars/<family_id>/<member_id>-<random>.jpg`,
-  and `members.avatar_path` is set; then the old file is deleted. Once a
-  member's account has its own photo, that one shows and their editor says
-  so instead. A kid who gets a login keeps the family's photo until they
-  pick their own; Profile's header shows it too. See PLATFORM_SPEC.md §1.7.
+  applies. While a picked photo is being prepared (a `.task` on the picker's
+  item, cancelled if the sheet closes), the circle shows a spinner and
+  Add/Save wait; while saving, the photo controls are off. Your own photo is
+  your profile photo, and Remove takes away whichever photo shows for you,
+  as in Profile. A parent sets the family's photo of anyone whose account has
+  no photo of its own (usually a kid without a login): it's cropped to a
+  512 px square JPEG, uploaded to
+  `avatars/<family_id>/<member_id>-<random>.jpg`, and `members.avatar_path`
+  is set; then the old file is deleted (or the new one, if the server
+  refuses the update). Once a member's account has its own photo, that one
+  shows and their editor says so instead. A kid who gets a login keeps the
+  family's photo until they pick their own; Profile shows it too. See
+  PLATFORM_SPEC.md §1.7.
 - **Invites** (parents). **Invite** opens a form: who it's for ("Someone new"
   with a role, or an existing member without a login, who then claims their row
   and points), an optional email (only that address can use it), and how long
