@@ -191,12 +191,15 @@ versions them.
   the error is shown.
 - **Photos.** The camera badge on the editor's circle, or **Add a photo** /
   **Choose a new photo** / **Remove photo**, stage a change that **Save**
-  applies. Your own photo is your profile photo (as in Profile). A parent
-  sets the photo of a member without a login: it's cropped to a 512 px square
-  JPEG, uploaded to `avatars/<family_id>/<member_id>-<random>.jpg`, and
-  `members.avatar_path` is set; then the old file is deleted. A member with a
-  login chooses their own photo, so their editor says so instead. See
-  PLATFORM_SPEC.md §1.7.
+  applies; while a picked photo is being prepared, the circle shows a
+  spinner and Add/Save wait. Your own photo is your profile photo (as in
+  Profile). A parent sets the family's photo of anyone whose account has no
+  photo of its own (usually a kid without a login): it's cropped to a 512 px
+  square JPEG, uploaded to `avatars/<family_id>/<member_id>-<random>.jpg`,
+  and `members.avatar_path` is set; then the old file is deleted. Once a
+  member's account has its own photo, that one shows and their editor says
+  so instead. A kid who gets a login keeps the family's photo until they
+  pick their own; Profile's header shows it too. See PLATFORM_SPEC.md §1.7.
 - **Invites** (parents). **Invite** opens a form: who it's for ("Someone new"
   with a role, or an existing member without a login, who then claims their row
   and points), an optional email (only that address can use it), and how long

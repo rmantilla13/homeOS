@@ -196,7 +196,9 @@ struct ProfileView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            AvatarCircle(name: shownName, color: store.me?.color ?? "#8E9CE6", photo: store.photo(of: store.myProfile), size: 96)
+            // Your own photo, else the one a parent set for you before you had a login.
+            AvatarCircle(name: shownName, color: store.me?.color ?? "#8E9CE6",
+                         photo: store.avatarPath(for: store.me) ?? store.photo(of: store.myProfile), size: 96)
                 .overlay {
                     if uploading {
                         Circle().fill(.black.opacity(0.35))

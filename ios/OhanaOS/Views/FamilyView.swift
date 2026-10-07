@@ -605,6 +605,7 @@ struct AddMemberView: View {
     @State private var color = memberPalette[0]
     @State private var photoItem: PhotosPickerItem?
     @State private var photo: PickedPhoto?
+    @State private var loadingPhoto = false
     @State private var working = false
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -613,7 +614,8 @@ struct AddMemberView: View {
         NavigationStack {
             Form {
                 Section {
-                    MemberFormAvatar(name: name, color: color, picked: photo?.image, selection: $photoItem)
+                    MemberFormAvatar(name: name, color: color, picked: photo?.image, loading: loadingPhoto,
+                                     selection: $photoItem)
                         .frame(maxWidth: .infinity)
                         .listRowBackground(Color.clear)
                 }
@@ -628,6 +630,7 @@ struct AddMemberView: View {
                 }
                 Section("Photo") {
                     MemberPhotoRows(selection: $photoItem, hasPhoto: photo != nil) { photo = nil }
+                        .disabled(loadingPhoto)
                 }
                 Section("Color") {
                     ColorPalettePicker(selection: $color)
@@ -641,18 +644,21 @@ struct AddMemberView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { Task { await add() } }
-                        .disabled(trimmedName.isEmpty || working)
+                        .disabled(trimmedName.isEmpty || working || loadingPhoto)
                 }
             }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
+                loadingPhoto = true  // Add waits for it
                 Task {
-                    if let picked = await PickedPhoto(item) {
+                    let picked = await PickedPhoto(item)
+                    loadingPhoto = false
+                    photoItem = nil
+                    if let picked {
                         photo = picked
                     } else {
                         store.errorMessage = PickedPhoto.unusable
                     }
-                    photoItem = nil
                 }
             }
             .interactiveDismissDisabled(working)
@@ -685,18 +691,25 @@ struct PickedPhoto {
     }
 }
 
-/// The circle at the top of a member form. With `selection`, a camera badge
-/// picks a photo.
+/// The circle at the top of a member form, with a spinner while a picked
+/// photo is being prepared. With `selection`, a camera badge picks a photo.
 struct MemberFormAvatar: View {
     let name: String
     let color: String
     var photo: (path: String, version: String)?
     var picked: UIImage?
+    var loading = false
     var selection: Binding<PhotosPickerItem?>?
 
     var body: some View {
         AvatarCircle(name: name, color: color, photo: photo, picked: picked, size: 84)
             .animation(Theme.springy, value: color)
+            .overlay {
+                if loading {
+                    Circle().fill(.black.opacity(0.35))
+                    ProgressView().tint(.white)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if let selection {
                     PhotosPicker(selection: selection, matching: .images) {
@@ -708,6 +721,7 @@ struct MemberFormAvatar: View {
                             .overlay(Circle().stroke(Theme.surface, lineWidth: 2))
                     }
                     .buttonStyle(.borderless)  // only the badge is tappable, not the whole row
+                    .disabled(loading)
                     .accessibilityLabel("Choose a photo")
                 }
             }
@@ -772,6 +786,7 @@ struct MemberEditor: View {
     @State private var role: MemberRole
     @State private var photoItem: PhotosPickerItem?
     @State private var newPhoto: PickedPhoto?
+    @State private var loadingPhoto = false
     @State private var removingPhoto = false
     @State private var working = false
     @State private var confirmingRemove = false
@@ -790,8 +805,11 @@ struct MemberEditor: View {
     private var palette: [String] { memberPalette.contains(member.color) ? memberPalette : memberPalette + [member.color] }
     /// The member as the store has them now (a save or a refresh may have changed them).
     private var current: Member { store.member(member.id) ?? member }
-    /// You change your own profile photo; parents set the photo of someone without a login.
-    private var canChangePhoto: Bool { isMe || (store.isParent && member.userId == nil) }
+    /// The member's account has a photo of its own, which shows instead of the family's.
+    private var hasOwnPhoto: Bool { store.profile(for: current.userId)?.avatarPath != nil }
+    /// You change your own profile photo. Parents set the family's photo of anyone
+    /// else whose account has none of its own (usually a kid without a login).
+    private var canChangePhoto: Bool { isMe || (store.isParent && !hasOwnPhoto) }
     private var hasPhoto: Bool {
         let saved = isMe ? store.myProfile?.avatarPath : current.avatarPath
         return newPhoto != nil || (saved != nil && !removingPhoto)
@@ -805,6 +823,7 @@ struct MemberEditor: View {
                         MemberFormAvatar(name: name, color: color,
                                          photo: removingPhoto ? nil : store.avatarPath(for: current),
                                          picked: newPhoto?.image,
+                                         loading: loadingPhoto,
                                          selection: canChangePhoto ? $photoItem : nil)
                         if isMe {
                             Text("This is you").font(.caption.weight(.semibold)).foregroundStyle(Theme.muted)
@@ -829,8 +848,9 @@ struct MemberEditor: View {
                             newPhoto = nil
                             removingPhoto = true
                         }
+                        .disabled(loadingPhoto)
                     } else {
-                        Text("\(firstName) chooses their own photo in their profile.")
+                        Text("\(firstName) chose their own photo in their profile.")
                             .foregroundStyle(Theme.muted)
                     }
                 }
@@ -865,19 +885,22 @@ struct MemberEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || working)
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || working || loadingPhoto)
                 }
             }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
+                loadingPhoto = true  // Save and Remove wait for it
                 Task {
-                    if let picked = await PickedPhoto(item) {
+                    let picked = await PickedPhoto(item)
+                    loadingPhoto = false
+                    photoItem = nil
+                    if let picked {
                         newPhoto = picked
                         removingPhoto = false
                     } else {
                         store.errorMessage = PickedPhoto.unusable
                     }
-                    photoItem = nil
                 }
             }
             .interactiveDismissDisabled(working)
