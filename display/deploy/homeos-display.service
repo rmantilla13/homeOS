@@ -18,12 +18,9 @@ After=systemd-udev-trigger.service
 Wants=systemd-logind.service
 Wants=user@@UID@.service
 After=user@@UID@.service
-# The boot video is already running (it is ordered before this unit). It is
-# not a Conflicts=: both units have to be queued at boot, and a conflict
-# would drop one of them. ExecStartPre stops the player and waits until it
-# has released HDMI. That helper signals the process directly; `systemctl
-# stop` from here deadlocks the boot transaction.
-After=homeos-bootscreen.service
+# Nothing else draws on HDMI during boot. The app shows its own boot screen
+# from its first frame (qml/screens/BootScreen.qml), so there is no player
+# to stop and no console between the two.
 # Own the first console. Conflicts stops the login prompt; Before= (not After=)
 # so when both are queued we start and getty is stopped. After=getty waits for
 # the prompt, then the two units order-cycle and systemd drops this start —
@@ -70,7 +67,6 @@ TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
 UtmpIdentifier=tty1
-ExecStartPre=-+/usr/local/libexec/homeos-stop-bootscreen
 ExecStart=/usr/local/bin/homeos-display
 Restart=always
 # A missing screen or a GPU that is still starting exits the process. Come

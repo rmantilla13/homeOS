@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Regenerate display/deploy/boot/boot.mp4.
+"""Regenerate the boot screen layers in display/resources/boot/.
 
-Original homeOS bootscreen: warm canvas (#F1EFEB), the day-palette glow
-arch (blue, coral, amber), a house mark, and the homeOS wordmark. Silent,
-1920x1200, a few seconds, and it loops cleanly. Needs python3, numpy,
-ffmpeg, and an Inter Medium font (the fonts-inter package, or any
-Inter-Medium file on the font path).
+The homeOS boot screen: warm canvas (#F1EFEB), the day-palette glow arch
+(blue, coral, amber), a house mark and the homeOS wordmark. The app draws it
+itself (qml/screens/BootScreen.qml), so it is three PNGs for a 1920x1200
+stage rather than a video:
 
-The installer ships the mp4 it writes. You do not need to run this on the Pi.
+  background.png  canvas and arch
+  highlight.png   the soft light that drifts along the arch
+  mark.png        house and wordmark on transparent
+
+Needs python3, numpy, ffmpeg, and an Inter Medium font (the fonts-inter
+package, or any Inter-Medium file on the font path). The build embeds the
+PNGs this writes; you do not need to run this on the Pi.
 """
 
 from __future__ import annotations
@@ -20,14 +25,15 @@ import tempfile
 
 import numpy as np
 
+# Keep these in step with BootScreen.qml.
 W, H = 1920, 1200
-FPS = 24
-DURATION = 6
 # Circle whose top sits under the wordmark. Screen y grows downward, so the
 # top of the circle is cy - r.
 CX, CY, R = 960.0, 1460.0, 740.0
 ARCH_SIGMA = 88.0
 ARCH_PEAK = 0.42
+HOUSE_Y = 248
+WORDMARK_Y = 608
 CANVAS = np.array([241, 239, 235], np.float32)  # #F1EFEB
 INK = np.array([28, 28, 31], np.float32)  # #1C1C1F
 
@@ -82,7 +88,7 @@ def render_background() -> np.ndarray:
     alpha *= np.clip((ys - 620.0) / 80.0, 0.0, 1.0)
     colors = gradient_row()[None, :, :]
     out = CANVAS + (colors - CANVAS) * alpha[:, :, None]
-    return np.clip(out, 0, 255).astype(np.uint8)
+    return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
 def arc_points(cx, cy, radius, a0, a1, n=12):
@@ -105,8 +111,8 @@ def house_segments():
     return list(zip(pts, pts[1:]))
 
 
-def render_house():
-    # Tight bitmap around the mark, with padding so the stroke isn't clipped.
+def render_house() -> np.ndarray:
+    """Coverage (0..1) of the house stroke, in a tight bitmap."""
     scale = 9.0
     pad = 8.0
     minx, miny, maxx, maxy = 18.0, 20.0, 46.0, 48.0
@@ -129,14 +135,10 @@ def render_house():
         mind = np.minimum(mind, dist)
     aa = 1.35
     alpha = np.clip((radius + aa - mind) / (2 * aa), 0.0, 1.0)
-    alpha = np.where(mind <= radius - aa, 1.0, alpha).astype(np.float32)
-    rgba = np.zeros((height, width, 4), np.uint8)
-    rgba[:, :, :3] = INK.astype(np.uint8)
-    rgba[:, :, 3] = np.clip(alpha * 255, 0, 255).astype(np.uint8)
-    return rgba
+    return np.where(mind <= radius - aa, 1.0, alpha).astype(np.float32)
 
 
-def render_highlight():
+def render_highlight() -> np.ndarray:
     size = 560
     ys, xs = np.mgrid[0:size, 0:size].astype(np.float32)
     dist = np.hypot(xs - size / 2, ys - size / 2)
@@ -145,61 +147,69 @@ def render_highlight():
     rgba[:, :, 0] = 255
     rgba[:, :, 1] = 246
     rgba[:, :, 2] = 230
-    rgba[:, :, 3] = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+    rgba[:, :, 3] = np.clip(np.rint(alpha * 255), 0, 255).astype(np.uint8)
     return rgba
 
 
-def main() -> None:
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "boot.mp4")
-    font = find_font()
-    bg = render_background()
+def draw_wordmark(stage: np.ndarray, font: str, tmp: str) -> np.ndarray:
+    """The stage with the wordmark drawn on it by ffmpeg (freetype)."""
+    src = os.path.join(tmp, "stage.rgb")
+    dst = os.path.join(tmp, "text.rgb")
+    stage.tofile(src)
+    subprocess.check_call([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-i", src,
+        "-vf", (
+            f"drawtext=fontfile='{font}':text='homeOS':fontsize=116:"
+            f"fontcolor=0x1C1C1F:x=(w-text_w)/2:y={WORDMARK_Y}"
+        ),
+        "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", dst,
+    ])
+    return np.fromfile(dst, np.uint8).reshape(H, W, 3).astype(np.float32)
+
+
+def render_mark(font: str, tmp: str) -> np.ndarray:
+    # Ink over black and over white: the difference between the two is how
+    # much of each pixel the ink covers.
     house = render_house()
-    blob = render_highlight()
-    # Highlight rides the same circle as the arch and is back where it
-    # started when the clip loops (one full sine period).
-    half = blob.shape[0] // 2
-    overlay_x = f"{CX:.1f}+{R:.1f}*cos(-PI/2+0.78*sin(2*PI*t/{DURATION}))-{half}"
-    overlay_y = f"{CY:.1f}+{R:.1f}*sin(-PI/2+0.78*sin(2*PI*t/{DURATION}))-{half}"
-    house_y = 248
+    hh, hw = house.shape
+    hx = (W - hw) // 2
+    shots = []
+    for bg in (0.0, 255.0):
+        stage = np.full((H, W, 3), bg, np.float32)
+        region = stage[HOUSE_Y:HOUSE_Y + hh, hx:hx + hw]
+        region[:] = INK + (region - INK) * (1.0 - house[:, :, None])
+        stage = np.clip(np.rint(stage), 0, 255).astype(np.uint8)
+        shots.append(draw_wordmark(stage, font, tmp))
+    black, white = shots
+    coverage = 1.0 - (white - black).mean(axis=2) / 255.0
+    rgba = np.zeros((H, W, 4), np.uint8)
+    rgba[:, :, :3] = INK.astype(np.uint8)
+    rgba[:, :, 3] = np.clip(np.rint(coverage * 255), 0, 255).astype(np.uint8)
+    return rgba
+
+
+def write_png(pixels: np.ndarray, path: str, tmp: str) -> None:
+    height, width, channels = pixels.shape
+    fmt = "rgba" if channels == 4 else "rgb24"
+    raw = os.path.join(tmp, "layer.raw")
+    pixels.tofile(raw)
+    subprocess.check_call([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", fmt, "-s", f"{width}x{height}", "-i", raw,
+        "-frames:v", "1", "-pix_fmt", fmt, "-pred", "mixed", path,
+    ])
+    print(f"wrote {path} ({os.path.getsize(path)} bytes)")
+
+
+def main() -> None:
+    out = os.path.dirname(os.path.abspath(__file__))
+    font = find_font()
     with tempfile.TemporaryDirectory() as tmp:
-        bg_path = os.path.join(tmp, "bg.rgb")
-        house_path = os.path.join(tmp, "house.rgba")
-        blob_path = os.path.join(tmp, "blob.rgba")
-        bg.tofile(bg_path)
-        house.tofile(house_path)
-        blob.tofile(blob_path)
-        hh, hw = house.shape[:2]
-        filter_graph = ";".join(
-            [
-                f"[0:v][1:v]overlay=x='{overlay_x}':y='{overlay_y}':format=auto[glow]",
-                f"[glow][2:v]overlay=x=(W-w)/2:y={house_y}:format=auto[mark]",
-                (
-                    "[mark]drawtext="
-                    f"fontfile='{font}':text='homeOS':fontsize=116:"
-                    "fontcolor=0x1C1C1F:x=(w-text_w)/2:y=608,"
-                    "format=yuv420p[out]"
-                ),
-            ]
-        )
-        cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-stream_loop", "-1", "-framerate", str(FPS),
-            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-i", bg_path,
-            "-stream_loop", "-1", "-framerate", str(FPS),
-            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{blob.shape[1]}x{blob.shape[0]}",
-            "-i", blob_path,
-            "-stream_loop", "-1", "-framerate", str(FPS),
-            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{hw}x{hh}", "-i", house_path,
-            "-filter_complex", filter_graph,
-            "-map", "[out]",
-            "-t", str(DURATION), "-r", str(FPS), "-an",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            out,
-        ]
-        subprocess.check_call(cmd)
-    size = os.path.getsize(out)
-    print(f"wrote {out} ({size} bytes, font {font})")
+        write_png(render_background(), os.path.join(out, "background.png"), tmp)
+        write_png(render_highlight(), os.path.join(out, "highlight.png"), tmp)
+        write_png(render_mark(font, tmp), os.path.join(out, "mark.png"), tmp)
+    print(f"font {font}")
 
 
 if __name__ == "__main__":

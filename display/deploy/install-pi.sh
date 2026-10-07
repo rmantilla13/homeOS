@@ -14,11 +14,11 @@
 #
 # Safe to re-run, also after an interrupted run: it rebuilds, reinstalls and
 # restarts the app (and updates the voice service if it's installed), and
-# keeps an existing /etc/homeos/display.env. A file at /etc/homeos/boot.mp4
-# replaces the built-in boot video; the next reboot plays it. A video set in
-# the admin console is downloaded in the background, once the network is up,
-# to /var/lib/homeos/boot.mp4, and plays from the next boot when that
-# override is absent.
+# keeps an existing /etc/homeos/display.env. The app draws its own boot
+# screen (the logo, at least 5 s). A file at /etc/homeos/boot.mp4 plays there
+# instead from the next start. A video set in the admin console is downloaded
+# in the background, once the network is up, to /var/lib/homeos/boot.mp4, and
+# plays from the next boot when that override is absent.
 set -euo pipefail
 
 if [ "$(uname -s)" != Linux ]; then
@@ -58,8 +58,7 @@ if [ "$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)" = bookworm ]; then
 fi
 # Sound: Qt plays video sound through PulseAudio, which Lite doesn't run;
 # PipeWire provides it. libasound2-plugins lets ALSA programs use it too.
-# Boot video: the ffmpeg package includes ffplay, which draws on the KMS/DRM
-# screen before the app starts. ffmpeg itself is the framebuffer fallback.
+# curl downloads the admin's boot video. The app plays it, like any video.
 sudo apt-get update
 sudo apt-get install -y \
     build-essential cmake git \
@@ -72,7 +71,7 @@ sudo apt-get install -y \
     qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin qml6-module-qt-labs-folderlistmodel \
     pipewire pipewire-pulse wireplumber libasound2-plugins alsa-utils \
     fonts-inter fonts-noto-color-emoji \
-    ffmpeg curl \
+    curl \
     "${media[@]}"
 
 step "Building homeos-display"
@@ -188,6 +187,8 @@ LANG=en_US.UTF-8
 QT_SCALE_FACTOR=1.5
 # Seconds without a touch before the photo frame starts.
 HOMEOS_IDLE_SECONDS=120
+# Least seconds the boot screen holds the logo; 0 skips it.
+HOMEOS_BOOT_SECONDS=5
 
 # Uncomment to connect to your Supabase project (otherwise it runs with demo data):
 #HOMEOS_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
@@ -218,10 +219,10 @@ ensure_display_env QT_QPA_EGLFS_HIDECURSOR 1
 ensure_display_env QT_QPA_EGLFS_ALWAYS_SET_MODE 1
 
 step "Configuring the console"
-# Hide the rainbow splash and the kernel log, and keep the console from
-# blanking or showing a cursor behind the app. The panel then stays dark
-# until the boot video (or Ohana) draws, instead of scrolling boot text.
-# SSH is unchanged. Takes effect on reboot.
+# Hide the rainbow splash, send all boot text to tty3 (never on screen), and
+# keep the console from blanking or showing a cursor behind the app. The
+# panel then stays black until Ohana draws its boot screen, instead of
+# scrolling boot text. SSH is unchanged. Takes effect on reboot.
 "$repo/display/deploy/quiet-boot.sh"
 
 # cloud-init prints "Completed socket interaction for boot stage final" on
@@ -343,12 +344,18 @@ if systemctl is-active --quiet ssh; then
     sudo systemctl reload ssh
 fi
 
-step "Installing the boot video"
+step "Installing the boot video download"
+# Older installs played the boot video with ffplay from homeos-bootscreen,
+# which held HDMI until the kiosk stopped it. The app draws the boot screen
+# itself now and stops nothing, so that player would keep the panel: take
+# it out before the new kiosk unit goes in.
+sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
+sudo rm -f /etc/systemd/system/homeos-bootscreen.service \
+    /etc/systemd/system/multi-user.target.wants/homeos-bootscreen.service \
+    /usr/local/libexec/homeos-bootscreen /usr/local/libexec/homeos-stop-bootscreen \
+    /usr/local/share/homeos/boot.mp4
 sudo install -d -m 755 /var/lib/homeos
-sudo install -D -m 755 "$repo/display/deploy/boot/homeos-bootscreen" /usr/local/libexec/homeos-bootscreen
-sudo install -D -m 755 "$repo/display/deploy/boot/homeos-stop-bootscreen" /usr/local/libexec/homeos-stop-bootscreen
-sudo install -D -m 644 "$repo/display/deploy/boot/boot.mp4" /usr/local/share/homeos/boot.mp4
-sudo install -D -m 644 "$repo/display/deploy/homeos-bootscreen.service" /etc/systemd/system/homeos-bootscreen.service
+sudo install -D -m 755 "$repo/display/deploy/homeos-boot-video-sync" /usr/local/libexec/homeos-boot-video-sync
 sudo install -m 644 "$repo/display/deploy/homeos-boot-video-sync.service" /etc/systemd/system/homeos-boot-video-sync.service
 sudo install -m 644 "$repo/display/deploy/homeos-boot-video-sync.timer" /etc/systemd/system/homeos-boot-video-sync.timer
 
@@ -383,14 +390,13 @@ sudo systemctl daemon-reload
 # The admin's boot video downloads after boot, never during it. Fetch it now
 # too, in the background, so the reboot below can already play it.
 if ! sudo systemctl enable --now homeos-boot-video-sync.timer; then
-    echo "The boot video download timer did not start; the built-in or cached video still plays." >&2
+    echo "The boot video download timer did not start; the boot screen shows the logo or the last video." >&2
 fi
 sudo systemctl start --no-block homeos-boot-video-sync.service || true
 # kiosk-boot-begin
 if systemctl is-enabled --quiet homeos-preview 2>/dev/null; then
     echo "Preview mode is on, so the kiosk stays off (./display/deploy/preview.sh off switches back)"
     sudo systemctl disable --now homeos-display 2>/dev/null || true
-    sudo systemctl disable --now homeos-bootscreen 2>/dev/null || true
 else
     # A previous install may have left this disabled or masked. enable writes
     # the multi-user.target.wants symlink, which is what a reboot starts.
@@ -400,13 +406,6 @@ else
     # skip this when the unit is inactive: that is a fresh install, and a
     # unit systemd dropped from the previous boot transaction.
     sudo systemctl unmask homeos-display
-    sudo systemctl unmask homeos-bootscreen 2>/dev/null || true
-    # Enabled for the next reboot only. Starting it now would fight the app
-    # this restart is about to put on the screen. A failure here must not
-    # skip enabling the kiosk.
-    if ! sudo systemctl enable homeos-bootscreen; then
-        echo "Boot video was not enabled. The app still starts; re-run the installer to try the video again." >&2
-    fi
     # Enable before anything touches tty1. Run from a login on the panel, this
     # script is hung up with that console below, and the next boot must still
     # start the kiosk.
@@ -467,7 +466,7 @@ else
     echo "active means the app has the panel. A terminal on the panel means it does not."
     echo "To put Ohana on HDMI:  sudo systemctl enable --now homeos-display"
     echo "Reboot so the console settings apply:  sudo reboot"
-    echo "That reboot hides boot text and plays a short video until the app is up."
+    echo "After it, boot shows no text: the panel stays black until the Ohana boot screen."
     if [ "$state" != "active" ]; then
         echo "The service is not active. Logs (this does not start the screen):" >&2
         echo "  journalctl -u homeos-display -b --no-pager" >&2

@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Download the boot video set in the admin console to /var/lib/homeos/boot.mp4
+# (HOMEOS_BOOT_CACHE). The app's boot screen plays it from the next start,
+# when /etc/homeos/display.env names HOMEOS_SUPABASE_URL and
+# HOMEOS_SUPABASE_ANON_KEY and there is no local override at
+# /etc/homeos/boot.mp4. With neither, the boot screen shows the logo.
+#
+# Run by homeos-boot-video-sync.timer once the network is up, so boot never
+# waits on it. The video is boot-video/current.mp4 in Storage. HTTP 304 keeps
+# the cache, 404 (removed in admin) deletes it, and any other failure keeps
+# the last one. Never touches the local override.
+set -euo pipefail
+
+cache="${HOMEOS_BOOT_CACHE:-/var/lib/homeos/boot.mp4}"
+env_file="${HOMEOS_DISPLAY_ENV:-/etc/homeos/display.env}"
+
+log() { printf 'homeos-boot-video-sync: %s\n' "$*" >&2; }
+
+load_display_env() {
+    HOMEOS_SUPABASE_URL=""
+    HOMEOS_SUPABASE_ANON_KEY=""
+    [ -f "$env_file" ] || return 0
+    local line key val
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        case "$line" in
+            ''|\#*) continue ;;
+            HOMEOS_SUPABASE_URL=*|HOMEOS_SUPABASE_ANON_KEY=*)
+                key=${line%%=*}
+                val=${line#*=}
+                case "$val" in
+                    \"*\") val=${val#\"}; val=${val%\"} ;;
+                    \'*\') val=${val#\'}; val=${val%\'} ;;
+                esac
+                printf -v "$key" '%s' "$val"
+                ;;
+        esac
+    done <"$env_file"
+}
+
+supabase_ready() {
+    [ -n "${HOMEOS_SUPABASE_URL:-}" ] && [ -n "${HOMEOS_SUPABASE_ANON_KEY:-}" ] || return 1
+    case "$HOMEOS_SUPABASE_URL" in
+        http://*|https://*) ;;
+        *) return 1 ;;
+    esac
+    case "${HOMEOS_SUPABASE_URL}${HOMEOS_SUPABASE_ANON_KEY}" in
+        *[[:space:]]*) return 1 ;;
+    esac
+}
+
+is_mp4() {
+    [ -f "$1" ] || return 1
+    [ "$(wc -c <"$1")" -ge 8 ] || return 1
+    local magic
+    magic=$(dd if="$1" bs=1 skip=4 count=4 2>/dev/null || true)
+    [ "$magic" = "ftyp" ]
+}
+
+# Prints the HTTP code, like curl -w. The key always goes in apikey. Only a
+# legacy anon key (a JWT) doubles as the bearer token, as in the app's
+# SupabaseClient: sb_publishable_ keys are not JWTs, and Storage rejects them
+# in Authorization. -z/-R make a repeat check a 304 instead of a download.
+fetch_boot() {
+    local dest="$1" url="$2"
+    local args=(-sS --connect-timeout 10 --max-time "${HOMEOS_BOOT_FETCH_TIMEOUT:-600}"
+        --speed-limit 1024 --speed-time 60 -R -o "$dest" -w '%{http_code}'
+        -H "apikey: ${HOMEOS_SUPABASE_ANON_KEY}")
+    case "$HOMEOS_SUPABASE_ANON_KEY" in
+        eyJ*) args+=(-H "Authorization: Bearer ${HOMEOS_SUPABASE_ANON_KEY}") ;;
+    esac
+    if [ -f "$cache" ]; then
+        args+=(-z "$cache")
+    fi
+    curl "${args[@]}" "$url"
+}
+
+# Refresh $cache. 0 = cache current (or no backend), 1 = failed and the last
+# cache is kept.
+sync_remote_boot() {
+    local base url tmp code dir
+    load_display_env
+    if ! supabase_ready; then
+        log "no backend in $env_file, so there is no boot video to download"
+        return 0
+    fi
+    base=${HOMEOS_SUPABASE_URL%/}
+    url="$base/storage/v1/object/boot-video/current.mp4"
+    dir=$(dirname "$cache")
+    mkdir -p "$dir" || return 1
+    tmp=$(mktemp "$dir/.boot.XXXXXX") || return 1
+    if [ -n "${HOMEOS_BOOT_FETCH:-}" ]; then
+        code=$("$HOMEOS_BOOT_FETCH" "$tmp" "$url") || code=000
+    elif command -v curl >/dev/null 2>&1; then
+        code=$(fetch_boot "$tmp" "$url") || code=000
+    else
+        code=000
+    fi
+    case "$code" in
+        200)
+            if is_mp4 "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$cache"; then
+                log "downloaded the boot video; it plays from the next boot"
+                return 0
+            fi
+            log "the download is not an MP4; keeping the last boot video"
+            ;;
+        304)
+            rm -f "$tmp"
+            return 0
+            ;;
+        404)
+            rm -f "$tmp" "$cache"
+            log "no boot video is set; the boot screen shows the logo from the next boot"
+            return 0
+            ;;
+        *)
+            log "couldn't download the boot video (HTTP $code); keeping the last one"
+            ;;
+    esac
+    rm -f "$tmp"
+    return 1
+}
+
+if [ "$#" -gt 0 ]; then
+    log "usage: homeos-boot-video-sync"
+    exit 2
+fi
+sync_remote_boot
