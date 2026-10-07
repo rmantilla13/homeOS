@@ -80,6 +80,11 @@ final class FamilyStore {
     /// Set when someone has just signed up or in: a pending family invite is
     /// then accepted without asking again.
     @ObservationIgnored private var redeemAfterAuth = false
+    /// Signed in from an email link that leaves you without a password you
+    /// know: an admin's email invite (its login has none) or "Forgot
+    /// password?". The app asks for one before anything else. Survives
+    /// relaunches until it's saved.
+    private(set) var needsNewPassword = UserDefaults.standard.bool(forKey: Keys.needsPassword)
 
     // Assistant.
     /// Your conversations, most recent first.
@@ -99,6 +104,9 @@ final class FamilyStore {
     private enum Keys {
         static let pendingInvite = "ohanaos.pendingInviteCode"
         static let familyId = "ohanaos.familyId"
+        static let needsPassword = "ohanaos.needsPassword"
+        /// "Forgot password?" sent a link whose code only this iPhone can use.
+        static let passwordResetSent = "ohanaos.passwordResetSent"
     }
 
     var me: Member? {
@@ -338,6 +346,9 @@ final class FamilyStore {
         redeemAfterAuth = true
         do {
             try await supabase.auth.signIn(email: email, password: password)
+            // They know their password, so an older reset link needn't ask for one.
+            setNeedsNewPassword(false)
+            UserDefaults.standard.removeObject(forKey: Keys.passwordResetSent)
         } catch {
             redeemAfterAuth = false
             report(error)
@@ -352,6 +363,8 @@ final class FamilyStore {
         if let code = pendingInviteCode { data["invite_code"] = .string(code) }
         pendingDisplayName = name
         redeemAfterAuth = true
+        // Sign-up stores a new PKCE verifier, so a reset link sent earlier stops working.
+        UserDefaults.standard.removeObject(forKey: Keys.passwordResetSent)
         do {
             let response = try await supabase.auth.signUp(email: email, password: password, data: data,
                                                           redirectTo: Config.authCallbackURL)
@@ -367,7 +380,41 @@ final class FamilyStore {
 
     func signOut() async {
         setPendingInvite(nil)
+        setNeedsNewPassword(false)
+        UserDefaults.standard.removeObject(forKey: Keys.passwordResetSent)
         try? await supabase.auth.signOut()
+    }
+
+    /// "Forgot password?": emails a link that opens the app signed in, to
+    /// choose a new password. Its PKCE code only works with the verifier this
+    /// iPhone stores now, which is how the callback tells it from a sign-up
+    /// confirmation. Auth answers the same whether or not the email has an account.
+    func sendPasswordReset(email: String) async -> Bool {
+        do {
+            try await supabase.auth.resetPasswordForEmail(email, redirectTo: Config.authCallbackURL)
+            UserDefaults.standard.set(true, forKey: Keys.passwordResetSent)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Saves a password for the signed-in login. True when it worked.
+    func setPassword(_ password: String) async -> Bool {
+        do {
+            try await supabase.auth.update(user: UserAttributes(password: password))
+            setNeedsNewPassword(false)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    private func setNeedsNewPassword(_ needed: Bool) {
+        needsNewPassword = needed
+        UserDefaults.standard.set(needed, forKey: Keys.needsPassword)
     }
 
     /// Deletes your account, then signs out. Your login, profile, photo and
@@ -390,7 +437,7 @@ final class FamilyStore {
     }
 
     /// `ohanaos://invite/<CODE>` prefills the invite; `ohanaos://auth-callback`
-    /// finishes an email confirmation or an admin's email invite.
+    /// finishes an email confirmation, an admin's email invite or a password reset.
     func handleOpenURL(_ url: URL) {
         if let code = InviteCode.from(url: url) {
             setPendingInvite(code)
@@ -402,7 +449,7 @@ final class FamilyStore {
 
     private func completeAuthCallback(_ url: URL) async {
         // Admin email invites carry implicit-grant tokens in the fragment;
-        // confirmations of sign-ups made in the app carry a PKCE code.
+        // confirmations of sign-ups and password resets made in the app carry a PKCE code.
         var fragment = URLComponents()
         fragment.percentEncodedQuery = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedFragment
         let items = fragment.queryItems ?? []
@@ -418,14 +465,22 @@ final class FamilyStore {
             return
         }
         redeemAfterAuth = true
+        // Asked for before signing in, so the family screens don't flash first.
+        let neededPassword = needsNewPassword
         do {
             if let accessToken = value("access_token"), let refreshToken = value("refresh_token") {
+                if let type = value("type"), ["invite", "recovery"].contains(type) { setNeedsNewPassword(true) }
                 try await supabase.auth.setSession(accessToken: accessToken, refreshToken: refreshToken)
             } else {
+                // The code exchange doesn't say what the link was for. Only the
+                // latest verifier works, and sign-up clears the flag.
+                if UserDefaults.standard.bool(forKey: Keys.passwordResetSent) { setNeedsNewPassword(true) }
                 try await supabase.auth.session(from: url)
+                UserDefaults.standard.removeObject(forKey: Keys.passwordResetSent)
             }
         } catch {
             redeemAfterAuth = false
+            setNeedsNewPassword(neededPassword)
             report(error)
         }
     }
