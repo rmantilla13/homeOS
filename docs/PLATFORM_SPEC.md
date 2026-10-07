@@ -45,6 +45,11 @@ Migrations are added after the existing ones, never edited in place:
 - `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
 - `20261010000001_account_deletion.sql`: `delete_my_account()`, deleting your
   own account from the iOS app (§1.11). Safe to run again
+- `20261011000001_member_photos.sql`: `members.avatar_url` becomes
+  `avatar_path`, kept in the family's folder by `members_avatar_guard`;
+  `can_read_avatar` also reads family folders; `can_write_member_photo` (§1.7)
+- `20261011000002_storage_member_photos.sql`: the member photo policies on
+  the `avatars` bucket (Supabase-only, like 000005)
 
 The last three were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -208,7 +213,7 @@ public.family_invites (              -- lets someone JOIN an existing family
 **Member guards** (trigger `members_guard`, before insert, update or delete on members)
 
 - Non-parents may update only their own row, and only `display_name`,
-  `color` and `avatar_url`. Changing `role`, `family_id` or `user_id` raises.
+  `color` and `avatar_path`. Changing `role`, `family_id` or `user_id` raises.
   Add an RLS update policy `members_update_self`
   (`using (user_id = auth.uid())`) alongside the existing parent policy.
 - Nobody, parents included, may link an account to a row directly (insert or
@@ -326,10 +331,25 @@ the `admin` function (§2.2), which also removes its Storage files.
 
 ### 1.7 Storage: avatars
 
-- Private bucket `avatars`, with objects at `<user_id>/<file>`; at most 5 MB,
-  `image/jpeg`, `image/png`, `image/webp` or `image/heic`.
-- **Upload, update, delete:** the owner only (the first folder equals `auth.uid()::text`).
-- **Read:** the owner, or anyone who shares a family with that user.
+- Private bucket `avatars`; at most 5 MB, `image/jpeg`, `image/png`,
+  `image/webp` or `image/heic`. Two kinds of folder:
+  - **Profile photos** at `<user_id>/<file>` (`profiles.avatar_path`).
+    Upload, update, delete: the owner only (the first folder equals
+    `auth.uid()::text`). Read: the owner, or anyone who shares a family with
+    that user.
+  - **Member photos** at `<family_id>/<file>` (`members.avatar_path`), for
+    members without a login. Upload, update, delete: a parent of that family
+    (`can_write_member_photo`: exactly one level down, family active). Read:
+    anyone in the family, its displays included (`is_family_member`).
+- `members_avatar_guard` (before insert or update) raises `that photo isn't
+  in this family's folder` unless a new or changed `avatar_path` is
+  `<family_id>/<file>` for the row's own family. Moving an account-less
+  member doesn't re-check it.
+- Clients show a member's profile photo when their account has one, else
+  their member photo. The iOS app writes each member photo to a new file
+  (`<member_id>-<random>.jpg`) and then deletes the old one, so a cached
+  copy is never stale; it deletes the file when it removes the photo or the
+  member. Deleting a family empties `avatars/<family_id>/` (§2.2, §2.4).
 
 ### 1.8 Direct-write guards
 
@@ -430,8 +450,9 @@ playback URLs. Clients send their Supabase JWT. See §3, Media API. Photos
 are capped at 50 MB; videos at 2 GiB.
 
 `admin_delete_family` still deletes rows only. The `admin` function still
-empties `family-media/<family_id>/` (files uploaded before Blob). The console
-then deletes Blob objects under that same prefix (§3).
+empties `family-media/<family_id>/` (files uploaded before Blob) and
+`avatars/<family_id>/` (member photos). The console then deletes Blob
+objects under that same prefix (§3).
 
 ### 1.11 Deleting your own account
 
@@ -577,7 +598,7 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `ban_user` | `user_id` | Refuses to ban yourself. `auth.admin.updateUserById(id, { ban_duration: '876000h' })` |
 | `unban_user` | `user_id` | `ban_duration: 'none'` |
 | `delete_user` | `user_id` | Refuses to delete yourself. `auth.admin.deleteUser`, then removes the user's `avatars/<user_id>/` files |
-| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }`; a cleanup failure doesn't undo the deletion. Photos and videos in Blob are removed by the admin app after this returns (§3). |
+| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/` and the member photos under `avatars/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }` (both folders counted); a cleanup failure doesn't undo the deletion. Photos and videos in Blob are removed by the admin app after this returns (§3). |
 | `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. Blob rows are signed by `/api/media/urls` instead. |
 | `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. |
 | `revoke_device` | `device_id` | `admin_revoke_device` with the admin's own JWT (404 `device not found`). If SQL couldn't delete the auth user, calls `auth.admin.deleteUser`. Returns `{ ok, auth_user_removed }`, or `{ error, auth_user_removed: false }` with 502 when Auth refuses. |
@@ -609,9 +630,10 @@ caller (401, or 503 when Auth is down), then:
 
 1. `rpc('delete_my_account')` with the caller's own client. A refusal
    (`P0001`) is a 400 with the function's message; anything else a 500.
-2. With the service role: empties `avatars/<user_id>/` and
-   `family-media/<family_id>/` for each deleted family. These go before step
-   3, because a retry finds no families left to name.
+2. With the service role: empties `avatars/<user_id>/`, and
+   `family-media/<family_id>/` and `avatars/<family_id>/` for each deleted
+   family. These go before step 3, because a retry finds no families left to
+   name.
 3. If `auth_user_removed` is false: `auth.admin.deleteUser` for each display
    account, then the caller (a 404 counts as removed).
 
@@ -947,8 +969,11 @@ through the media API and Storage paths through Storage.
 
 **Family management**
 
-- Members list. Parents can edit name, color and role, and remove members;
-  anyone can edit their own name and color.
+- Members list, on the Family tab and in Profile → Manage family. Parents
+  can add members (name, role, color, optional photo), edit anyone's name,
+  color and role, set or remove the photo of a member without a login
+  (§1.7), and remove members; anyone can edit their own name and color, and
+  their own photo, which is their profile photo.
 - Invites, for parents: create (role, optional "for an existing member"
   picker listing members without accounts, optional email), share (share
   sheet text including the code and the `ohanaos://invite/CODE` link), revoke,

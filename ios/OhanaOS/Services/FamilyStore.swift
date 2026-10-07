@@ -648,9 +648,69 @@ final class FamilyStore {
         return (path, profile.updatedAt.map { String($0.timeIntervalSince1970) } ?? "")
     }
 
-    /// A member's photo comes from their account's profile, if they have one.
+    /// A member's photo: their account's profile photo if they have one, else
+    /// the one a parent set. That one is a new file each time, so its path is
+    /// its version.
     func avatarPath(for member: Member?) -> (path: String, version: String)? {
-        photo(of: profile(for: member?.userId))
+        if let profilePhoto = photo(of: profile(for: member?.userId)) { return profilePhoto }
+        guard let path = member?.avatarPath else { return nil }
+        return (path: path, version: "")
+    }
+
+    // MARK: Member photos
+
+    /// Parents give a member without a login a photo. It goes to a new file in
+    /// the family's folder, `avatars/<family_id>/<member_id>-<random>.jpg`,
+    /// so other phones don't keep showing the old one from their cache; then
+    /// the old file goes.
+    func setMemberPhoto(_ jpeg: Data, for member: Member) async -> Bool {
+        let old = self.member(member.id)?.avatarPath ?? member.avatarPath
+        var path: String?
+        let ok = await perform {
+            let uploaded = try await self.uploadMemberPhoto(jpeg, for: member.id, in: member.familyId)
+            do {
+                try await supabase.from("members").update(["avatar_path": uploaded])
+                    .eq("id", value: member.id.uuidString).execute()
+            } catch {
+                await self.removeMemberPhotoFile(uploaded, in: member.familyId)
+                throw error
+            }
+            path = uploaded
+        }
+        if ok, let old, let path, old != path { await removeMemberPhotoFile(old, in: member.familyId) }
+        return ok
+    }
+
+    func removeMemberPhoto(for member: Member) async -> Bool {
+        guard let path = self.member(member.id)?.avatarPath ?? member.avatarPath else { return true }
+        if let i = members.firstIndex(where: { $0.id == member.id }) { members[i].avatarPath = nil }
+        let ok = await perform {
+            let clear: [String: AnyJSON] = ["avatar_path": .null]
+            try await supabase.from("members").update(clear).eq("id", value: member.id.uuidString).execute()
+        }
+        if ok { await removeMemberPhotoFile(path, in: member.familyId) }
+        return ok
+    }
+
+    /// Uploads a member photo to a new file and returns its path. The member
+    /// row doesn't need to exist yet.
+    private func uploadMemberPhoto(_ jpeg: Data, for memberId: UUID, in familyId: UUID) async throws -> String {
+        // Storage policies compare the folder with family ids as text, which are lowercase.
+        let token = UUID().uuidString.prefix(8).lowercased()
+        let path = "\(familyId.uuidString.lowercased())/\(memberId.uuidString.lowercased())-\(token).jpg"
+        _ = try await supabase.storage.from(Config.avatarBucket)
+            .upload(path, data: jpeg, options: FileOptions(cacheControl: "3600", contentType: "image/jpeg", upsert: false))
+        return path
+    }
+
+    /// Best effort: a file left behind goes with the family's folder later.
+    private func removeMemberPhotoFile(_ path: String, in familyId: UUID) async {
+        AvatarCache.shared.forget(path: path)
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
+        guard path.hasPrefix("\(familyId.uuidString.lowercased())/") else { return }
+        _ = try? await supabase.storage.from(Config.avatarBucket).remove(paths: [path])
     }
 
     // MARK: Members
@@ -680,13 +740,16 @@ final class FamilyStore {
         }
     }
 
-    /// Parents only. The member's chores, completions and points go with them;
-    /// the server refuses to remove the last parent with an account.
+    /// Parents only. The member's chores, completions, points and photo go with
+    /// them; the server refuses to remove the last parent with an account.
     func removeMember(_ member: Member) async -> Bool {
+        let photo = self.member(member.id)?.avatarPath ?? member.avatarPath
         members.removeAll { $0.id == member.id }
-        return await perform {
+        let ok = await perform {
             try await supabase.from("members").delete().eq("id", value: member.id.uuidString).execute()
         }
+        if ok, let photo { await removeMemberPhotoFile(photo, in: member.familyId) }
+        return ok
     }
 
     /// Unlinks your account. Your member row, points and history stay on the screen.
@@ -772,13 +835,25 @@ final class FamilyStore {
         await loadInvites()
     }
 
-    func addMember(name: String, role: MemberRole, color: String) async {
-        guard let family else { return }
+    /// Parents add someone to the family screen, with a photo when `photo` is
+    /// a JPEG. The photo goes up first, so either both are saved or neither.
+    func addMember(name: String, role: MemberRole, color: String, photo: Data? = nil) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let family, !name.isEmpty else { return false }
         let order = (members.map(\.sortOrder).max() ?? 0) + 1
-        await perform {
-            try await supabase.from("members")
-                .insert(NewMember(familyId: family.id, displayName: name, role: role, color: color, sortOrder: order))
-                .execute()
+        var new = NewMember(familyId: family.id, displayName: name, role: role, color: color, sortOrder: order)
+        members.append(Member(id: new.id, familyId: family.id, userId: nil, displayName: name, role: role,
+                              color: color, sortOrder: order))
+        return await perform {
+            if let photo {
+                new.avatarPath = try await self.uploadMemberPhoto(photo, for: new.id, in: family.id)
+            }
+            do {
+                try await supabase.from("members").insert(new).execute()
+            } catch {
+                if let path = new.avatarPath { await self.removeMemberPhotoFile(path, in: family.id) }
+                throw error
+            }
         }
     }
 

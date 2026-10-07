@@ -20,6 +20,9 @@ struct Member: Codable, Identifiable, Hashable {
     var role: MemberRole
     var color: String
     var sortOrder: Int
+    /// A photo a parent set, in the `avatars` bucket at '<family_id>/<file>'.
+    /// A member with a login shows their profile photo first.
+    var avatarPath: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, role, color
@@ -27,21 +30,25 @@ struct Member: Codable, Identifiable, Hashable {
         case userId = "user_id"
         case displayName = "display_name"
         case sortOrder = "sort_order"
+        case avatarPath = "avatar_path"
     }
 }
 
 struct NewMember: Encodable {
+    var id = UUID()
     var familyId: UUID
     var displayName: String
     var role: MemberRole
     var color: String
     var sortOrder: Int
+    var avatarPath: String?  // left out when nil
 
     enum CodingKeys: String, CodingKey {
-        case role, color
+        case id, role, color
         case familyId = "family_id"
         case displayName = "display_name"
         case sortOrder = "sort_order"
+        case avatarPath = "avatar_path"
     }
 }
 
