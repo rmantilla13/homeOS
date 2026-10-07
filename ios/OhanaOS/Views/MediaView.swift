@@ -536,6 +536,13 @@ struct MediaPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: item.storagePath) {
+            #if DEBUG
+            if DemoMode.isOn {
+                // Demo photos are drawn on the phone; demo videos have no file to play.
+                if !item.isVideo { image = await DemoMedia.fullImage(for: item) }
+                return
+            }
+            #endif
             guard let url = await store.signedURL(for: item) else { return }
             if item.isVideo {
                 if player == nil { player = AVPlayer(url: url) }
