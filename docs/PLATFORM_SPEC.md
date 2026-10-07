@@ -45,6 +45,11 @@ Migrations are added after the existing ones, never edited in place:
 - `20261009000004_blob_limits.sql`: per-file cap of 2 GiB and the Blob video types (§1.9, §1.10)
 - `20261010000001_account_deletion.sql`: `delete_my_account()`, deleting your
   own account from the iOS app (§1.11). Safe to run again
+- `20261011000001_member_photos.sql`: `members.avatar_url` becomes
+  `avatar_path`, kept in the family's folder by `members_avatar_guard`;
+  `can_read_avatar` also reads family folders; `can_write_member_photo` (§1.7)
+- `20261011000002_storage_member_photos.sql`: the member photo policies on
+  the `avatars` bucket (Supabase-only, like 000005)
 
 The last three were `20261008000001` to `20261008000003`. Two of those
 versions were shared with `media_platform` and `media_storage`, and Supabase
@@ -208,7 +213,7 @@ public.family_invites (              -- lets someone JOIN an existing family
 **Member guards** (trigger `members_guard`, before insert, update or delete on members)
 
 - Non-parents may update only their own row, and only `display_name`,
-  `color` and `avatar_url`. Changing `role`, `family_id` or `user_id` raises.
+  `color` and `avatar_path`. Changing `role`, `family_id` or `user_id` raises.
   Add an RLS update policy `members_update_self`
   (`using (user_id = auth.uid())`) alongside the existing parent policy.
 - Nobody, parents included, may link an account to a row directly (insert or
@@ -326,10 +331,25 @@ the `admin` function (§2.2), which also removes its Storage files.
 
 ### 1.7 Storage: avatars
 
-- Private bucket `avatars`, with objects at `<user_id>/<file>`; at most 5 MB,
-  `image/jpeg`, `image/png`, `image/webp` or `image/heic`.
-- **Upload, update, delete:** the owner only (the first folder equals `auth.uid()::text`).
-- **Read:** the owner, or anyone who shares a family with that user.
+- Private bucket `avatars`; at most 5 MB, `image/jpeg`, `image/png`,
+  `image/webp` or `image/heic`. Two kinds of folder:
+  - **Profile photos** at `<user_id>/<file>` (`profiles.avatar_path`).
+    Upload, update, delete: the owner only (the first folder equals
+    `auth.uid()::text`). Read: the owner, or anyone who shares a family with
+    that user.
+  - **Member photos** at `<family_id>/<file>` (`members.avatar_path`), for
+    members without a login. Upload, update, delete: a parent of that family
+    (`can_write_member_photo`: exactly one level down, family active). Read:
+    anyone in the family, its displays included (`is_family_member`).
+- `members_avatar_guard` (before insert or update) raises `that photo isn't
+  in this family's folder` unless a new or changed `avatar_path` is
+  `<family_id>/<file>` for the row's own family. Moving an account-less
+  member doesn't re-check it.
+- Clients show a member's profile photo when their account has one, else
+  their member photo. The iOS app writes each member photo to a new file
+  (`<member_id>-<random>.jpg`) and then deletes the old one, so a cached
+  copy is never stale; it deletes the file when it removes the photo or the
+  member. Deleting a family empties `avatars/<family_id>/` (§2.2, §2.4).
 
 ### 1.8 Direct-write guards
 
@@ -429,9 +449,17 @@ The admin app (the Vercel project that owns the store) signs upload and
 playback URLs. Clients send their Supabase JWT. See §3, Media API. Photos
 are capped at 50 MB; videos at 2 GiB.
 
+A `blob` row's poster is `<family_id>/<id>-thumb.jpg` (JPEG, at most
+256 KiB), set in the insert because `media_items_guard` freezes
+`thumbnail_path` afterwards. No migration pins that name;
+`media_items_thumb_in_family` keeps it in the family's folder and apart from
+the file. `byte_size` is the file's size only: posters are not billed and
+can't push a file over the per-file cap.
+
 `admin_delete_family` still deletes rows only. The `admin` function still
-empties `family-media/<family_id>/` (files uploaded before Blob). The console
-then deletes Blob objects under that same prefix (§3).
+empties `family-media/<family_id>/` (files uploaded before Blob) and
+`avatars/<family_id>/` (member photos). The console then deletes Blob
+objects under that same prefix (§3).
 
 ### 1.11 Deleting your own account
 
@@ -577,9 +605,9 @@ role for Supabase Auth's admin API and Storage. Body: `{ "action": ..., ... }`.
 | `ban_user` | `user_id` | Refuses to ban yourself. `auth.admin.updateUserById(id, { ban_duration: '876000h' })` |
 | `unban_user` | `user_id` | `ban_duration: 'none'` |
 | `delete_user` | `user_id` | Refuses to delete yourself. `auth.admin.deleteUser`, then removes the user's `avatars/<user_id>/` files |
-| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }`; a cleanup failure doesn't undo the deletion. Photos and videos in Blob are removed by the admin app after this returns (§3). |
-| `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. Blob rows are signed by `/api/media/urls` instead. |
-| `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. |
+| `delete_family` | `family_id` | `admin_delete_family` with the admin's own JWT (404 `family not found`), then removes every file under `family-media/<family_id>/` and the member photos under `avatars/<family_id>/`, which SQL can't. Returns `{ ok, files_removed, files_error? }` (both folders counted); a cleanup failure doesn't undo the deletion. Photos and videos in Blob are removed by the admin app after this returns (§3). |
+| `sign_media` | `family_id`, `media_ids` (1 to 60 uuids) | Reads those rows with the service role, only where `family_id` matches, and signs `thumbnail_path` when it is `<family_id>/<file>`, otherwise the photo's `storage_path`. Videos with no poster are omitted. URLs last 10 minutes. Returns `{ urls: [{ id, url }] }`. Not audited. It signs from Storage only, so a Blob row's poster gets no URL here; phones and displays sign Blob rows with `/api/media/urls`. |
+| `delete_media` | `media_id` | `admin_delete_media` with the admin's own JWT (404 `media not found`), then removes `storage_path` and `thumbnail_path` when each is `<family_id>/<file>`. A missing object is not an error. Returns `{ ok, files_removed, files_error? }`. It removes from Storage only: a Blob row's file and poster stay in the Blob store. |
 | `revoke_device` | `device_id` | `admin_revoke_device` with the admin's own JWT (404 `device not found`). If SQL couldn't delete the auth user, calls `auth.admin.deleteUser`. Returns `{ ok, auth_user_removed }`, or `{ error, auth_user_removed: false }` with 502 when Auth refuses. |
 | `get_boot_video` | — | Reads `platform_boot_video` with the service role and, when a row exists, signs `boot-video/current.mp4` for 10 minutes. Returns `{ video: null }` or `{ video: { byte_size, duration_ms, updated_at, preview_url } }`. Not audited. |
 | `create_boot_video_upload` | — | Returns `{ path, signed_url, token }` for a new `boot-video/pending/<uuid>.mp4`. The browser PUTs the file there. The service role key stays in the function. |
@@ -609,9 +637,10 @@ caller (401, or 503 when Auth is down), then:
 
 1. `rpc('delete_my_account')` with the caller's own client. A refusal
    (`P0001`) is a 400 with the function's message; anything else a 500.
-2. With the service role: empties `avatars/<user_id>/` and
-   `family-media/<family_id>/` for each deleted family. These go before step
-   3, because a retry finds no families left to name.
+2. With the service role: empties `avatars/<user_id>/`, and
+   `family-media/<family_id>/` and `avatars/<family_id>/` for each deleted
+   family. These go before step 3, because a retry finds no families left to
+   name.
 3. If `auth_user_removed` is false: `auth.admin.deleteUser` for each display
    account, then the caller (a 404 counts as removed).
 
@@ -670,9 +699,9 @@ The route checks `Authorization: Bearer <supabase access token>` with
 
 | Route | Body | Effect |
 |---|---|---|
-| `/api/media/upload` | `{ family_id, content_type, bytes }` | Member only. `bytes` is an integer from 1 to 50 MB for a photo and 1 to 2 GiB for a video. Photo types: `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/gif`. Video types: `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. The client `PUT`s the bytes to `upload_url` (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'`, `kind` `photo` or `video`, and the returned `id` and `pathname`. |
-| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>`, or whose folder isn't a family the caller belongs to, comes back as `""`. Playback URLs last 6 hours. The wildcard read token stays on the server. |
-| `/api/media/delete` | `{ pathname }` | Member of that folder only, then deletes the blob. `{ ok: true }`. |
+| `/api/media/upload` | `{ family_id, content_type, bytes, thumbnail_bytes? }` | Member only. `bytes` is an integer from 1 to 50 MB for a photo and 1 to 2 GiB for a video. Photo types: `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/gif`. Video types: `video/mp4`, `video/quicktime`, `video/m4v`, `video/x-m4v`, `video/webm`, `video/x-matroska`, `video/mkv`, `video/3gpp`, `video/3gp`, `video/3gpp2`, `video/3g2`. Returns `{ id, pathname, upload_url, content_type }`. With `thumbnail_bytes` an integer from 1 to 262144 (256 KiB), the reply also has `thumbnail: { pathname, upload_url, content_type }`: a presigned `PUT` for `<family_id>/<id>-thumb.jpg`, `image/jpeg`, at most that size, no overwrite. Any other `thumbnail_bytes` is ignored with a logged warning, and a poster that can't be signed is logged and left out; neither fails the upload. The client `PUT`s the poster and the bytes (private store, that pathname only, no overwrite), then inserts `media_items` with `file_store = 'blob'`, `kind` `photo` or `video`, the returned `id` and `pathname`, and `thumbnail_path` when the poster went up. |
+| `/api/media/urls` | `{ paths: string[] }` | At most 200 paths, same order back in `{ urls: string[] }`. A path that isn't `<family_uuid>/<media_uuid>.<photo or video ext>` or a poster `<family_uuid>/<media_uuid>-thumb.jpg`, or whose folder isn't a family the caller belongs to, comes back as `""`. Names match without regard to case and are signed in lowercase. Playback URLs last 6 hours. The wildcard read token stays on the server. |
+| `/api/media/delete` | `{ pathname }` | A file's path only: a poster's path on its own gets 400 (`That isn't a media path.`). Member of that folder only. Deletes the poster `<family_id>/<id>-thumb.jpg` first (a missing one is fine; any other error is logged and doesn't stop the file), then the file (a missing one is fine; any other error is 502). `{ ok: true }`. |
 
 Errors are `{ "error": string }`: 400 bad JSON or body, 401 missing or
 rejected token, 403 not in the family, 413 body over 64 KiB, 502 Blob
@@ -857,9 +886,36 @@ and the admin console show it.
 **Media playback:** `HOMEOS_MEDIA_URL` (settings key `media/url`) is the admin
 app origin. Rows with `file_store = 'blob'` (new photos and videos) are
 signed with `POST /api/media/urls` and the device access token (6 hours,
-same as Storage). Rows still in `family-media` stay on `signUrls`. If the
-URL is unset, Blob files get an empty `url` and a warning; older Storage
-files still play.
+same as Storage), at most 200 paths per request. Rows still in
+`family-media` stay on `signUrls`. If the URL is unset, Blob files get an
+empty `url` and a warning; older Storage files still play.
+
+- Both `storage_path` and `thumbnail_path` are signed; each row gets `url`
+  and `thumbUrl`. A signed URL is reused for 4 of its 6 hours, so a refresh
+  doesn't make players and images load the file again; only new or due paths
+  are signed. If signing again fails, the old URL stays until 5.5 hours,
+  then it is dropped. A `""` from a good reply (a missing poster, an older
+  admin app) is asked again after 15 minutes. A path already being signed
+  isn't asked for twice. Re-pairing forgets the URLs and colors.
+- Posters: grid tiles use the poster (`tileUrl`, decoded at 480 px); a
+  video shows its poster until its first frame, in the viewer and the screen
+  saver; the viewer's blurred backdrop and `ColorSampler` use it too. Colors
+  are cached by `storage_path`; a failed sample is retried after 10 minutes.
+- `photos` and `media` notify on `mediaChanged`, sent only when the
+  decorated list changes, so reloading other tables doesn't rebuild the
+  grid.
+- A video playing in the viewer calls `Device.keepAwake()` (every 30 s, or
+  half the idle time if that is shorter, and when it starts or stops), so
+  the idle timer doesn't close it. It never wakes a sleeping screen.
+- The video screen saver sets the player's source in code, never bound to
+  `Store`: a new URL string would restart the clip. A single video loops
+  while its URL is unchanged. A clip that fails, or whose position stops
+  moving for 10 s, moves on after 2 s; while every clip fails it tries
+  again every 30 s.
+- Under eglfs the app sets `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=drm` unless
+  `display.env` sets it (`,` is CPU only), and logs
+  `homeOS display: video decoding: ...` and `homeOS display: drawing on ...`
+  at start. See `docs/PI_SETUP.md`, Video decoding.
 
 **Settings sheet:** a gear button in the nav rail, above the moon, opens
 `SettingsSheet.qml` with:
@@ -939,16 +995,25 @@ family) has Delete account too, and the welcome screen links the privacy
 policy.
 
 **Media upload:** new photos and videos go to the private Blob store (§1.10).
-Photos are JPEG (≤ 2560 px). Videos are uploaded as-is. The row sets
-`byte_size`, `content_type` and `file_store = blob`. If the row insert fails,
-the Blob object just uploaded is removed. Rows already in Storage keep
-`thumbnail_path` when they have a poster. The display signs Blob paths
+Photos are JPEG (≤ 2560 px). A video that already fits the wall goes as it
+is (HEVC or H.264, 8-bit SDR, long side ≤ 1920 px, ≤ 31 fps, ≤ 16 Mb/s;
+index moved to the front if needed). Anything else is exported as HEVC
+1080p, SDR, ≤ 30 fps, with H.264 1080p as the fallback and the original as
+the last resort (`docs/IOS.md`, Photo and video uploads). Each item carries
+a JPEG poster of at most 256 KiB. The row sets `byte_size` (the file only),
+`content_type`, `thumbnail_path` when the poster went up, and
+`file_store = blob`. If the row insert fails, the Blob object just uploaded
+and its poster are removed. Rows already in Storage keep `thumbnail_path`
+when they have a poster. The display signs Blob paths
 through the media API and Storage paths through Storage.
 
 **Family management**
 
-- Members list. Parents can edit name, color and role, and remove members;
-  anyone can edit their own name and color.
+- Members list, on the Family tab and in Profile → Manage family. Parents
+  can add members (name, role, color, optional photo), edit anyone's name,
+  color and role, set or remove the photo of a member without a login
+  (§1.7), and remove members; anyone can edit their own name and color, and
+  their own photo, which is their profile photo.
 - Invites, for parents: create (role, optional "for an existing member"
   picker listing members without accounts, optional email), share (share
   sheet text including the code and the `ohanaos://invite/CODE` link), revoke,
@@ -969,15 +1034,24 @@ through the media API and Storage paths through Storage.
 - Photos are re-encoded as JPEG, then uploaded through the same presigned
   URL as videos.
 - Photos and videos upload only when `Config.mediaAPIURL` is the admin app's
-  origin. The app asks `POST /api/media/upload` for a presigned URL, `PUT`s
+  origin. The app asks `POST /api/media/upload` for a presigned URL (and one
+  for the poster, by sending `thumbnail_bytes`), `PUT`s the poster and then
   the bytes, and inserts `media_items` with `file_store = 'blob'`. A video
   `PUT` streams the movie file from disk (`URLSession.upload(for:fromFile:)`);
   a photo `PUT` sends the JPEG in memory. An unset URL fails the upload;
   family media is not written to Supabase Storage. Profile avatars still use
   the `avatars` bucket.
+- Items upload one at a time; the next is fetched from Photos and optimized
+  meanwhile. The banner shows the current item's step (getting it from
+  Photos, optimizing with a percentage, bytes sent) and Cancel. Cancel stops
+  a running export or upload, still refreshes the list, and shows no
+  failure summary.
 - Playback of a `blob` row calls `POST /api/media/urls`. A row still in
-  Storage uses a Storage signed URL. Both are cached for an hour.
-- Deleting a blob file calls `POST /api/media/delete` before deleting the row.
+  Storage uses a Storage signed URL. Both are cached for an hour. Opening
+  Media signs every Blob row's poster and file up front, up to 200 paths
+  per request. The grid uses the poster when there is one.
+- Deleting a blob file calls `POST /api/media/delete` (which removes its
+  poster too) before deleting the row.
 
 **Siri:** `AskOhanaOSIntent: AppIntent`
 

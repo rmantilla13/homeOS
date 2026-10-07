@@ -274,6 +274,136 @@ out=$(homeos_pick_hdmi "$sys")
 printf '%s\n' "$out" | grep -qx '/dev/dri/card0' || fail "HDMI card index was pinned"
 rm -rf "$sys"
 
+# Video: the app asks for the Pi 5 HEVC decoder under eglfs, and the
+# installer checks that decoder against the CPU before trusting it.
+grep -q 'QT_FFMPEG_DECODING_HW_DEVICE_TYPES' "$root/display/src/main.cpp" || fail "main.cpp does not pick the video decoder"
+selftest="$(awk '/# hevc-selftest-begin/,/# hevc-selftest-end/' "$install")"
+[ -n "$selftest" ] || fail "hevc self-test not found in install-pi.sh"
+
+# Stand-in for ffmpeg: makes the test clip (-f lavfi), decodes on the CPU,
+# or decodes with -hwaccel drm. FAKE_ENC=fail: no encoder. FAKE_HW: ok,
+# mismatch (other pictures), noline (the decoder wasn't used), convert
+# (the tool can't convert the format), fail (transfer error).
+fakebin="$tmp/fakebin"
+mkdir -p "$fakebin"
+cat >"$fakebin/ffmpeg" <<'FAKE'
+#!/usr/bin/env bash
+hw=0 enc=0 out=""
+for arg in "$@"; do
+    case "$arg" in
+        drm) hw=1 ;;
+        lavfi) enc=1 ;;
+    esac
+    out="$arg"
+done
+if [ "$enc" = 1 ]; then
+    if [ "${FAKE_ENC:-ok}" = fail ]; then
+        echo "Unknown encoder 'libx265'" >&2
+        exit 1
+    fi
+    : >"$out"
+    exit 0
+fi
+frames() { # $1: pts step, then one hash per frame
+    local step="$1" i=0 h
+    shift
+    printf '#format: frame checksums\n#version: 2\n#tb 0: 1/30\n'
+    for h in "$@"; do
+        printf '0, %10d, %10d, %8d, %8d, %s\n' $((i * step)) $((i * step)) "$step" 1382400 "$h"
+        i=$((i + 1))
+    done
+}
+if [ "$hw" = 0 ]; then
+    frames 1 0f343b0931126a20f133d67c2b018a3b 5d41402abc4b2a76b9719d911017c592 7d793037a0760186574b0282f2f435e7
+    exit 0
+fi
+mode="${FAKE_HW:-ok}"
+case "$mode" in
+    convert)
+        echo "Impossible to convert between the formats supported by the filter 'graph 0 input from stream 0:0' and the filter 'auto_scale_0'" >&2
+        exit 1 ;;
+    fail)
+        echo "Error transferring the data to system memory" >&2
+        exit 1 ;;
+esac
+if [ "$mode" != noline ]; then
+    echo "[hevc @ 0x5555] Hwaccel V4L2 HEVC stateless V4; devices: /dev/media0,/dev/video19; buffers: src DMABuf, dst DMABuf; swfmt rpi4_8; V4L2fmt NC12" >&2
+fi
+if [ "$mode" = mismatch ]; then
+    frames 512 0f343b0931126a20f133d67c2b018a3b 5d41402abc4b2a76b9719d911017c592 00000000000000000000000000000000
+else
+    # The same pictures with other timestamps still match.
+    frames 512 0f343b0931126a20f133d67c2b018a3b 5d41402abc4b2a76b9719d911017c592 7d793037a0760186574b0282f2f435e7
+fi
+FAKE
+chmod +x "$fakebin/ffmpeg"
+
+# Runs the installer's self-test (or $1 with the rest as arguments) in a
+# subshell with the fake ffmpeg, and prints its return code.
+selftest_run() {
+    local rc=0
+    (
+        sudo() { "$@"; }
+        PATH="$fakebin:${PATH:-/usr/bin:/bin}"
+        # shellcheck disable=SC1090
+        source /dev/stdin <<<"$selftest"
+        "$@"
+    ) || rc=$?
+    echo "$rc"
+}
+[ "$(FAKE_HW=ok selftest_run hevc_hw_selftest)" = 0 ] || fail "self-test failed a working decoder"
+[ "$(FAKE_HW=mismatch selftest_run hevc_hw_selftest)" = 1 ] || fail "self-test passed a decoder with wrong pictures"
+[ "$(FAKE_HW=noline selftest_run hevc_hw_selftest)" = 1 ] || fail "self-test passed without the HEVC decoder in use"
+[ "$(FAKE_HW=fail selftest_run hevc_hw_selftest)" = 1 ] || fail "self-test passed a decoder that failed"
+[ "$(FAKE_HW=convert selftest_run hevc_hw_selftest)" = 2 ] || fail "a format the tool can't convert was blamed on the decoder"
+[ "$(FAKE_ENC=fail selftest_run hevc_hw_selftest)" = 2 ] || fail "no test clip was not 'could not test'"
+
+# Where the result goes: display.env, with the installer's marker above it.
+envfile="$tmp/display.env"
+key=QT_FFMPEG_DECODING_HW_DEVICE_TYPES
+marker='# set by install-pi.sh hevc self-test'
+printf 'QT_QPA_PLATFORM=eglfs' >"$envfile" # hand-edited: no final newline
+[ -z "$(selftest_run hevc_env_owner "$envfile" | head -n -1)" ] || fail "an unset key has an owner"
+[ "$(selftest_run hevc_record "$envfile" 0)" = 0 ] || fail "recording a working decoder failed"
+grep -qx 'QT_QPA_PLATFORM=eglfs' "$envfile" || fail "recording the result ran into the last line"
+grep -qx "$key=drm" "$envfile" || fail "a working decoder did not write drm"
+[ "$(grep -xc "$marker: drm" "$envfile")" = 1 ] || fail "the result has no marker"
+[ "$(grep -A1 -x "$marker: drm" "$envfile" | tail -1)" = "$key=drm" ] || fail "the marker is not right above the key"
+[ "$(selftest_run hevc_env_owner "$envfile" | head -1)" = installer ] || fail "the installer's value looks hand-set"
+# A later install tests again and replaces its own value.
+selftest_run hevc_record "$envfile" 1 >/dev/null
+grep -qx "$key=," "$envfile" || fail "a failed check did not turn the decoder off"
+[ "$(grep -c "^$key=" "$envfile")" = 1 ] || fail "the key was written twice"
+[ "$(grep -c "^$marker" "$envfile")" = 1 ] || fail "the marker was written twice"
+grep -qx "$marker: ," "$envfile" || fail "the marker does not hold the new value"
+# Could not test: nothing changes.
+before="$(cat "$envfile")"
+selftest_run hevc_record "$envfile" 2 >/dev/null
+[ "$(cat "$envfile")" = "$before" ] || fail "'could not test' changed display.env"
+# A value set by hand is never replaced.
+printf 'QT_QPA_PLATFORM=eglfs\n%s=,\n' "$key" >"$envfile"
+[ "$(selftest_run hevc_env_owner "$envfile" | head -1)" = own ] || fail "a hand-set value was not recognised"
+selftest_run hevc_record "$envfile" 0 >/dev/null
+[ "$(cat "$envfile")" = "$(printf 'QT_QPA_PLATFORM=eglfs\n%s=,' "$key")" ] || fail "the self-test replaced a hand-set value"
+# Nor is the installer's line once the owner edits it in place (drm off
+# because videos show black, say).
+printf 'QT_QPA_PLATFORM=eglfs\n' >"$envfile"
+selftest_run hevc_record "$envfile" 0 >/dev/null
+sed -i "s/^$key=drm\$/$key=,/" "$envfile"
+[ "$(selftest_run hevc_env_owner "$envfile" | head -1)" = own ] || fail "an installer line edited in place still looks like the installer's"
+before="$(cat "$envfile")"
+selftest_run hevc_record "$envfile" 0 >/dev/null
+[ "$(cat "$envfile")" = "$before" ] || fail "the self-test replaced a value edited in place"
+# systemd reads a key with blanks before it, so that's the owner's too.
+printf 'QT_QPA_PLATFORM=eglfs\n  %s=,\n' "$key" >"$envfile"
+[ "$(selftest_run hevc_env_owner "$envfile" | head -1)" = own ] || fail "an indented hand-set value was not recognised"
+before="$(cat "$envfile")"
+selftest_run hevc_record "$envfile" 0 >/dev/null
+[ "$(cat "$envfile")" = "$before" ] || fail "the self-test added a value below an indented hand-set one"
+# The self-test can't hang the install: every ffmpeg run has a hard kill.
+[ "$(printf '%s\n' "$selftest" | grep -c 'timeout 60 ffmpeg')" = 0 ] || fail "an ffmpeg run in the self-test can outlive its timeout"
+[ "$(printf '%s\n' "$selftest" | grep -c 'timeout -k 5 60 ffmpeg')" = 3 ] || fail "the self-test's ffmpeg runs are not all killed after the timeout"
+
 quiet="$root/display/deploy/quiet-boot.sh"
 [ -x "$quiet" ] || fail "quiet-boot.sh is not executable"
 

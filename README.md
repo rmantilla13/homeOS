@@ -12,6 +12,7 @@ small admin console runs the platform.
 | Media     | Family photos and videos, plus a photo-frame mode when idle         |
 | Planning  | Meal plan, shopping lists and weekly planning                       |
 | Assistant | Chat grounded in the family's data, with a wake word for quick spoken answers |
+| Games     | Minigames on the wall display: Traffic Jam, tic-tac-toe, 2048, Same Game, Maroon in Trouble |
 
 ![Home screen](docs/screenshots/home.png)
 
@@ -27,6 +28,8 @@ Dynamic colors: the palette follows the time of day (morning, day, evening, nigh
 
   <img src="docs/screenshots/calendar-month.png" width="32%" alt="Month view">
   <img src="docs/screenshots/quick-answer.png" width="32%" alt="Quick answer after the wake word">
+  <img src="docs/screenshots/games.png" width="32%" alt="Games">
+  <img src="docs/screenshots/traffic-jam.png" width="32%" alt="Traffic Jam">
   <img src="docs/screenshots/admin-overview.png" width="32%" alt="Admin console">
 </p>
 
@@ -51,7 +54,8 @@ sudo apt install qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-websock
   qt6-shadertools-dev \
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
   qml6-module-qtquick-window qml6-module-qtquick-shapes qml6-module-qtmultimedia \
-  qml6-module-qtquick-virtualkeyboard qml6-module-qt-labs-folderlistmodel
+  qml6-module-qtquick-virtualkeyboard qml6-module-qt-labs-folderlistmodel \
+  qml6-module-qtquick-particles qml6-module-qtquick-localstorage libqt6sql6-sqlite
 cmake -S display -B build/display && cmake --build build/display -j
 ./build/display/homeos-display            # runs in demo mode with sample data
 ```
@@ -70,6 +74,7 @@ Useful flags and variables:
 | `HOMEOS_MOOD=morning\|day\|evening\|night\|cycle` | Pin the time-of-day palette, or `cycle` through all four (demos) |
 | `HOMEOS_VOICE_URL` | Voice service address (default `ws://127.0.0.1:8765`) |
 | `HOMEOS_MEDIA_URL` | Admin app origin that signs private photo and video URLs (Vercel Blob) |
+| `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,` | Decode video on the CPU only. On the Pi (eglfs) the app uses `drm`, the Pi 5's HEVC decoder, unless this is set ([docs/PI_SETUP.md](docs/PI_SETUP.md#video-decoding)) |
 
 To connect it to the backend, set:
 
@@ -143,6 +148,7 @@ row-level security protects the data. TestFlight steps are in
 - [Platform spec](docs/PLATFORM_SPEC.md), the contract between all the parts
 - [Accounts, invites and admins](docs/PLATFORM.md)
 - [Admin console](docs/ADMIN.md) · [iOS app](docs/IOS.md) · [Voice service](docs/VOICE.md)
+- [App Store and TestFlight copy](docs/APP_STORE.md), field by field
 - [Hardware](docs/HARDWARE.md)
 - [Raspberry Pi setup](docs/PI_SETUP.md)
 - [Roadmap](docs/ROADMAP.md)

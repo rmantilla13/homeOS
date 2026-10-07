@@ -3,10 +3,11 @@
 //
 // 1. delete_my_account() with the caller's own JWT decides and removes the
 //    rows (see its migration, 20261010000001_account_deletion.sql).
-// 2. Files: the profile photo (avatars/<user_id>/) and the Storage folder of
-//    each family that went with the account (family-media/<family_id>/).
-//    These go before the account, because a retry after a failed step 3
-//    finds no families left to name.
+// 2. Files: the profile photo (avatars/<user_id>/) and, for each family that
+//    went with the account, its Storage folder (family-media/<family_id>/)
+//    and its member photos (avatars/<family_id>/). These go before the
+//    account, because a retry after a failed step 3 finds no families left
+//    to name.
 // 3. When SQL wasn't allowed to delete auth users: the deleted families'
 //    display accounts, then the caller's own. Supabase Auth deleting it also
 //    ends its sessions.
@@ -66,7 +67,7 @@ export async function deleteAccount(deps: Deps, userId: string): Promise<Outcome
   const fileErrors: string[] = [];
   for (const [bucket, folder] of [
     [deps.avatars, userId.toLowerCase()],
-    ...families.map((f) => [deps.familyMedia, f.toLowerCase()] as const),
+    ...families.flatMap((f) => [[deps.familyMedia, f.toLowerCase()], [deps.avatars, f.toLowerCase()]] as const),
   ] as const) {
     const files = await removeFolder(bucket, folder);
     if (files.error) {

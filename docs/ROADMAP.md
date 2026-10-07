@@ -40,6 +40,7 @@
 - [ ] Push notifications: chore reminders, approval requests
 - [ ] Albums, "on this day" memories, video playback on the wall
 - [ ] Meal-plan to shopping-list generation
+- [x] Games tab on the display: Traffic Jam, tic-tac-toe, 2048, Same Game, Maroon in Trouble
 
 ## M4: Custom device
 - [ ] Carrier board for the Raspberry Pi Compute Module 5, with bonded panel and enclosure

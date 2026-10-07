@@ -1,0 +1,318 @@
+# Takes the App Store screenshots. Builds the app for the simulator once, then
+# opens each screen in demo mode and saves a PNG, first on a 6.9-inch iPhone
+# simulator, then on a 6.3-inch one. Those are the two iPhone sizes App Store
+# Connect asks for. Demo mode uses a built-in family and never calls the
+# network, so the build needs no Supabase values or secrets. Runs on pull
+# requests that touch the app and on demand (Actions → App Store screenshots →
+# Run workflow). The PNGs are in the run's app-store-screenshots artifact, in
+# the folders 6.9-inch and 6.3-inch. See docs/IOS.md → CI.
+name: App Store screenshots
+
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/screenshots.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Screenshots (6.9-inch and 6.3-inch iPhone)
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      SPM_DIR: ${{ github.workspace }}/.spm
+      # Passed to the app as -OhanaScreen, in App Store order.
+      SCREENS: home assistant calendar-week calendar-month chores rewards media family
+      # Seconds to wait after each launch for images and animations.
+      SETTLE_SECONDS: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Check Xcode
+        run: |
+          xcodebuild -version
+          major=$(xcodebuild -version | awk 'NR==1 { split($2, v, "."); print v[1] }')
+          if [ "$major" -lt 16 ]; then
+            echo "::error::Xcode 16 or later is required (found $major)"
+            exit 1
+          fi
+
+      # App Store Connect takes portrait screenshots at these sizes:
+      #   6.9-inch: 1320x2868 or 1290x2796 (iPhone 17 Pro Max, 16 Pro Max)
+      #   6.3-inch: 1206x2622 or 1179x2556 (iPhone 17 Pro, 16 Pro)
+      # Both sets use the newest iOS runtime that is no newer than the selected
+      # Xcode's simulator SDK, so a beta runtime on the image is never used.
+      - name: Choose the simulators
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          # Env var prefix, set name, device types to try in order.
+          SETS = [
+              ("SIM_69", "6.9-inch", ("iPhone 17 Pro Max", "iPhone 16 Pro Max")),
+              ("SIM_63", "6.3-inch", ("iPhone 17 Pro", "iPhone 16 Pro")),
+          ]
+
+          def simctl_list(kind):
+              out = subprocess.check_output(["xcrun", "simctl", "list", kind, "--json"])
+              return json.loads(out)[kind]
+
+          def version_key(version):
+              return tuple(int(p) for p in version.split(".") if p.isdigit())
+
+          sdk = subprocess.check_output(
+              ["xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"], text=True
+          ).strip()
+          print(f"Simulator SDK: iOS {sdk}")
+
+          runtimes = [
+              r for r in simctl_list("runtimes")
+              if r.get("isAvailable")
+              and (r.get("platform") == "iOS" or ".SimRuntime.iOS-" in r.get("identifier", ""))
+          ]
+          if not runtimes:
+              print("::error::No iOS simulator runtime is available")
+              sys.exit(1)
+          matching = [
+              r for r in runtimes
+              if version_key(r.get("version", "0"))[:2] <= version_key(sdk)[:2]
+          ]
+          if matching:
+              runtimes = matching
+          else:
+              print(f"::warning::No iOS runtime matches the iOS {sdk} simulator SDK. Using the newest one installed.")
+          runtimes.sort(key=lambda r: version_key(r.get("version", "0")), reverse=True)
+
+          all_device_types = None
+          def device_types(runtime):
+              # Older simctl versions don't list supportedDeviceTypes.
+              global all_device_types
+              if "supportedDeviceTypes" in runtime:
+                  return runtime["supportedDeviceTypes"]
+              if all_device_types is None:
+                  all_device_types = simctl_list("devicetypes")
+              return all_device_types
+
+          # The newest runtime that has a device type for every set.
+          for runtime in runtimes:
+              by_name = {d["name"]: d["identifier"] for d in device_types(runtime)}
+              chosen = []
+              for prefix, set_name, names in SETS:
+                  name = next((n for n in names if n in by_name), None)
+                  if name is None:
+                      break
+                  chosen.append((prefix, set_name, name, by_name[name]))
+              else:
+                  break
+          else:
+              wanted = "; ".join(f"{s}: {' or '.join(n)}" for _, s, n in SETS)
+              print(f"::error::No iOS runtime has a simulator for every set ({wanted})")
+              sys.exit(1)
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"SIM_RUNTIME={runtime['identifier']}\n")
+              env.write(f"SIM_RUNTIME_NAME={runtime['name']}\n")
+              for prefix, set_name, name, identifier in chosen:
+                  env.write(f"{prefix}_TYPE={identifier}\n")
+                  env.write(f"{prefix}_NAME={name}\n")
+                  print(f"{set_name}: {name} on {runtime['name']}")
+          PY
+
+      # Package checkouts, keyed on the committed Package.resolved.
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SPM_DIR }}
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/OhanaOS.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build for the simulator (Debug)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project OhanaOS.xcodeproj \
+            -scheme OhanaOS \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      # One set at a time: create a fresh simulator, boot it, set light
+      # appearance and the status bar, install, take every screen, delete it.
+      - name: Take screenshots
+        id: shoot
+        run: |
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/Ohana.app"
+          bundle=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Info.plist")
+
+          # App Store Connect refuses screenshots with an alpha channel.
+          # Flatten any that still have one by way of a best-quality JPEG.
+          flatten() {
+            alpha=$(sips -g hasAlpha "$1" | awk '/hasAlpha/ { print $2 }')
+            if [ "$alpha" = yes ]; then
+              sips -s format jpeg -s formatOptions best "$1" --out "${1%.png}.jpg" >/dev/null
+              sips -s format png "${1%.png}.jpg" --out "$1" >/dev/null
+              rm "${1%.png}.jpg"
+            fi
+          }
+
+          # Arguments: set name (the folder), device type identifier.
+          shoot_set() {
+            dir="screenshots/$1"
+            echo "::group::$1"
+            udid=$(xcrun simctl create "Ohana screenshots $1" "$2" "$SIM_RUNTIME")
+            # Listed for the clean-up step in case this step fails.
+            echo "$udid" >> "$RUNNER_TEMP/simulators"
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl ui "$udid" appearance light
+            # 9:41 local time as an ISO date-time with a +HH:MM offset, the
+            # form fastlane snapshot passes (simctl refused ...Z). It also
+            # pins the date. If simctl still refuses it, try a plain 9:41,
+            # then go on without a fixed clock: the time is cosmetic.
+            local_time=$(date -j -f '%Y-%m-%d %H:%M:%S' '2007-01-09 09:41:00' '+%Y-%m-%dT%H:%M:%S%z')
+            time="${local_time:0:22}:${local_time:22:2}"
+            echo "Status bar time: $time"
+            bars="--dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100"
+            # $bars is split on purpose: it holds several flags.
+            # shellcheck disable=SC2086
+            xcrun simctl status_bar "$udid" override --time "$time" $bars \
+              || xcrun simctl status_bar "$udid" override --time 9:41 $bars \
+              || { echo "::warning::The simulator refused a fixed status bar time; screenshots show the real time."
+                   xcrun simctl status_bar "$udid" override $bars; }
+            xcrun simctl install "$udid" "$app"
+            launch() {
+              xcrun simctl launch --terminate-running-process "$udid" "$bundle" \
+                -OhanaDemo YES -OhanaScreen "$1" -OhanaMood day
+            }
+            # The first launch after install is slow. Get it out of the way.
+            launch home
+            sleep 10
+            mkdir -p "$dir"
+            n=0
+            for screen in $SCREENS; do
+              n=$((n + 1))
+              file=$(printf '%s/%02d-%s.png' "$dir" "$n" "$screen")
+              launch "$screen"
+              sleep "$SETTLE_SECONDS"
+              xcrun simctl io "$udid" screenshot --type=png --mask=ignored "$file"
+              flatten "$file"
+            done
+            xcrun simctl shutdown "$udid"
+            xcrun simctl delete "$udid"
+            echo "::endgroup::"
+          }
+
+          shoot_set 6.9-inch "$SIM_69_TYPE"
+          shoot_set 6.3-inch "$SIM_63_TYPE"
+
+      - name: Check the screenshots
+        run: |
+          set -- $SCREENS
+          expected=$#
+          bad=0
+          {
+            echo "## App Store screenshots"
+            echo
+            echo "$SIM_RUNTIME_NAME, light appearance, day mood."
+            echo "Download them from this run's **app-store-screenshots** artifact."
+            echo "Each set is in its own folder."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Arguments: set name (the folder), device name, accepted sizes.
+          check_set() {
+            dir="screenshots/$1"
+            {
+              echo
+              echo "### $1 ($2)"
+              echo
+              echo "| File | Size |"
+              echo "|---|---|"
+            } >> "$GITHUB_STEP_SUMMARY"
+            count=0
+            for f in "$dir"/*.png; do
+              [ -e "$f" ] || continue
+              count=$((count + 1))
+              info=$(sips -g pixelWidth -g pixelHeight -g hasAlpha "$f")
+              size=$(echo "$info" | awk '/pixelWidth/ { w = $2 } /pixelHeight/ { h = $2 } END { print w "x" h }')
+              alpha=$(echo "$info" | awk '/hasAlpha/ { print $2 }')
+              note=""
+              case " $3 " in
+                *" $size "*) ;;
+                *)
+                  note="$note, wrong size"
+                  bad=1
+                  echo "::error file=$f::$f is $size, expected $(echo "$3" | sed 's/ / or /g')"
+                  ;;
+              esac
+              if [ "$alpha" = yes ]; then
+                note="$note, has alpha"
+                bad=1
+                echo "::error file=$f::$f has an alpha channel. App Store Connect refuses it."
+              fi
+              echo "| \`${f#screenshots/}\` | $size${note:+ (${note#, })} |" >> "$GITHUB_STEP_SUMMARY"
+            done
+            if [ "$count" -ne "$expected" ]; then
+              echo "::error::Expected $expected $1 screenshots, found $count"
+              bad=1
+            fi
+            if [ "$count" -gt 0 ]; then
+              distinct=$(shasum "$dir"/*.png | awk '{ print $1 }' | sort -u | wc -l | tr -d ' ')
+              if [ "$distinct" -ne "$count" ]; then
+                echo "::error::Only $distinct of $count $1 screenshots differ. Demo mode probably did not load."
+                bad=1
+              fi
+            fi
+          }
+
+          check_set 6.9-inch "$SIM_69_NAME" "1320x2868 1290x2796"
+          check_set 6.3-inch "$SIM_63_NAME" "1206x2622 1179x2556"
+          exit "$bad"
+
+      - name: Upload screenshots
+        if: ${{ !cancelled() && steps.shoot.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-store-screenshots
+          path: screenshots/*/*.png
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Deletes any simulator a failed or cancelled run left behind.
+      - name: Delete the simulators
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/simulators" ] || exit 0
+          while read -r udid; do
+            [ -n "$udid" ] || continue
+            xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+            xcrun simctl delete "$udid" >/dev/null 2>&1 || true
+          done < "$RUNNER_TEMP/simulators"

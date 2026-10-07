@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Members, invites, lists, meals, family memory and wall displays.
@@ -258,7 +259,7 @@ struct FamilyView: View {
     private var memorySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader("Family memory")
-            Text("Things Ohana remembers about your family, like allergies or who carpools with whom.")
+            Text("Things Ohana remembers about your family, like routines or who carpools with whom.")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
             VStack(alignment: .leading, spacing: 12) {
@@ -520,32 +521,113 @@ struct MealEditor: View {
 
 // MARK: - Members & pairing
 
+/// Profile → Manage family: everyone on the family screen. Parents add people
+/// and edit anyone's name, photo, color and role; everyone else edits only
+/// themselves.
+struct ManageFamilyView: View {
+    @Environment(FamilyStore.self) private var store
+    @State private var adding = false
+    @State private var inviting = false
+    @State private var editing: Member?
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(store.members) { member in
+                    Button { editing = member } label: { row(member) }
+                        .disabled(!store.canEdit(member))
+                }
+                if store.isParent {
+                    Button { adding = true } label: {
+                        Label("Add a member", systemImage: "person.badge.plus")
+                    }
+                }
+            } header: {
+                Text(store.family?.name ?? "Members")
+            } footer: {
+                Text(store.isParent
+                     ? "Tap someone to change their name, photo, color or role. Kids don't need a login to be on the family screen."
+                     : "You can change your own name, photo and color. A parent looks after everyone else.")
+            }
+            if store.isParent {
+                Section {
+                    Button { inviting = true } label: {
+                        Label("Invite someone", systemImage: "envelope")
+                    }
+                } footer: {
+                    Text("An invite gives someone their own login, to use Ohana Display on their iPhone.")
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .screenBackground()
+        .navigationTitle("Manage family")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await store.refresh() }
+        .animation(Theme.springy, value: store.members)
+        .sheet(isPresented: $adding) { AddMemberView() }
+        .sheet(isPresented: $inviting) { CreateInviteView() }
+        .sheet(item: $editing) { MemberEditor(member: $0) }
+        .showsStoreErrors()
+    }
+
+    private func row(_ member: Member) -> some View {
+        HStack(spacing: 12) {
+            MemberAvatar(member: member, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.displayName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                Text(detail(member))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            Spacer()
+            if store.canEdit(member) {
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// "You · Parent", "Child · No login".
+    private func detail(_ member: Member) -> String {
+        if member.id == store.me?.id { return "You · \(member.role.title)" }
+        return member.userId == nil ? "\(member.role.title) · No login" : member.role.title
+    }
+}
+
 struct AddMemberView: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var role: MemberRole = .child
     @State private var color = memberPalette[0]
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photo: PickedPhoto?
+    @State private var working = false
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    HStack {
-                        Spacer()
-                        AvatarCircle(name: name, color: color, size: 72)
-                            .animation(Theme.springy, value: color)
-                        Spacer()
-                    }
-                    .listRowBackground(Color.clear)
+                    MemberFormAvatar(name: name, color: color, picked: photo?.image, selection: $photoItem)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
                 }
                 Section {
                     TextField("Name", text: $name)
+                        .textContentType(.name)
                     Picker("Role", selection: $role) {
                         ForEach(MemberRole.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                 } footer: {
-                    Text("Kids don't need a login. To give someone their own, invite them from the Family tab.")
+                    Text("Kids don't need a login. You can invite anyone to get their own later.")
+                }
+                Section("Photo") {
+                    MemberPhotoRows(selection: $photoItem, hasPhoto: photo != nil) { photo = nil }
                 }
                 Section("Color") {
                     ColorPalettePicker(selection: $color)
@@ -556,12 +638,95 @@ struct AddMemberView: View {
             .navigationTitle("Add member")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { Task { await store.addMember(name: name, role: role, color: color); dismiss() } }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Add") { Task { await add() } }
+                        .disabled(trimmedName.isEmpty || working)
                 }
             }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let picked = await PickedPhoto(item) {
+                        photo = picked
+                    } else {
+                        store.errorMessage = PickedPhoto.unusable
+                    }
+                    photoItem = nil
+                }
+            }
+            .interactiveDismissDisabled(working)
+            .showsStoreErrors()
+        }
+    }
+
+    private func add() async {
+        working = true
+        defer { working = false }
+        // A failure keeps the sheet open, with the error, to try again.
+        if await store.addMember(name: trimmedName, role: role, color: color, photo: photo?.jpeg) { dismiss() }
+    }
+}
+
+/// A photo picked in a member form: the square JPEG that's uploaded on save,
+/// and the image to show until then.
+struct PickedPhoto {
+    let jpeg: Data
+    let image: UIImage
+
+    static let unusable = "That photo couldn't be used. Try another one."
+
+    init?(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let jpeg = MediaTools.prepareAvatar(data),
+              let image = UIImage(data: jpeg) else { return nil }
+        self.jpeg = jpeg
+        self.image = image
+    }
+}
+
+/// The circle at the top of a member form. With `selection`, a camera badge
+/// picks a photo.
+struct MemberFormAvatar: View {
+    let name: String
+    let color: String
+    var photo: (path: String, version: String)?
+    var picked: UIImage?
+    var selection: Binding<PhotosPickerItem?>?
+
+    var body: some View {
+        AvatarCircle(name: name, color: color, photo: photo, picked: picked, size: 84)
+            .animation(Theme.springy, value: color)
+            .overlay(alignment: .bottomTrailing) {
+                if let selection {
+                    PhotosPicker(selection: selection, matching: .images) {
+                        Image(systemName: "camera.fill")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Theme.accent, in: Circle())
+                            .overlay(Circle().stroke(Theme.surface, lineWidth: 2))
+                    }
+                    .buttonStyle(.borderless)  // only the badge is tappable, not the whole row
+                    .accessibilityLabel("Choose a photo")
+                }
+            }
+    }
+}
+
+/// "Add a photo" or "Choose a new photo", and "Remove photo", for a member
+/// form that saves later.
+struct MemberPhotoRows: View {
+    @Binding var selection: PhotosPickerItem?
+    let hasPhoto: Bool
+    let remove: () -> Void
+
+    var body: some View {
+        PhotosPicker(selection: $selection, matching: .images) {
+            Label(hasPhoto ? "Choose a new photo" : "Add a photo", systemImage: "photo.on.rectangle")
+        }
+        if hasPhoto {
+            Button("Remove photo", systemImage: "trash", role: .destructive, action: remove)
         }
     }
 }
@@ -594,8 +759,9 @@ struct ColorPalettePicker: View {
     }
 }
 
-/// Edit a member. Parents can change anyone's name, color and role, invite a
-/// member without a login, or remove them; everyone else edits only themselves.
+/// Edit a member. Parents can change anyone's name, color and role, give a
+/// member without a login a photo, invite them, or remove them; everyone else
+/// edits only themselves. Your own photo is your profile photo.
 struct MemberEditor: View {
     @Environment(FamilyStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -604,6 +770,9 @@ struct MemberEditor: View {
     @State private var name: String
     @State private var color: String
     @State private var role: MemberRole
+    @State private var photoItem: PhotosPickerItem?
+    @State private var newPhoto: PickedPhoto?
+    @State private var removingPhoto = false
     @State private var working = false
     @State private var confirmingRemove = false
     @State private var inviting = false
@@ -619,14 +788,24 @@ struct MemberEditor: View {
     private var firstName: String { member.displayName.split(separator: " ").first.map(String.init) ?? member.displayName }
     /// The palette, plus the member's current color if it's a custom one.
     private var palette: [String] { memberPalette.contains(member.color) ? memberPalette : memberPalette + [member.color] }
+    /// The member as the store has them now (a save or a refresh may have changed them).
+    private var current: Member { store.member(member.id) ?? member }
+    /// You change your own profile photo; parents set the photo of someone without a login.
+    private var canChangePhoto: Bool { isMe || (store.isParent && member.userId == nil) }
+    private var hasPhoto: Bool {
+        let saved = isMe ? store.myProfile?.avatarPath : current.avatarPath
+        return newPhoto != nil || (saved != nil && !removingPhoto)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     VStack(spacing: 8) {
-                        AvatarCircle(name: name, color: color, photo: store.avatarPath(for: member), size: 72)
-                            .animation(Theme.springy, value: color)
+                        MemberFormAvatar(name: name, color: color,
+                                         photo: removingPhoto ? nil : store.avatarPath(for: current),
+                                         picked: newPhoto?.image,
+                                         selection: canChangePhoto ? $photoItem : nil)
                         if isMe {
                             Text("This is you").font(.caption.weight(.semibold)).foregroundStyle(Theme.muted)
                         }
@@ -642,6 +821,17 @@ struct MemberEditor: View {
                         }
                     } else {
                         LabeledContent("Role", value: member.role.title)
+                    }
+                }
+                Section("Photo") {
+                    if canChangePhoto {
+                        MemberPhotoRows(selection: $photoItem, hasPhoto: hasPhoto) {
+                            newPhoto = nil
+                            removingPhoto = true
+                        }
+                    } else {
+                        Text("\(firstName) chooses their own photo in their profile.")
+                            .foregroundStyle(Theme.muted)
                     }
                 }
                 Section("Color") {
@@ -663,7 +853,7 @@ struct MemberEditor: View {
                     Section {
                         Button("Remove from family", role: .destructive) { confirmingRemove = true }
                     } footer: {
-                        Text("Their chores, completions and points are deleted too.")
+                        Text("Their chores, completions, points and photo are deleted too.")
                     }
                 }
             }
@@ -672,12 +862,25 @@ struct MemberEditor: View {
             .navigationTitle(isMe ? "You" : member.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || working)
                 }
             }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let picked = await PickedPhoto(item) {
+                        newPhoto = picked
+                        removingPhoto = false
+                    } else {
+                        store.errorMessage = PickedPhoto.unusable
+                    }
+                    photoItem = nil
+                }
+            }
+            .interactiveDismissDisabled(working)
             .sheet(isPresented: $inviting) { CreateInviteView(preselected: member) }
             .showsStoreErrors()
             .confirmationDialog("Remove \(member.displayName)?", isPresented: $confirmingRemove, titleVisibility: .visible) {
@@ -694,6 +897,21 @@ struct MemberEditor: View {
         let changed = name != member.displayName || color != member.color || role != member.role
         if changed {
             guard await store.updateMember(member, name: name, color: color, role: role) else { return }
+        }
+        if let newPhoto {
+            let saved: Bool
+            if isMe {
+                saved = await store.uploadAvatar(newPhoto.jpeg)
+            } else {
+                saved = await store.setMemberPhoto(newPhoto.jpeg, for: current)
+            }
+            guard saved else { return }
+        } else if removingPhoto {
+            if isMe {
+                await store.removeAvatar()
+            } else {
+                guard await store.removeMemberPhoto(for: current) else { return }
+            }
         }
         dismiss()
     }

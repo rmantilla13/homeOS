@@ -57,23 +57,25 @@ ios/OhanaOS/
 │   ├── FamilyStore.swift     the one @Observable store: auth, invites, profile, family data, writes, assistant,
 │   │                         account deletion
 │   ├── AssistantClient.swift `assistant` function over URLSession: SSE streaming and quick answers
-│   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, video)
-│   └── Dictation.swift       SFSpeechRecognizer push-to-talk for the assistant
+│   ├── MediaTools.swift      thumbnail + average-color cache, avatar cache, upload prep (JPEG, EXIF, posters, video optimizing)
+│   ├── Dictation.swift       SFSpeechRecognizer push-to-talk for the assistant
+│   └── DemoData.swift        Debug only: demo mode for screenshots (sample family, photos drawn in code)
 ├── Theme/Theme.swift         tokens, Mood, GlowView, card/pill/tag styles, MemberAvatar/AvatarCircle, SegmentedPill
 └── Views/
     ├── Components/           floating tab bar, activity/approval cards, shared bits
     ├── OnboardingViews.swift welcome (invite code, create account, sign in), enter an invite code,
     │                         create family, invite-link sheet
-    ├── ProfileView.swift     name, photo, email, family switcher, Siri tip, privacy and support links,
-    │                         sign out, delete account
+    ├── ProfileView.swift     name, photo, email, manage family link, family switcher, assistant switch,
+    │                         Siri tip, privacy and support links, sign out, delete account
     ├── InviteViews.swift     create invite, code card with share/copy, pending and accepted rows
     ├── HomeView.swift        Home + assistant hero card
-    ├── AssistantView.swift   streaming chat, thread history
+    ├── AssistantView.swift   streaming chat, thread history, AI consent sheet
     ├── CalendarView.swift    month / week / day, event detail, add and edit event
     ├── ChoresView.swift      chores board, add chore
     ├── RewardsView.swift     balances, rewards, redemptions, add reward
     ├── MediaView.swift       media grid, viewer, upload
-    └── FamilyView.swift      members (edit/remove), invites, lists, meals, memory, displays, leave family
+    └── FamilyView.swift      members (add/edit/remove, photos), manage family, invites, lists, meals,
+                              memory, displays, leave family
 ```
 
 ## Screens
@@ -85,10 +87,10 @@ your **Profile**.
 | Tab | What's there |
 |---|---|
 | **Home** | Family name and date. The assistant card: glow arch, "How can I help you today?", suggestion chips, and an "Ask Ohana anything" pill with a mic button. Below it: "Waiting for your OK" approvals (parents only), today's chore progress per member, your upcoming activities, and dinner tonight (tap to plan it). |
-| **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. |
+| **Assistant** (full screen, from Home) | Chat bubbles: yours in the mood accent on the right, Ohana in white on the left. Replies stream in word by word; a typing indicator shows until the first words arrive. Green chips list what the assistant did (`actions`). The clock button opens your earlier chats (tap to reopen, swipe to delete); the pencil starts a new one. Suggestion chips show when the chat is empty, and each starts its own chat. The mic dictates with Apple's speech recognition (`SFSpeechRecognizer`, which may send the audio to Apple) and fills in the text field; you review it, then tap send. Before a person's first question goes out, the app asks for permission (see Assistant → AI consent). |
 | **Calendar** | Day / Week / Month switcher. **Month** shows a grid with up to three colored bars per day and today as a filled circle; tap a day to open it in Day view. Your upcoming activities for that month are listed below. **Week** is a 7-column time grid with pastel blocks, member badges, an all-day row and a now line; tap a weekday header to open that day. **Day** is the same grid in a single column with times and places. Tap any event for details, to edit it (title, place, all-day, start/end, who), or to delete it. The **+** button adds an event. |
-| **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. A parent's tap is approved right away; anyone else's waits for a parent. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
-| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
+| **Chores** | **Chores**: approvals first (parents), then one card per member with progress, animated point balance and today's chores. Tap the circle to mark a chore done on someone's behalf. On a chore that needs a parent's OK, a parent's tap is approved right away and anyone else's waits for a parent; other chores count at once. Unassigned chores sit in an "Anyone" card with a picker for who did it. Long-press a chore to undo it or remove the chore (parents). **Rewards**: balance cards (parents get −5/+5), rewards waiting to be handed out (Done or Cancel to refund), and a rewards grid. **Redeem** spends a kid's points through `redeem_reward`. **+** adds a chore or reward. |
+| **Media** | All / Photos / Videos filter and a grid grouped by month. Video tiles show a play badge and their length; an eye-slash badge marks items hidden from the wall frame. **+** opens the photo picker for multiple photos and videos. While they upload, a banner shows which item is going, what it is doing and a **Cancel** button. **Select** checks items in the grid (or Select all) and deletes them together after a confirmation. The full-screen viewer swipes between items, plays videos, toggles "On the wall frame", and deletes the one on screen after a confirmation. Its backdrop takes the current photo's average color. |
 | **Family** | Members (tap to edit; parents can add one), invites (parents), lists (tap through to add, check off and clear items), meals for the next 7 days (tap a day to set breakfast, lunch and dinner), family memory (add a fact; parents can remove one), paired wall displays and **Pair a display** (parents), and Profile / Leave family. |
 
 ## Onboarding (invite-only)
@@ -146,8 +148,10 @@ pick one with `PhotosPicker`; it's cropped to a 512 px square JPEG, uploaded
 to `avatars/<uid>/avatar.jpg` (upsert, lowercase uid to match the storage
 policy), and `profiles.avatar_path` is set. **Remove photo** clears both. Also
 shows your email, family and role; a family picker when you belong to more
-than one; the Siri tip; **Privacy policy** and **Help and support**
-(`https://ohanaos.co/privacy` and `/support`, `Config`); and **Sign out**.
+than one; **Manage family** (see Family management); the **Assistant**
+switch (see Assistant → AI consent); the Siri tip; **Privacy policy** and
+**Help and support** (`https://ohanaos.co/privacy` and `/support`, `Config`);
+and **Sign out**.
 
 **Delete account** sits below Sign out. Its alert says what happens for the
 family on screen: if nobody else in it has a login, the family is deleted
@@ -162,17 +166,37 @@ only parent with a login in The Smiths. Make someone else there a parent
 first".
 
 Member avatars everywhere (`MemberAvatar`) show the photo of the member's
-account when there is one, else the initial on the member's color. Photos are
+account when there is one, else the photo a parent set for the member
+(`members.avatar_path`), else the initial on the member's color. Photos are
 downloaded from the private bucket with the session and cached per path and
-`profiles.updated_at`, so a new photo replaces the old one on the next refresh.
+`profiles.updated_at`, so a new photo replaces the old one on the next
+refresh. Member photos get a new file name each time, so the path alone
+versions them.
 
 ## Family management
 
+- **Manage family** (Profile → Family, `ManageFamilyView`) lists everyone on
+  the family screen with their role and whether they have a login. Parents
+  get **Add a member** and **Invite someone** there too. The Family tab's
+  member strip opens the same editors.
+- **Adding** (parents): name, role, color and an optional photo. The photo
+  is uploaded first, under the new member's client-made id, and the row is
+  inserted with its `avatar_path`; if the insert fails the file is deleted.
+  Either way nothing is half-added, and a failure keeps the sheet open.
 - **Members.** Tap a member to edit. Parents can change anyone's name, color
-  and role, and remove a member (with their chores and points). Everyone else
-  can edit only their own name and color; other members aren't tappable for
-  them. The server's `members_guard` has the final say: it refuses to remove,
-  demote or unlink the last parent with an account, and the error is shown.
+  and role, and remove a member (with their chores, points and photo).
+  Everyone else can edit only their own name, color and photo; other members
+  aren't tappable for them. The server's `members_guard` has the final say:
+  it refuses to remove, demote or unlink the last parent with an account, and
+  the error is shown.
+- **Photos.** The camera badge on the editor's circle, or **Add a photo** /
+  **Choose a new photo** / **Remove photo**, stage a change that **Save**
+  applies. Your own photo is your profile photo (as in Profile). A parent
+  sets the photo of a member without a login: it's cropped to a 512 px square
+  JPEG, uploaded to `avatars/<family_id>/<member_id>-<random>.jpg`, and
+  `members.avatar_path` is set; then the old file is deleted. A member with a
+  login chooses their own photo, so their editor says so instead. See
+  PLATFORM_SPEC.md §1.7.
 - **Invites** (parents). **Invite** opens a form: who it's for ("Someone new"
   with a role, or an existing member without a login, who then claims their row
   and points), an optional email (only that address can use it), and how long
@@ -190,6 +214,25 @@ families sees one at a time; the choice is remembered on the phone.
 
 ## Assistant
 
+- **AI consent.** Guideline 5.1.2(i) asks for explicit permission before
+  personal data goes to a third-party AI. Before a person's first question,
+  the app shows a sheet, "Before you ask Ohana" (`AIConsentSheet` in
+  `AssistantView.swift`). It says the assistant is AI, that the question and
+  the family details it needs to answer (names, calendar, chores and points,
+  rewards, meals, lists and family memory) are sent to Anthropic, which
+  makes the Claude model, and that nothing is sent until you allow it. It
+  links the privacy policy. **Allow** stores the answer and sends the
+  question you were about to ask; **Not now** sends nothing and keeps your
+  text. The answer is kept per account on each iPhone, as a `UserDefaults`
+  bool at `ohanaos.aiConsent.<user id, lowercased>`. `FamilyStore` exposes
+  `hasAIConsent` (false when signed out), `allowAI()` and `revokeAI()`, and
+  `ask` sends nothing without consent. Every way of sending goes through
+  the sheet: the Home "Ask Ohana anything" pill and suggestion chips, the
+  assistant screen's send button and its chips, and dictation then send.
+  Opening the assistant screen or reading old chats needs no consent.
+  Profile → **Assistant** has the toggle "Send questions to the AI
+  assistant"; turning it off revokes the answer. Deleting the account
+  clears it too.
 - **Threads.** History is `assistant_threads` (your own, in this family, not
   archived), newest first. Opening one loads its last 200 messages. Delete is
   a swipe; messages go with the thread. A new chat has no thread id until the
@@ -207,7 +250,7 @@ families sees one at a time; the choice is remembered on the phone.
   Non-200 answers show the function's `{error}` message (401 asks you to sign
   in again; 403 covers a suspended family or no family).
 - After a reply that did something (actions), the app reloads the family data.
-- The dictation mic is unchanged.
+- Dictation only fills in the text field. Sending it goes through the AI consent sheet like a typed question.
 
 ## Siri
 
@@ -216,9 +259,12 @@ parameter, `question`. `perform()` calls the assistant with `mode: "quick"`,
 `stream: false` and no thread (`AssistantClient.quickAnswer`), and returns the
 reply as both the spoken dialog and the intent's value, so Shortcuts can use
 it. It runs without opening the app, using the session saved in the keychain;
-signed out, Siri says "Sign in to Ohana Display on your iPhone first." It asks you to
-unlock the iPhone first (`authenticationPolicy = .requiresAuthentication`), so
-a locked phone doesn't read out the family's plans.
+signed out, Siri says "Sign in to Ohana Display on your iPhone first." If the
+signed-in person hasn't allowed the assistant on this iPhone (see Assistant →
+AI consent), Siri says "Open Ohana Display and allow the assistant first."
+and doesn't call the assistant. It asks you to unlock the iPhone first
+(`authenticationPolicy = .requiresAuthentication`), so a locked phone doesn't
+read out the family's plans.
 
 `OhanaOSShortcuts` (an `AppShortcutsProvider`) registers "Ask Ohana Display", "Ask
 Ohana Display a question" and "Ask my family assistant in Ohana Display",
@@ -226,6 +272,49 @@ because those phrases use the app name. A String parameter
 can't be part of a phrase, so Siri then asks "What would you like to ask
 Ohana?". Each Siri question starts its own thread, which then shows up in the
 app's chat history. The Profile screen shows a `SiriTipView` for it.
+
+## Demo mode (screenshots)
+
+Debug builds have a demo mode for the App Store screenshots.
+`Services/DemoData.swift` and every hook that reads it are inside `#if DEBUG`,
+so Release and TestFlight builds contain none of it. Launch arguments turn it
+on; they land in `UserDefaults`' argument domain.
+
+| Argument | Values | What it does |
+|---|---|---|
+| `-OhanaDemo YES` | | Loads a sample family. Supabase and the network are never called. |
+| `-OhanaScreen <name>` | `home` (default), `assistant`, `calendar-week`, `calendar-month`, `chores`, `rewards`, `media`, `family` | What is on screen at launch. `assistant` opens the chat over Home. `rewards` is the Rewards side of Chores. |
+| `-OhanaMood <name>` | `morning`, `day` (the default in demo mode), `evening`, `night` | Pins the time-of-day palette, so screenshots don't follow the clock. |
+
+The family is The Rivera Family. Sofia, the signed-in parent, and Marco both
+have logins. Maya (9) has a login and Leo (6) doesn't. Every date is relative
+to today: this week's school pickups, soccer, piano, a dentist visit, a
+birthday party, family dinner and an all-day apple-picking trip, plus the
+weeks around it. Today's chores are partly done, with one waiting for a
+parent's OK. There are rewards and balances with one redemption to hand out,
+a grocery list, dinners for the next 7 days, family memory, a paired display,
+invites, two assistant chats (the open one is on the Assistant screen), and
+14 photos and 2 videos. The pictures are drawn in code and go into the same
+thumbnail and average-color cache the grid and the viewer read. The week and
+day grids start at 8:00 whatever the time.
+
+Taps change only what's on the phone (a chore marked done, an approval, an
+item checked off) or do nothing. Pull to refresh, sign out, invites and
+display pairing send nothing. An upload shows an alert saying demo mode
+sends nothing. The AI consent sheet never shows: demo mode counts as
+allowed. A new question to the assistant gets a reply saying this is a
+demo. Demo videos have no file to play.
+
+To try it in Xcode, add `-OhanaDemo YES` (and, say, `-OhanaScreen media`)
+under Product → Scheme → Edit Scheme → Run → Arguments. In a booted
+simulator:
+
+```bash
+xcrun simctl launch booted com.ohanaos.ohana -OhanaDemo YES -OhanaScreen calendar-week -OhanaMood day
+```
+
+CI relaunches the Debug simulator build once per screen with these arguments
+and saves each screen as a PNG (CI → App Store screenshots).
 
 ## CI
 
@@ -260,12 +349,67 @@ only start while the GitHub account's billing and Actions spending limit
 allow it. Otherwise each run fails in seconds with "recent account payments
 have failed or your spending limit needs to be increased".
 
+Two more macOS workflows use the same setup. `.github/workflows/testflight.yml`
+uploads a build to TestFlight, on demand only (see TestFlight → Upload from
+GitHub Actions). `.github/workflows/screenshots.yml` takes the App Store
+screenshots.
+
+### App Store screenshots
+
+`.github/workflows/screenshots.yml` runs on the same pull requests as the iOS
+workflow, and on demand (Actions → App Store screenshots → Run workflow). A
+pull request that touches `ios/**` therefore runs two macOS jobs.
+
+It builds the Debug app for the simulator once, unsigned and with no
+Supabase values: demo mode uses a built-in family and never calls the
+network. Then it takes two sets of the same screens, one for each iPhone size
+App Store Connect asks for:
+
+| Folder | Simulator | Size |
+|---|---|---|
+| `6.9-inch` | iPhone 17 Pro Max, or iPhone 16 Pro Max | 1320×2868 |
+| `6.3-inch` | iPhone 17 Pro, or iPhone 16 Pro | 1206×2622 |
+
+Both use the newest iOS runtime that is no newer than the selected Xcode's
+simulator SDK and has a device for each set, so a beta runtime on the image
+is never used. For each set the job creates a fresh simulator, boots it, and
+sets light appearance and a 9:41 status bar with full Wi-Fi, cellular and
+battery. For each screen it relaunches the app with `-OhanaDemo YES
+-OhanaScreen <screen> -OhanaMood day`, waits 6 seconds for images and
+animations, and saves a PNG. It flattens any alpha channel, because App Store
+Connect refuses one. Then it deletes the simulator. The files, the same in
+both folders:
+
+| File | Screen |
+|---|---|
+| `01-home.png` | Home |
+| `02-assistant.png` | Assistant |
+| `03-calendar-week.png` | Calendar, Week |
+| `04-calendar-month.png` | Calendar, Month |
+| `05-chores.png` | Chores |
+| `06-rewards.png` | Chores → Rewards |
+| `07-media.png` | Media |
+| `08-family.png` | Family |
+
+The job fails if a set doesn't have all 8 files, if a PNG isn't a size App
+Store Connect takes for its slot (1320×2868 or 1290×2796 for 6.9-inch,
+1206×2622 or 1179×2556 for 6.3-inch), if a PNG still has an alpha channel,
+or if two PNGs in a set are identical, which means demo mode didn't load.
+The run's summary page lists each file and its size, and the PNGs are in its
+**app-store-screenshots** artifact, in the folders `6.9-inch` and `6.3-inch`
+(Artifacts, at the bottom of the summary page; kept 30 days). Upload them as
+described in [APP_STORE.md](APP_STORE.md) → 7. Screenshots (the medium
+display size, 6.3-inch, is required).
+
 ## TestFlight
 
-Upload from a Mac with **Xcode 26 or newer**. App Store Connect has required
-the iOS 26 SDK since April 2026. In Xcode → Settings → Accounts, sign in with
-an Apple ID on team `92X9CP6C6D`. The first archive needs an Admin or the
-Account Holder, because Xcode creates the Apple Distribution certificate.
+Upload from a Mac with **Xcode 26 or newer**, or from GitHub Actions (see
+"Upload from GitHub Actions" below). App Store Connect has required the iOS 26
+SDK since April 2026. In Xcode → Settings → Accounts, sign in with an Apple ID
+on team `92X9CP6C6D`. The first archive needs an Admin or the Account Holder,
+because Xcode creates the Apple Distribution certificate. The text App Store
+Connect asks for, field by field, for TestFlight and for the App Store, is in
+[APP_STORE.md](APP_STORE.md).
 
 1. **Register the bundle id.** developer.apple.com → Certificates, Identifiers
    & Profiles → Identifiers → **+** → App IDs → App. Use Description
@@ -309,6 +453,10 @@ Account Holder, because Xcode creates the Apple Distribution certificate.
    phase). Then use Organizer → Distribute App → TestFlight & App Store, and
    keep **Manage Version and Build Number** checked. If the archive stops with
    "Your team has no devices", run the app on your iPhone from Xcode once.
+   With no Apple ID signed in to Xcode, set `ASC_KEY_PATH` (the `.p8` file),
+   `ASC_KEY_ID` and `ASC_ISSUER_ID` to sign in with an App Store Connect API
+   key instead. The archive is then ad hoc signed, and the export uses the
+   key to sign with the cloud-managed Apple Distribution certificate.
 5. **Add internal testers.** App Store Connect → Apps → Ohana Display →
    TestFlight → Internal Testing → **+**. Create a group (for example,
    `Family`) and turn on automatic distribution. Add testers. They must be
@@ -325,21 +473,11 @@ Account Holder, because Xcode creates the Apple Distribution certificate.
      (`admin/lib/site.ts`): make sure that mailbox exists, or change it there.
 7. **Fill in Test Information** (App Store Connect → Ohana Display →
    TestFlight → Test Information). External testers and Beta App Review need
-   it:
-
-   | Field | Value |
-   |---|---|
-   | Beta App Description | `Ohana Display keeps a family's calendar, chores, rewards, photos and meal plans in one place, on a wall display and on everyone's iPhone. This beta covers the iPhone app: sign up with an invite code, then try the calendar, chores and rewards, photos, the assistant and Siri.` |
-   | Feedback Email | the support address above |
-   | Privacy Policy URL | `https://ohanaos.co/privacy` |
-   | Marketing URL | optional; `https://ohanaos.co/support` works |
-
-   For the App Store listing later, the Support URL is
-   `https://ohanaos.co/support` and the Privacy Policy URL the same as above.
+   it. Use the text in [APP_STORE.md](APP_STORE.md) → 1. TestFlight → Test
+   Information.
 8. **Give Beta App Review a way in.** The app is invite-only, so the
    reviewer needs an account that is already in a family:
-   1. Create a platform invite in the admin console (Invites), or use an
-      existing family invite.
+   1. Create a platform invite in the admin console (Invites).
    2. In the app, sign up with that code as, for example,
       `appreview@<your domain>` with a password you don't use elsewhere.
       Confirm the email if confirmation is on.
@@ -349,16 +487,14 @@ Account Holder, because Xcode creates the Apple Distribution certificate.
       accept it. Then the reviewer can try **Delete account** without taking
       the family with them; recreate the review account afterwards if they
       do.
-   5. In Test Information → Beta App Review Information, turn on **Sign-in
+   5. Create a second platform invite for reviewers to try sign-up, with a
+      few uses and 90 days, so it outlasts both reviews. Its code goes in
+      place of `<XXXX-XXXX>` in both sets of Review Notes
+      ([APP_STORE.md](APP_STORE.md), sections 1 and 5).
+   6. In Test Information → Beta App Review Information, turn on **Sign-in
       required**, enter that email and password, and add your name, phone
-      and email as the contact. For **Notes**:
-
-      ```
-      Ohana Display is invite-only: new accounts need a code from a family or an
-      admin. The account above is already in a demo family. The wall display is
-      separate hardware; the app works without one. Delete account is under
-      Profile (tap the avatar at the top of Home), at the bottom.
-      ```
+      and email as the contact. For **Notes**, use the Review Notes block in
+      [APP_STORE.md](APP_STORE.md), section 1.
 9. **Add external testers.** TestFlight → External Testing → **+** to
    create a group, add the build, then **Submit for Review**. The first build
    of each version is reviewed (usually within a day or two); later builds of
@@ -376,14 +512,21 @@ What the binary already answers, so the upload is not blocked on them:
 - Export compliance: only standard HTTPS, so `ITSAppUsesNonExemptEncryption`
   is false and App Store Connect does not ask again on each build.
 - Privacy manifest (`OhanaOS/PrivacyInfo.xcprivacy`). The app reads
-  `UserDefaults` for the pending invite and the family on screen (reason
-  `CA92.1`). It does not track. Data linked to the account, for the app to
-  function: email, name, user id, photos and videos, and other content
-  (events, chores, lists, meals, memory, chat). Use those same answers in the
-  App Store Connect privacy questionnaire. Dictation uses Apple's speech
-  recognizer and is not stored by Ohana Display. The Swift packages
-  (supabase-swift 2.55.3 and its dependencies) call no required-reason API,
-  and swift-crypto ships its own manifest.
+  `UserDefaults` for the pending invite, the family on screen and each
+  account's AI consent (reason `CA92.1`). It does not track. Data linked to
+  the account, for the app to function: email, name, user id, photos and
+  videos, other content (events, chores, rewards, lists, meals, memory,
+  chat), and other usage data (one `assistant_usage` row per assistant
+  request, with the user id and token counts). Use those same answers in the
+  App Store Connect privacy questionnaire ([APP_STORE.md](APP_STORE.md),
+  section 4). Dictation uses Apple's speech recognizer and is not stored by
+  Ohana Display. The Swift packages (supabase-swift 2.55.3 and its
+  dependencies) call no required-reason API, and swift-crypto ships its own
+  manifest.
+- AI consent (guideline 5.1.2(i)): before a person's first assistant
+  question, the app asks once per account on each iPhone, names Anthropic
+  and says what is sent. Siri sends nothing until the person has allowed
+  it in the app. See Assistant → AI consent.
 - Account deletion (guideline 5.1.1(v)): Profile → Delete account, and on
   "Enter an invite code" for accounts without a family. It deletes the
   account on the server, not only the session.
@@ -406,6 +549,58 @@ What the binary already answers, so the upload is not blocked on them:
 Signing is automatic. Unsigned CI (`CODE_SIGNING_ALLOWED=NO`) does not need a
 team. A device run uses the team in `Local.xcconfig`, or `92X9CP6C6D` by
 default.
+
+### Upload from GitHub Actions
+
+`.github/workflows/testflight.yml` archives and uploads on a `macos-15`
+runner, so no Mac is needed. It runs only on demand. Steps 1 and 2 above
+(bundle id and app record) still come first: an upload does not create the
+app record.
+
+1. **Create an App Store Connect API key.** App Store Connect → Users and
+   Access → Integrations → App Store Connect API → Team Keys → **+**. Name
+   it, for example `GitHub Actions`, and give it the **Admin** role. No Apple
+   ID is signed in on the runner, so Xcode uses the key to create the Apple
+   Distribution certificate and provisioning profiles in the cloud
+   (cloud-managed signing), and that needs Admin. Download the `.p8` file
+   (`AuthKey_<Key ID>.p8`). App Store Connect offers the download only once.
+   The **Issuer ID** is shown on that page above the list of keys, and the
+   **Key ID** in the key's row.
+2. **Add the repository secrets.** GitHub → the repository → Settings →
+   Secrets and variables → Actions → **New repository secret**:
+
+   | Secret | Value |
+   |---|---|
+   | `SUPABASE_URL` | `https://<project-ref>.supabase.co`, written normally, with no path. The workflow refuses a path or spaces, and writes it into `Local.xcconfig` as `https:/$()/…`. |
+   | `SUPABASE_ANON_KEY` | the anon (publishable) key |
+   | `ASC_KEY_ID` | the Key ID |
+   | `ASC_ISSUER_ID` | the Issuer ID |
+   | `ASC_API_KEY_P8` | the whole `.p8` file, `-----BEGIN PRIVATE KEY-----` to `-----END PRIVATE KEY-----`, or its base64 (`base64 -i AuthKey_<Key ID>.p8 \| pbcopy`) |
+
+3. **Run it.** Actions → TestFlight → Run workflow. Leave **Build number**
+   empty to use the UTC time (`YYYYMMDD.HHMM`), or enter a number higher
+   than the last upload. The build shows up in TestFlight once processing
+   finishes; then carry on from step 5 above.
+
+The workflow selects the newest stable Xcode and stops if it is older than
+26. It checks that every secret is set and names any that are missing. It
+writes `ios/Config/Local.xcconfig` and the key file (`$RUNNER_TEMP/AuthKey.p8`,
+readable only by the runner user), then runs
+`ios/scripts/archive-for-testflight.sh --upload` with `ASC_KEY_PATH`,
+`ASC_KEY_ID` and `ASC_ISSUER_ID` set. Both files are deleted at the end, also
+after a failure. The key is never printed, and GitHub masks the secrets in
+the run log. A failed run uploads the `xcodebuild-log` artifact: the
+script's output and the export logs. Artifacts are not masked, so it shows
+the Supabase URL, which ships in the app anyway, and the API Key ID and
+Issuer ID, which are useless without the .p8 file. One upload runs at a
+time; a second run waits for the first.
+
+With the API key, the archive is ad hoc signed, as Xcode Cloud does, and
+never contacts the developer website. So the runner needs no development
+certificate and the team needs no registered device. The export then uses
+the key to sign with the cloud-managed Apple Distribution certificate and an
+App Store profile. On a Mac with an Apple ID signed in, the script signs the
+archive for development, as Xcode does, and re-signs it at export.
 
 ## Design
 
@@ -453,25 +648,31 @@ profile screens reuse the glow header, pills and cards.
 - Photos are re-encoded as JPEG (at most 2560 px on the long side) before
   upload, so the display never has to decode HEIC. `taken_at` comes from EXIF
   `DateTimeOriginal`. New photos and videos go to the private Blob store.
-  The row records `byte_size`, `content_type` and `file_store = blob`.
-  Videos are uploaded as-is, with `duration_seconds`, size and creation date
-  read through `AVURLAsset` from the file on disk. The picker hands the app a
-  movie file; the upload streams that file to Blob
+  The row records `byte_size` (the file only), `content_type`,
+  `thumbnail_path` (when the poster went up) and `file_store = blob`.
+  Videos are optimized for the wall first (see
+  [Photo and video uploads](#photo-and-video-uploads)). `duration_seconds`
+  and the creation date are read through `AVURLAsset` from the original, and
+  the size from the file that is uploaded. The picker hands the app a movie
+  file; the upload streams the file to Blob
   (`URLSession.upload(for:fromFile:)`) instead of reading the whole clip into
   memory. `Config.mediaAPIURL` is the admin app's origin: `https://ohanaos.co`
   unless `Local.xcconfig` sets another. Photo type sent is
   `image/jpeg`. Video types are `video/quicktime` (`.mov`), `video/mp4`,
   `video/m4v`, `video/webm`, `video/x-matroska`, `video/3gpp`, and
   `video/3gpp2`. If inserting the row fails, the Blob object just uploaded is
-  removed. Deleting (one item in the viewer, or several from Select) removes
-  a Blob object through the media API, then each `media_items` row with the
+  removed, and the media API removes its poster with it. Deleting (one item
+  in the viewer, or several from Select) removes a Blob object and its
+  poster through the media API, then each `media_items` row with the
   signed-in member's session. Rows still in Storage then lose the file and
   poster from `family-media`. That is the family RLS path, not the admin
   console. Profile avatars still use the `avatars` bucket.
-- Signed URLs (1 hour) are cached per storage path. Blob files
-  (`file_store = blob`) use `POST /api/media/urls` on that same origin.
-  Rows still in Storage use a Storage signed URL. Thumbnails, average colors
-  and avatars are cached in memory for the session.
+- Signed URLs (1 hour) are cached per path, for files and posters alike.
+  Blob files (`file_store = blob`) use `POST /api/media/urls` on that same
+  origin; opening Media signs every Blob row's poster and file up front, up
+  to 200 paths per request. Rows still in Storage use a Storage signed URL.
+  Thumbnails, average colors and avatars are cached in memory for the
+  session.
 - UUIDs sent to the `assistant` function are lowercase, because it compares
   ids as strings.
 - The app sends `family_id` (the family on screen) to the `assistant`
@@ -479,6 +680,85 @@ profile screens reuse the glow header, pills and cards.
   about the one they're looking at. The function accepts it as optional.
 - The app can't read `platform_settings`, so it always asks for an invite
   before Create account, even if an admin turns `invite_only` off.
+
+## Photo and video uploads
+
+Everything goes to the private Blob store through the admin app
+(`Config.mediaAPIURL`). The wall panel is 1920×1200 and the Pi 5 decodes HEVC
+in hardware ([HARDWARE.md](HARDWARE.md)), so videos are made right for it on
+the phone, before they upload. The code is `MediaTools.prepareVideo` and
+`MediaView.upload`.
+
+**Videos**
+
+- The picker hands over the original file
+  (`preferredItemEncoding: .current`) instead of transcoding it first.
+- A clip the wall already plays well goes as it is: HEVC or H.264, 8-bit
+  SDR, at most 1920 px on the long side, at most 31 fps and at most 16 Mb/s,
+  in a `.mov`, `.mp4` or `.m4v`. If its index (`moov`) comes after the
+  media, it is first copied into a new `.mov` with the index first (no
+  re-encode), so the wall can start playing before the whole file has
+  arrived.
+- Anything else is exported with `AVAssetExportPresetHEVC1920x1080` to an
+  `.mp4` with the index first: HEVC, at most 1080p. HDR and 10-bit clips are
+  rendered as SDR Rec. 709. Clips above 31 fps are capped at 30 fps.
+- If the HEVC export fails, the app tries H.264 1080p
+  (`AVAssetExportPreset1920x1080`). It does the same when the HEVC file
+  still comes out HDR.
+- If the export is at least 90% of the original's size and the original
+  plays well on the wall, the original goes instead (with its index moved
+  first if needed).
+- If optimizing fails in any other way, the original is uploaded as it is.
+- One file is stored per item: the optimized file takes the original's
+  place, and no copy of the original is kept. Blob items uploaded before
+  this keep their original file and have no poster; adding a clip again
+  gives it both.
+- Every export, the index-first copy included, drops location metadata
+  (`.forSharing()`); the date was read before.
+- iOS stops exports in the background, so an export only starts while Ohana
+  is the active app. An export that fails while Ohana isn't active, or with
+  `AVError.operationInterrupted`, fails that item with "A video stopped
+  optimizing when Ohana left the screen. Keep Ohana open while videos
+  upload, then add it again." There is no fallback for that item: a large
+  original couldn't upload in the background either.
+- Debug builds print one line per video: what was done, the codec, bit
+  depth, transfer function, size, frame rate, bitrate, file size before and
+  after, and the time it took.
+
+**Posters**
+
+- Each upload carries a JPEG poster of at most 256 KiB
+  (`MediaTools.posterMaxBytes`, the admin app's `THUMB_MAX_BYTES`). A
+  photo's is 480 px. A video's is up to 960 px, from the file that is
+  uploaded: the first of a few early frames that isn't nearly black. If the
+  JPEG is too big, the quality steps down, and for a video then the size
+  (to 640 px).
+- The upload request sends `thumbnail_bytes`. The poster is `PUT` to the
+  ticket's `thumbnail.upload_url` before the file, and `thumbnail_path` is
+  set in the insert: the database doesn't let a member set it later. A
+  poster that isn't signed or doesn't go up never fails the upload; that row
+  just has no poster.
+- The grid shows the poster when the row has one, and otherwise the photo
+  or a frame from the video, as before. The viewer shows a video's poster
+  under a spinner until its player is ready.
+
+**Order, progress and Cancel**
+
+- Items upload one at a time; the next item is fetched from Photos and
+  optimized while the current one uploads.
+- The banner shows "Uploading 2 of 5", what the current item is doing
+  ("Getting the video from Photos…", "Optimizing for the wall display…
+  40%", "Uploading 12 MB of 48 MB", "Saving…"), and the next item's
+  optimizing progress. The bar counts an optimized video's export as 40% of
+  the item and its bytes as the rest. Bytes sent are reported at most every
+  100 ms.
+- **Cancel** stops the export or upload in progress and the one being
+  prepared, and deletes their temp files. A file that is already up still
+  gets its row. The grid then refreshes, and the "N of M didn't upload"
+  message is not shown.
+- At the start of each batch, `.mov`, `.mp4` and `.m4v` files left in the
+  temp folder for more than a day (after a crash or a force quit) are
+  deleted.
 
 ## Unverified
 
@@ -498,36 +778,56 @@ if CI breaks: `FunctionsError.httpError` in `FamilyStore.message(for:)`,
 `auth.currentSession` plus `try await auth.session` with `catch is URLError`
 in `FamilyStore.start()`, `auth.currentSession` in `completeAuthCallback`, the
 `lists!inner(family_id)` filter on `list_items` in `refresh()`, and
-`if case .error = event` at the end of `AssistantClient.stream`. The riskiest
+`if case .error = event` at the end of `AssistantClient.stream`. Demo mode
+(`Services/DemoData.swift` and its `#if DEBUG` hooks) has not been compiled
+or run yet. Check first: `nonisolated private static func mood(at:)` in
+`MoodProvider`, `await DemoMedia.fullImage(for:)` in `MediaPage`, and that
+`-OhanaScreen assistant` opens the chat over Home. The AI consent gate
+(`AIConsentSheet`, `FamilyStore.hasAIConsent`, the check in
+`AskOhanaOSIntent.perform`) has not been compiled either. The riskiest
 calls from the first build:
 
 - `@Environment(FamilyStore.self) private var store: FamilyStore?` (the
-  optional observable environment initializer) in `MemberAvatar`,
-  `Theme/Theme.swift:282`.
-- App Intents in `App/AskOhanaOSIntent.swift`: `static let description:`
-  IntentDescription?` (line 8; whether the requirement is optional),
-  `authenticationPolicy = .requiresAuthentication` (line 10),
-  `@Parameter(title:requestValueDialog:)` with a string literal (line 12),
-  `ParameterSummary` (line 15), `.result(value:dialog:)` with
-  `IntentDialog(stringLiteral:)` (line 33), and
-  `AppShortcut(intent:phrases:shortTitle:systemImageName:)` (line 41).
-- `SiriTipView(intent:)` in a `Form` row, `Views/ProfileView.swift:97`.
-- `URLSession.shared.bytes(for:)` and iterating `AsyncBytes` byte by byte,
-  `Services/AssistantClient.swift:58` and `:72`; and the `@MainActor` event
-  callback awaited from the nonisolated `stream` method (`:56`).
-- `ShareLink(item: String) { label }`, `Views/InviteViews.swift:152` and
-  `:211`.
+  optional observable environment initializer) in `MemberAvatar`
+  (`Theme/Theme.swift`).
+- App Intents in `App/AskOhanaOSIntent.swift`: `static let description:
+  IntentDescription?` (whether the requirement is optional),
+  `authenticationPolicy = .requiresAuthentication`,
+  `@Parameter(title:requestValueDialog:)` with a string literal,
+  `ParameterSummary`, `.result(value:dialog:)` with
+  `IntentDialog(stringLiteral:)`, and
+  `AppShortcut(intent:phrases:shortTitle:systemImageName:)`.
+- `SiriTipView(intent:)` in a `Form` row in `Views/ProfileView.swift`.
+- `URLSession.shared.bytes(for:)` and iterating `AsyncBytes` byte by byte in
+  `AssistantClient.stream`; and the `@MainActor` event callback awaited from
+  that nonisolated method.
+- `ShareLink(item: String) { label }` in `Views/InviteViews.swift` (two
+  places).
 - The `@Observable` stored property with a `private(set)` initializer reading
-  `UserDefaults` (`pendingInviteCode`), `Services/FamilyStore.swift:45`.
-- Decoding a scalar RPC result (`uuid`) straight into `UUID`,
-  `Services/FamilyStore.swift:427` and `:451`.
-- From before: `supabase.storage.from(_:).remove(paths:)`
-  (`Services/FamilyStore.swift:507`, `:1042`; it exists in 2.55.3),
+  `UserDefaults` (`pendingInviteCode` in `FamilyStore`).
+- Decoding a scalar RPC result (`uuid`) straight into `UUID` in
+  `FamilyStore.acceptInvite` and `FamilyStore.createFamily`.
+- From before: `supabase.storage.from(_:).remove(paths:)` (in
+  `FamilyStore.removeAvatar` and `removeStoredFiles`; it exists in 2.55.3),
   `AVAudioApplication.requestRecordPermission()` as `async -> Bool` (iOS 17,
-  `Services/Dictation.swift:101`), the `AVAsyncProperty` loads in
-  `MediaTools.videoMetadata(at:)` (`Services/MediaTools.swift:200`–`:215`), and
-  `nonisolated init()` on the `@Observable @MainActor` `Dictation` class
-  (`Services/Dictation.swift:20`).
+  `Dictation`), the `AVAsyncProperty` loads in `MediaTools.videoMetadata(at:)`,
+  and `nonisolated init()` on the `@Observable @MainActor` `Dictation` class.
+
+Video optimizing, posters and upload progress came after those builds and
+have not run on an iPhone yet. Calls to check first if CI breaks:
+`PhotosPicker(...preferredItemEncoding: .current)`
+(`Views/MediaView.swift:71`); `track.load` with three keys and
+`format.extensions[.transferFunction]?.propertyListRepresentation`
+(`Services/MediaTools.swift:329`–`:336`);
+`AVMutableVideoComposition.videoComposition(withPropertiesOf:)` (`:467`);
+`metadataItemFilter = .forSharing()` (`:522`); `await session.export()`
+with `cancelExport()` in a cancellation handler (`:535`); and
+`URLSession.upload(for:from:delegate:)` and `upload(for:fromFile:delegate:)`
+(`Services/FamilyStore.swift:998` and `:1018`). On a device, try a 4K60 HDR
+portrait clip, a 1080p SDR clip, a Slo-Mo clip, an H.264 clip, photos,
+Cancel during an export, and leaving Ohana during an export. The debug line
+for each video shows whether the HEVC preset writes 8-bit, the size of a
+portrait clip, and the bitrate.
 
 ## Next
 

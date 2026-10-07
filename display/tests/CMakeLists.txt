@@ -67,6 +67,66 @@ target_link_libraries(tst_quickanswer PRIVATE homeos-core Qt6::Gui Qt6::Qml Qt6:
 add_test(NAME tst_quickanswer COMMAND tst_quickanswer)
 set_tests_properties(tst_quickanswer PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Media URLs, posters and colors in live mode, against a fake Supabase and
+# admin app (FakeServer.h).
+qt_add_executable(tst_media tst_media.cpp FakeServer.h
+    ../src/models/FamilyStore.h  ../src/models/FamilyStore.cpp
+    ../src/models/ColorSampler.h ../src/models/ColorSampler.cpp
+)
+target_compile_options(tst_media PRIVATE ${HOMEOS_WARNINGS})
+target_link_libraries(tst_media PRIVATE homeos-core Qt6::Gui Qt6::Concurrent Qt6::Test)
+add_test(NAME tst_media COMMAND tst_media)
+set_tests_properties(tst_media PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The video screensaver (VideoSaver.qml) with a stand-in Store, from a module
+# directory of its own like tst_quickanswer's.
+set(saver_qml_dir ${CMAKE_CURRENT_BINARY_DIR}/qml-videosaver/HomeOS)
+set(saver_qmldir "module HomeOS\n")
+foreach(file Theme.qml components/PhotoTile.qml screensaver/VideoSaver.qml)
+    configure_file(${PROJECT_SOURCE_DIR}/qml/${file} ${saver_qml_dir}/${file} COPYONLY)
+    get_filename_component(type ${file} NAME_WE)
+    if(type STREQUAL "Theme")
+        string(APPEND saver_qmldir "singleton ")
+    endif()
+    string(APPEND saver_qmldir "${type} 1.0 ${file}\n")
+endforeach()
+file(WRITE ${saver_qml_dir}/qmldir "${saver_qmldir}")
+
+qt_add_executable(tst_videosaver tst_videosaver.cpp)
+target_compile_options(tst_videosaver PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_videosaver PRIVATE HOMEOS_TEST_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/qml-videosaver")
+target_link_libraries(tst_videosaver PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Multimedia Qt6::Test)
+add_test(NAME tst_videosaver COMMAND tst_videosaver)
+set_tests_properties(tst_videosaver PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The Games tab: GamesScreen.qml and every game, with the real theme. They are
+# copied into a module directory laid out like the app's resources
+# (qrc:/HomeOS/...), so the relative paths between them are the app's.
+set(games_root ${CMAKE_CURRENT_BINARY_DIR}/games-qml/HomeOS)
+set(games_qmldir "module HomeOS\n")
+foreach(file qml/Theme.qml qml/components/Icon.qml qml/components/IconButton.qml
+             qml/components/PillButton.qml qml/components/Tag.qml qml/components/SegmentedControl.qml)
+    configure_file(${PROJECT_SOURCE_DIR}/${file} ${games_root}/${file} COPYONLY)
+    get_filename_component(type ${file} NAME_WE)
+    if(type STREQUAL "Theme")
+        string(APPEND games_qmldir "singleton ")
+    endif()
+    string(APPEND games_qmldir "${type} 1.0 ${file}\n")
+endforeach()
+file(WRITE ${games_root}/qmldir "${games_qmldir}")
+file(GLOB_RECURSE games_files RELATIVE ${PROJECT_SOURCE_DIR} CONFIGURE_DEPENDS
+    ${PROJECT_SOURCE_DIR}/games/* ${PROJECT_SOURCE_DIR}/qml/games/*)
+foreach(file ${games_files} qml/screens/GamesScreen.qml)
+    configure_file(${PROJECT_SOURCE_DIR}/${file} ${games_root}/${file} COPYONLY)
+endforeach()
+
+qt_add_executable(tst_games tst_games.cpp)
+target_compile_options(tst_games PRIVATE ${HOMEOS_WARNINGS})
+target_compile_definitions(tst_games PRIVATE HOMEOS_GAMES_QML_DIR="${CMAKE_CURRENT_BINARY_DIR}/games-qml")
+target_link_libraries(tst_games PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+add_test(NAME tst_games COMMAND tst_games)
+set_tests_properties(tst_games PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The boot screen: which video it plays, and how long BootScreen.qml holds.
 # The QML is loaded from the source tree; its images are compiled in.
 qt_add_executable(tst_bootscreen tst_bootscreen.cpp

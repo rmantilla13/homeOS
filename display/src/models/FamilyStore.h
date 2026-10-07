@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QDate>
+#include <QDeadlineTimer>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QSettings>
 #include <QTimer>
 #include <QVariantList>
@@ -37,8 +39,11 @@ class FamilyStore : public QObject
     Q_PROPERTY(QVariantList rewards READ rewards NOTIFY dataChanged)
     Q_PROPERTY(QVariantList meals READ meals NOTIFY dataChanged)
     Q_PROPERTY(QVariantList lists READ lists NOTIFY dataChanged)
-    Q_PROPERTY(QVariantList photos READ photos NOTIFY dataChanged)   // photos shown in the frame
-    Q_PROPERTY(QVariantList media READ media NOTIFY dataChanged)     // all photos and videos, newest first
+    // Their own signal, sent only when the list really changes: every reload
+    // of an unrelated table would otherwise rebuild the media grid and
+    // re-read every image.
+    Q_PROPERTY(QVariantList photos READ photos NOTIFY mediaChanged)  // photos shown in the frame
+    Q_PROPERTY(QVariantList media READ media NOTIFY mediaChanged)    // all photos and videos, newest first
 
 public:
     FamilyStore(SupabaseClient *client, bool forceDemo, QObject *parent = nullptr);
@@ -47,6 +52,10 @@ public:
     // Origin of the admin app that signs private photo and video URLs.
     // Empty means Blob files have no playback URL. Rows still in Supabase play.
     void setMediaApiUrl(const QString &url);
+    // How long a signed media URL is reused, and when it is dropped even if
+    // signing it again fails. Both shorten URLs already signed (for tests).
+    void setUrlRefreshAfterMs(qint64 ms);
+    void setUrlDropAfterMs(qint64 ms);
 
     QString mode() const { return m_mode; }
     bool online() const { return m_online; }
@@ -89,6 +98,7 @@ signals:
     void statusChanged();
     void pairingChanged();
     void dataChanged();
+    void mediaChanged();
     void notify(const QString &message);
 
 private:
@@ -97,6 +107,11 @@ private:
     void loadDemo();
     void loadLive();
     void attachMediaUrls(const QVariantList &rows, int generation);
+    void signMedia(bool blob, const QStringList &paths, int generation);
+    void rememberUrls(bool blob, const QStringList &paths, const QStringList &urls, bool ok);
+    void publishMedia();
+    QString signedUrl(bool blob, const QString &path) const;
+    void forgetMedia();
     void withSession(std::function<void()> fn);
     void checkIn();
     void startPairing();
@@ -129,6 +144,22 @@ private:
     QHash<QString, int> m_points;              // memberId -> balance
     ColorSampler m_colors;
     bool m_rebuildQueued = false;
+
+    // Signed media URLs, one per storage or thumbnail path, kept until they
+    // are due to be signed again. The same URL string means the players and
+    // the image cache don't reload the file.
+    struct SignedUrl
+    {
+        QString url;
+        QDeadlineTimer refreshAt; // sign again after this
+        QDeadlineTimer dropAt;    // stop using it after this, even if signing fails
+    };
+    QHash<QString, SignedUrl> m_signedUrls;   // "b:<path>" Blob, "s:<path>" Storage
+    QSet<QString> m_signing;                  // keys with a signing request out
+    int m_signRequests = 0;                   // signing requests out
+    QVariantList m_mediaRows;                 // the latest media_items rows
+    qint64 m_urlRefreshMs = 4 * 3600 * 1000LL; // URLs are valid for 6 h (both signers)
+    qint64 m_urlDropMs = 5 * 3600 * 1000LL + 30 * 60 * 1000LL; // half an hour before they expire
 
     // Decorated rows for QML.
     QString m_familyName;

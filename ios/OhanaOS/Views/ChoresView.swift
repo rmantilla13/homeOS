@@ -7,7 +7,11 @@ enum ChoresMode: String, CaseIterable {
 /// Chores for today per member, parent approvals, and the rewards shop.
 struct ChoresView: View {
     @Environment(FamilyStore.self) private var store
+    #if DEBUG
+    @State private var mode: ChoresMode = DemoMode.choresMode
+    #else
     @State private var mode: ChoresMode = .chores
+    #endif
     @State private var showingAddTask = false
     @State private var showingAddReward = false
 
