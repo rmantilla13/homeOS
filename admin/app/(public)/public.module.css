@@ -1,0 +1,89 @@
+.page {
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 48px 16px;
+}
+
+.card {
+  width: min(720px, 100%);
+  padding: 40px;
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.orb {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: var(--glow);
+  color: #fff;
+}
+
+.brandText {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.card h1 {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.card h2 {
+  margin-top: 32px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.card p,
+.card ul {
+  margin: 10px 0 0;
+  color: var(--text-2);
+}
+
+.card ul {
+  padding-left: 20px;
+}
+
+.card li + li {
+  margin-top: 6px;
+}
+
+.card strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.updated {
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.footer {
+  display: flex;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 28px 20px;
+  }
+}

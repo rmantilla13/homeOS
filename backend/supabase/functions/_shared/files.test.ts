@@ -1,4 +1,4 @@
-// Unit tests for the admin function's Storage cleanup: `deno test admin/`.
+// Unit tests for the shared Storage cleanup: `deno test _shared/`.
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { type Bucket, removeFolder, removePaths } from "./files.ts";

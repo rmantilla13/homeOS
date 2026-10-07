@@ -27,6 +27,10 @@ enum Config {
         }
         return configured
     }()
+    /// Public pages on the production site, linked from Welcome and Profile.
+    /// App Store Connect takes the same two URLs (docs/IOS.md → TestFlight).
+    static let privacyPolicyURL = URL(string: "https://ohanaos.co/privacy")!
+    static let supportURL = URL(string: "https://ohanaos.co/support")!
     /// Where email confirmations and admin email invites send people back to
     /// the app. Add it under Supabase → Authentication → URL Configuration →
     /// Redirect URLs.
