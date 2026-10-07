@@ -101,6 +101,7 @@ supabase functions deploy assistant          # Claude: workload identity, docs/P
 
 supabase functions deploy admin
 supabase functions deploy delete-account     # Delete account in the iOS app
+supabase functions deploy media-jobs         # server-made wall copies of big videos, docs/ADMIN.md
 tests/run.sh                         # SQL tests (RLS, invites, admin, ...) on a throwaway Postgres
 ```
 

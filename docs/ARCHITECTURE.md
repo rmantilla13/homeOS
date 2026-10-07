@@ -45,6 +45,10 @@ RPC, endpoint, event and message names. Change it first when a shape changes.
     the caller is a platform admin. Listing and deleting media rows stays in
     SQL; signing a thumbnail URL is the function, because admins are not
     family members and have no Storage read policy.
+  - `delete-account` deletes the caller's own account for the iOS app.
+  - `media-jobs` keeps the state of server-made video copies for the admin
+    app, behind a shared secret, so the admin app never holds the service
+    role key (see Media below).
   - Later: push notifications (APNs), recurring-chore generation, and
     calendar sync with Google and iCloud.
 
@@ -128,7 +132,13 @@ GStreamer. In demo mode, sample media is copied next to the binary
 The iPhone app makes videos at most 1080p and 30 fps, SDR, mostly HEVC, with
 the index at the front so playback starts before the whole file arrives
 ([IOS.md](IOS.md#photo-and-video-uploads)). The original goes only when that
-fails. Each photo and video also gets a JPEG poster (at most 256 KiB) at
+fails, and then the server makes the same kind of copy: a Vercel Sandbox
+runs ffmpeg with presigned URLs for that one video, and the row moves to
+`<family_id>/<id>-wall.mp4` once Blob confirms the copy and its size. The
+same happens to videos from older app builds. A cron sweep every 10 minutes
+catches anything missed and deletes swapped-out originals after six hours
+([ADMIN.md](ADMIN.md#big-videos-wall-copies-on-the-server),
+[PLATFORM_SPEC.md](PLATFORM_SPEC.md) §1.13). Each photo and video also gets a JPEG poster (at most 256 KiB) at
 `<family_id>/<id>-thumb.jpg`, presigned in the same upload ticket as the file;
 a poster that fails never fails the upload. The row records `byte_size` (the
 file only; posters are not billed), `content_type` and `thumbnail_path`. The

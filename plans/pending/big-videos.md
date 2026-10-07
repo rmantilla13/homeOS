@@ -132,13 +132,46 @@ about 20–35 clips that size.
 
 ## Progress
 
-| Phase | State | Notes |
+| Phase | State | Verified by |
 |---|---|---|
-| 0 Spike | blocked: moved into Phase 7 | Connector 403 on `POST /v4/sandboxes`. Replaced by the self-test script (D3). |
-| 1 Database | not started | |
-| 2 media-jobs | not started | |
-| 3 Worker | not started | |
-| 4 Routes | not started | |
-| 5 iOS | not started | |
-| 6 Docs | not started | |
-| 7 Rollout | needs go-ahead | |
+| 0 Spike | moved into Phase 7 | Connector 403 on `POST /v4/sandboxes`; replaced by `scripts/media-sandbox-check.mjs` (D3) |
+| 1 Database | done (3e2cd54, adf6867) | `backend/tests/run.sh`: all 22 files pass, incl. `media_processing_test` and `migration_rerun_test` |
+| 2 media-jobs | done (8241c40) | `deno check` on every function; `deno test`: 83 passed |
+| 3 Worker | done (adf6867) | `worker.test.mjs` 12/12, incl. real ffmpeg jobs (4K60 HLG → 1920×1080 HEVC 8-bit bt709 AAC, index first; as-is; remux); `--self-test` ok locally |
+| 4 Routes | done (f92d1ed) | `npm run lint`, `npm run typecheck`, `npm run build` (worker.mjs traced into the routes), `npm test` 79/79 |
+| 5 iOS | done (375bb95) | tree-sitter Swift parse of the 4 files; iOS CI build on the PR |
+| 6 Docs | done | PLATFORM_SPEC §1.13, §2.5, §3, §6, §7; ADMIN, ARCHITECTURE, IOS, PLATFORM, README |
+| 7 Rollout | needs go-ahead | below |
+
+## Execution notes (deviations from the plan)
+
+- **Phase 0** couldn't run (no Sandbox permission for the connector, no
+  Vercel CLI login here). ffmpeg comes from the image's `PATH` or a
+  downloaded static build, and the check script proves it in Phase 7.
+- **1 MiB slack**: a copy that only moves the index can be a few KB bigger
+  than the original, so `media_job_finish` allows the original's size plus
+  1 MiB. The presigned PUT has the same cap.
+- **Own guard trigger**: `migration_rerun_test` replays the Blob migrations,
+  which redefine `media_items_guard`. So `processing` gets its own small
+  trigger, `media_items_processing_guard`, instead of an edit to that guard.
+- **Next job on callback**: a finished job claims and starts the next
+  waiting video right away, so a backlog doesn't wait for the 10-minute
+  sweep between jobs.
+- **Delete leftovers**: `/api/media/delete` also lists `<family>/<id>*` and
+  removes what's left (a waiting original, a running job's copy).
+
+## Phase 7 rollout (each step needs a go-ahead)
+
+1. Merge #40 (CI green), so Vercel deploys the admin app. Nothing changes yet.
+2. `supabase db push` (20261012000001), then
+   `supabase secrets set MEDIA_JOBS_SECRET=…` and
+   `supabase functions deploy media-jobs`.
+3. Vercel Production env: `MEDIA_JOBS_SECRET` (the same value) and
+   `CRON_SECRET`, then redeploy.
+4. `node --env-file=.env.local scripts/media-sandbox-check.mjs` should end
+   in `"ok": true`.
+5. Watch the sweep backfill the 5 stored 4K originals: rows reach `done`
+   on `-wall.mp4` with a poster and a smaller `byte_size`.
+6. Ship a TestFlight build of main, then upload one 500 MB+ clip and let
+   the phone's export fail on purpose (or use an older build) to see the
+   pending → done path end to end.

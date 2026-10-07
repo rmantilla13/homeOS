@@ -438,6 +438,10 @@ applied yet. Apply the new ones in order, and don't edit them in place:
     `delete-account` functions, so deleting a family also empties its member
     photos. An app build with member photos gets an error when saving one
     until these are live; everything else keeps working.
+11. `backend/supabase/migrations/20261012000001_video_processing.sql`, then
+    the `media-jobs` function and its secret ([ADMIN.md](ADMIN.md) → "Big
+    videos"). Safe to run again. An app build that sends `processing` retries
+    its insert without it until this is live.
 
 `supabase db push` does this. 5 to 7 used to be `20261008000001` to
 `20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
