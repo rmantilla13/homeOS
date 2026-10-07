@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ActionResult } from "@/lib/action-result";
 import * as data from "@/lib/data";
+import { supabaseConfig } from "@/lib/env";
 import { DataError } from "@/lib/errors";
 
 // Mutations behind the console's forms. Each one re-checks that the caller is
@@ -132,6 +133,58 @@ export async function updateSettingsAction(_prev: ActionResult, fd: FormData): P
     if (Object.keys(patch).length === 0) return { ok: true, message: "Nothing changed." };
     await data.updateSettings(patch);
     return { ok: true, message: "Settings saved." };
+  });
+}
+
+const BOOT_MAX_BYTES = 20 * 1024 * 1024;
+const BOOT_MIN_MS = 500;
+const BOOT_MAX_MS = 12_000;
+const PENDING_BOOT = /^pending\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mp4$/;
+
+export type BootUploadTicket = { ok: true; path: string; signedUrl: string; apikey: string } | { ok: false; error: string };
+
+// A signed upload URL for one pending object. The browser PUTs the file
+// straight to Storage; this app never holds the bytes or the service role key.
+export async function prepareBootVideoUploadAction(): Promise<BootUploadTicket> {
+  await data.requireAdmin();
+  try {
+    const config = supabaseConfig();
+    if (!config) return { ok: false, error: "Supabase isn't configured." };
+    const ticket = await data.createBootVideoUpload();
+    return { ok: true, path: ticket.path, signedUrl: ticket.signedUrl, apikey: config.anonKey };
+  } catch (err) {
+    if (err instanceof DataError) return { ok: false, error: sentence(err.message) };
+    console.error("boot video upload failed:", err);
+    return { ok: false, error: "Something went wrong. Try again." };
+  }
+}
+
+export async function commitBootVideoAction(path: string): Promise<ActionResult> {
+  return mutate(async () => {
+    if (!PENDING_BOOT.test(path)) throw new DataError("That upload expired. Choose the video again.");
+    await data.commitBootVideo(path);
+    return { ok: true, message: "Boot video saved. Displays play it on the next reboot." };
+  });
+}
+
+export async function saveDemoBootVideoAction(byteSize: number, durationMs: number): Promise<ActionResult> {
+  return mutate(async () => {
+    if (!(await data.isDemo())) throw new DataError("That action is only for demo mode.");
+    if (!Number.isInteger(byteSize) || byteSize < 1 || byteSize > BOOT_MAX_BYTES) {
+      throw new DataError("Boot video must be 20 MB or smaller.");
+    }
+    if (!Number.isInteger(durationMs) || durationMs < BOOT_MIN_MS || durationMs > BOOT_MAX_MS) {
+      throw new DataError("Boot video must be between 0.5 and 12 seconds.");
+    }
+    await data.setDemoBootVideo(byteSize, durationMs);
+    return { ok: true, message: "Boot video saved. Displays play it on the next reboot." };
+  });
+}
+
+export async function removeBootVideoAction(): Promise<ActionResult> {
+  return mutate(async () => {
+    await data.removeBootVideo();
+    return { ok: true, message: "Boot video removed. Displays play the built-in clip on the next reboot." };
   });
 }
 

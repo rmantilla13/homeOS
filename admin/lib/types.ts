@@ -132,6 +132,16 @@ export type Settings = {
   updated_by: string | null;
 };
 
+// One platform-wide boot video. preview_url is a short-lived signed URL, or a
+// fixture path in demo mode. Null preview means the file is set but couldn't
+// be signed.
+export type BootVideo = {
+  byte_size: number;
+  duration_ms: number;
+  updated_at: string;
+  preview_url: string | null;
+};
+
 export type AuditEntry = {
   id: number;
   created_at: string;

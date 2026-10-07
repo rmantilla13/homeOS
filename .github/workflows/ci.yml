@@ -24,6 +24,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       functions: ${{ steps.filter.outputs.functions }}
       display: ${{ steps.filter.outputs.display }}
+      pi_install: ${{ steps.filter.outputs.pi_install }}
       admin: ${{ steps.filter.outputs.admin }}
       voice: ${{ steps.filter.outputs.voice }}
     steps:
@@ -45,6 +46,15 @@ jobs:
             display:
               - *workflow
               - "display/**"
+            # The Debian container install is the slowest job. On pushes it
+            # follows the installers and what they install from; app code
+            # waits for a pull request into main (see the job).
+            pi_install:
+              - *workflow
+              - "display/deploy/**"
+              - "voice/deploy/**"
+              - "display/CMakeLists.txt"
+              - "voice/pyproject.toml"
             admin:
               - *workflow
               - "admin/**"
@@ -103,7 +113,8 @@ jobs:
             qml6-module-qtmultimedia \
             qml6-module-qtquick-virtualkeyboard qt6-virtualkeyboard-plugin \
             qml6-module-qt-labs-folderlistmodel \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            ffmpeg
       - name: Build
         run: |
           cmake -S display -B build/display -DCMAKE_BUILD_TYPE=Release
@@ -129,10 +140,17 @@ jobs:
 
   # The real Pi installer on Debian Trixie, the base of Raspberry Pi OS (x86-64
   # here; the Pi is arm64). Catches package names that only exist on Ubuntu,
-  # Qt 6.8 build breaks and installer bugs before they reach a device.
+  # Qt 6.8 build breaks (the display job builds with Ubuntu's Qt 6.4), voice
+  # wheels missing for Python 3.13, and installer bugs before they reach a
+  # device. It runs when the installers or voice/pyproject.toml change, and
+  # on every pull request into main that touches display/ or voice/, so app
+  # code still meets Qt 6.8 before it merges. Plain pushes of app code skip it.
   pi-install:
     needs: changes
-    if: needs.changes.outputs.display == 'true' || needs.changes.outputs.voice == 'true'
+    if: >-
+      needs.changes.outputs.pi_install == 'true' ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+      (needs.changes.outputs.display == 'true' || needs.changes.outputs.voice == 'true'))
     runs-on: ubuntu-24.04
     container: debian:trixie
     steps:

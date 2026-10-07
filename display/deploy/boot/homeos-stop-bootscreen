@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Stop the boot video and wait until it has exited.
+#
+# homeos-display runs this before it opens HDMI. It must not call
+# `systemctl stop`: that queues a job, and during boot the job cannot run
+# until this service finishes starting, so the two wait on each other.
+set +e
+
+pid="${HOMEOS_BOOTSCREEN_PID:-}"
+cgroup=""
+if [ -z "$pid" ] && command -v systemctl >/dev/null 2>&1; then
+    pid=$(systemctl show -p MainPID --value homeos-bootscreen.service 2>/dev/null)
+    cgroup=$(systemctl show -p ControlGroup --value homeos-bootscreen.service 2>/dev/null)
+fi
+case "$pid" in
+    ''|0|*[!0-9]*) pid="" ;;
+esac
+
+# Every process to wait for, listed before anything is signalled: the
+# wrapper, its players, and whatever else is left in the unit's cgroup. A
+# player that outlives the wrapper is reparented and no longer under it, and
+# it can still hold DRM master while it exits.
+tree() {
+    local child
+    printf '%s\n' "$1"
+    for child in $(ps -o pid= --ppid "$1" 2>/dev/null); do
+        tree "$child"
+    done
+}
+pids=()
+if [ -n "$pid" ]; then
+    mapfile -t pids < <(tree "$pid")
+fi
+procs="/sys/fs/cgroup${cgroup}/cgroup.procs"
+if [ -n "$cgroup" ] && [ -r "$procs" ]; then
+    mapfile -t -O "${#pids[@]}" pids <"$procs"
+fi
+[ "${#pids[@]}" -gt 0 ] || exit 0
+
+alive() {
+    local p
+    for p in "${pids[@]}"; do
+        kill -0 "$p" 2>/dev/null && return 0
+    done
+    return 1
+}
+signal_all() {
+    local p
+    for p in "${pids[@]}"; do
+        kill -s "$1" "$p" 2>/dev/null
+    done
+}
+
+# The wrapper first, so it stops its loop instead of starting a new player.
+signal_all TERM
+i=0
+while [ "$i" -lt 12 ]; do
+    alive || exit 0
+    sleep 0.25
+    i=$((i + 1))
+done
+signal_all KILL
+i=0
+while [ "$i" -lt 10 ]; do
+    alive || exit 0
+    sleep 0.1
+    i=$((i + 1))
+done
+exit 0

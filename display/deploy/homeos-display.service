@@ -18,6 +18,12 @@ After=systemd-udev-trigger.service
 Wants=systemd-logind.service
 Wants=user@@UID@.service
 After=user@@UID@.service
+# The boot video is already running (it is ordered before this unit). It is
+# not a Conflicts=: both units have to be queued at boot, and a conflict
+# would drop one of them. ExecStartPre stops the player and waits until it
+# has released HDMI. That helper signals the process directly; `systemctl
+# stop` from here deadlocks the boot transaction.
+After=homeos-bootscreen.service
 # Own the first console. Conflicts stops the login prompt; Before= (not After=)
 # so when both are queued we start and getty is stopped. After=getty waits for
 # the prompt, then the two units order-cycle and systemd drops this start —
@@ -33,14 +39,28 @@ StartLimitIntervalSec=0
 
 [Service]
 User=@USER@
+# Open the DRM device and the console even when the login that ran the
+# installer has not picked up the new group membership yet.
+SupplementaryGroups=video render input audio tty
 # A logind session on tty1, so autovt does not put a login prompt back.
 # systemd opens the TTY as root before dropping to User=. The stack is
 # display/deploy/homeos-display.pam, installed to /etc/pam.d/homeos-display.
 PAMName=homeos-display
-# Qt platform, scaling and backend settings.
+# Qt platform, scaling and backend settings live in the file (scale, Supabase).
+# The Environment= lines below apply only when that file does not set the same
+# key. The installer writes these keys into the file. journald only stores
+# what this process prints. `journalctl -u homeos-display -f` does not start
+# it and does not draw on HDMI. `systemctl enable --now homeos-display` does.
 EnvironmentFile=/etc/homeos/display.env
 # Where the user's PipeWire (PulseAudio) socket lives.
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+Environment=QT_QPA_PLATFORM=eglfs
+Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
+Environment=QT_QPA_EGLFS_KMS_CONFIG=/etc/homeos/kms.json
+Environment=QT_QPA_EGLFS_HIDECURSOR=1
+# Program the HDMI mode even when the console already set one, so the text
+# console does not stay on the panel while this process is running.
+Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 # EGLFS and linuxfb only cover the console when this process holds tty1.
 StandardInput=tty
 StandardOutput=journal
@@ -50,6 +70,7 @@ TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
 UtmpIdentifier=tty1
+ExecStartPre=-+/usr/local/libexec/homeos-stop-bootscreen
 ExecStart=/usr/local/bin/homeos-display
 Restart=always
 # A missing screen or a GPU that is still starting exits the process. Come

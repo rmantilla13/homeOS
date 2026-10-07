@@ -1,0 +1,47 @@
+.preview {
+  width: min(100%, 480px);
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-inner);
+  overflow: hidden;
+  background: #1c1b19;
+}
+
+.preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #1c1b19;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.chosen {
+  color: var(--text-2);
+  font-size: 14px;
+}

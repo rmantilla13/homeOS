@@ -3,7 +3,7 @@
 # fills in @USER@); it replaces the kiosk service while it runs.
 [Unit]
 Description=Ohana preview (virtual screen in a browser)
-After=network-online.target
+After=network-online.target homeos-bootscreen.service
 Wants=network-online.target
 Conflicts=homeos-display.service
 
@@ -11,6 +11,8 @@ Conflicts=homeos-display.service
 User=@USER@
 # The same settings as the kiosk, plus HOMEOS_PREVIEW_LAN from preview.env.
 EnvironmentFile=-/etc/homeos/preview.env
+# Same handoff as the kiosk: drop the boot video before drawing.
+ExecStartPre=-+/usr/local/libexec/homeos-stop-bootscreen
 ExecStart=/usr/local/bin/homeos-preview
 Restart=always
 RestartSec=2

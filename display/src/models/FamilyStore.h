@@ -78,6 +78,15 @@ public:
     Q_INVOKABLE void redeemReward(const QString &rewardId, const QString &memberId);
     Q_INVOKABLE void setListItemDone(const QString &listId, const QString &itemId, bool done);
     Q_INVOKABLE void addListItem(const QString &listId, const QString &text);
+    // Wall create flows. startsAt/endsAt are ISO-8601 local timestamps from QML.
+    // memberIds is a list of member UUID strings (may be empty).
+    Q_INVOKABLE void addEvent(const QString &title, const QString &location,
+                              const QString &startsAt, const QString &endsAt, bool allDay,
+                              const QVariantList &memberIds);
+    // Device accounts must keep requiresApproval=true when points > 0 (tasks_guard).
+    Q_INVOKABLE void addTask(const QString &title, const QString &icon, const QString &assigneeId,
+                             int points, bool requiresApproval, const QString &rrule);
+    Q_INVOKABLE void addReward(const QString &title, const QString &icon, int cost);
     Q_INVOKABLE int pointsFor(const QString &memberId) const { return m_points.value(memberId); }
     // Forgets this display's session and shows a new pairing code (Settings → Re-pair).
     Q_INVOKABLE void unpair();

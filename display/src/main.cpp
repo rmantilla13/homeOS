@@ -1,4 +1,5 @@
 #include <QCommandLineParser>
+#include <QFile>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -19,8 +20,39 @@ static QString setting(QSettings &settings, const char *env, const QString &key)
     return fromEnv.isEmpty() ? settings.value(key).toString() : fromEnv;
 }
 
+// The kiosk draws on the HDMI panel. Set that before QGuiApplication, which
+// reads the platform plugin once. A desktop session (DISPLAY or WAYLAND) and
+// an explicit QT_QPA_PLATFORM, including the offscreen CI run, are left alone.
+// --windowed is the development window and must not take the DRM device.
+static void preparePanelPlatform(int argc, char **argv)
+{
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], "--windowed") == 0)
+            return;
+    }
+    const bool platformSet = !qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM");
+    const bool desktop = !qEnvironmentVariableIsEmpty("DISPLAY")
+        || !qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY");
+    if (!platformSet && !desktop)
+        qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("eglfs"));
+    if (qgetenv("QT_QPA_PLATFORM") != "eglfs")
+        return;
+    if (qEnvironmentVariableIsEmpty("QT_QPA_EGLFS_INTEGRATION"))
+        qputenv("QT_QPA_EGLFS_INTEGRATION", QByteArrayLiteral("eglfs_kms"));
+    if (qEnvironmentVariableIsEmpty("QT_QPA_EGLFS_KMS_CONFIG")
+        && QFile::exists(QStringLiteral("/etc/homeos/kms.json")))
+        qputenv("QT_QPA_EGLFS_KMS_CONFIG", QByteArrayLiteral("/etc/homeos/kms.json"));
+    if (qEnvironmentVariableIsEmpty("QT_QPA_EGLFS_HIDECURSOR"))
+        qputenv("QT_QPA_EGLFS_HIDECURSOR", QByteArrayLiteral("1"));
+    // The console may already have a mode. Set it again so the text console
+    // does not stay on HDMI while this process is running.
+    if (qEnvironmentVariableIsEmpty("QT_QPA_EGLFS_ALWAYS_SET_MODE"))
+        qputenv("QT_QPA_EGLFS_ALWAYS_SET_MODE", QByteArrayLiteral("1"));
+}
+
 int main(int argc, char *argv[])
 {
+    preparePanelPlatform(argc, argv);
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName("homeOS");
     QGuiApplication::setApplicationName("display");
@@ -36,6 +68,14 @@ int main(int argc, char *argv[])
     QCommandLineOption noKeyboard("no-keyboard", "Don't load the on-screen keyboard.");
     parser.addOptions({windowed, demo, noKeyboard});
     parser.process(app);
+
+    // A running process with no screen leaves the text console on HDMI and
+    // looks healthy to systemctl. Exit so Restart= tries again once the
+    // panel or the DRM device is there.
+    if (QGuiApplication::screens().isEmpty()) {
+        qCritical("homeOS display: no screen. The HDMI device was not opened.");
+        return 1;
+    }
 
     QSettings settings;
     const QString url = setting(settings, "HOMEOS_SUPABASE_URL", "backend/url");

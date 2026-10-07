@@ -209,10 +209,12 @@ app's chat history. The Profile screen shows a `SiriTipView` for it.
 
 ## CI
 
-`.github/workflows/ios.yml` runs on pushes and pull requests that touch
-`ios/**` or the workflow, and by hand (`workflow_dispatch`). On `macos-15` it
-selects the newest stable Xcode (`maxim-lobanov/setup-xcode`, failing if that's
-older than 16), then works on the checked-in project, unsigned:
+`.github/workflows/ios.yml` runs on pull requests that touch `ios/**` or the
+workflow, and on demand (Actions → iOS → Run workflow). It does not run on
+pushes to `main`: macOS runners use minutes at ten times the Linux rate. On
+`macos-15` it selects the newest stable Xcode (`maxim-lobanov/setup-xcode`,
+failing if that's older than 16), then works on the checked-in project,
+unsigned:
 
 1. `plutil -lint` on the project file, `Info.plist`, the privacy manifest and
    `ExportOptions.plist`, and `bash -n` on the scripts.
@@ -226,11 +228,10 @@ older than 16), then works on the checked-in project, unsigned:
 3. A check that the built `Info.plist` has `MediaAPIURL` `https://ohanaos.co`,
    bundle id `com.ohanaos.ohana`, `ITSAppUsesNonExemptEncryption` false, and
    that `PrivacyInfo.xcprivacy` is in the app.
-4. On pull requests, `main`, and manual runs: an unsigned Release archive for
-   `generic/platform=iOS` with stand-in Supabase values, the same build a
-   TestFlight upload uses. It checks the archive's `MediaAPIURL`, then archives
-   once more with no Supabase values and expects **Check Release Config** to
-   stop it. Plain branch pushes skip this step; their pull request runs it.
+4. An unsigned Release archive for `generic/platform=iOS` with stand-in
+   Supabase values, the same build a TestFlight upload uses. It checks the
+   archive's `MediaAPIURL`, then archives once more with no Supabase values and
+   expects **Check Release Config** to stop it.
 
 Swift packages are checked out into `.spm` and cached on the hash of
 `Package.resolved` (supabase-swift 2.55.3). When a step fails, the

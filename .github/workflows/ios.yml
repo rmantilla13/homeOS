@@ -1,13 +1,11 @@
 # Builds the checked-in ios/OhanaOS.xcodeproj on macOS, unsigned: a Debug
-# simulator build on every run, and on pull requests (and main) an unsigned
-# Release archive, the same build a TestFlight upload uses. See docs/IOS.md → CI.
+# simulator build, then an unsigned Release archive (the same build a
+# TestFlight upload uses). macOS minutes cost ten times Linux ones, so this
+# runs on pull requests that touch the app and on demand (Actions → iOS → Run
+# workflow), not on every push to main. See docs/IOS.md → CI.
 name: iOS
 
 on:
-  push:
-    paths:
-      - "ios/**"
-      - ".github/workflows/ios.yml"
   pull_request:
     paths:
       - "ios/**"
@@ -94,10 +92,7 @@ jobs:
           expect ITSAppUsesNonExemptEncryption false
           test -f "$app/PrivacyInfo.xcprivacy" || { echo "::error::PrivacyInfo.xcprivacy is not in the app"; exit 1; }
 
-      # Branch pushes that also have a pull request would archive twice; the
-      # pull request run covers them.
       - name: Archive (Release, unsigned)
-        if: github.event_name != 'push' || github.ref == 'refs/heads/main'
         working-directory: ios
         run: |
           set -o pipefail

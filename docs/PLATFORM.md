@@ -4,7 +4,7 @@ Ohana is invite-only. This page covers how accounts and families fit
 together, how invites work from end to end, how to make the first platform
 admin and turn on the sign-up hook, and the assistant's limits. The exact
 names live in [PLATFORM_SPEC.md](PLATFORM_SPEC.md); the SQL is in
-`backend/supabase/migrations/20261007*.sql` and `20261008*.sql`.
+`backend/supabase/migrations/20261007*.sql` to `20261009*.sql`.
 
 ## Accounts
 
@@ -388,10 +388,33 @@ Production already has the `20261006` and `20261007` migrations. Apply the
 new ones in order, and don't edit them in place:
 
 1. `backend/supabase/migrations/20261008000001_media_platform.sql`
-2. `backend/supabase/migrations/20261008000001_video_blob.sql`
-3. `backend/supabase/migrations/20261008000002_blob_photos.sql`
-4. `backend/supabase/migrations/20261008000002_media_storage.sql`
-5. `backend/supabase/migrations/20261008000003_blob_limits.sql`
+2. `backend/supabase/migrations/20261008000002_media_storage.sql`
+3. `backend/supabase/migrations/20261008000004_boot_video.sql`
+4. `backend/supabase/migrations/20261009000001_wall_create_rewards.sql`
+5. `backend/supabase/migrations/20261009000002_video_blob.sql`
+6. `backend/supabase/migrations/20261009000003_blob_photos.sql`
+7. `backend/supabase/migrations/20261009000004_blob_limits.sql`
+
+`supabase db push` does this. The last three used to be `20261008000001` to
+`20261008000003` and shared versions with 1 and 2. They and 3 (`boot_video`)
+are safe to run again if you pasted them into the SQL editor before; a
+re-run of 3 also removes the anon read on `platform_boot_video` that its
+first draft granted. If you pasted 1, 2 or 4 by hand, record it first so the
+push skips it, for example
+`supabase migration repair --status applied 20261008000001`.
+
+If 5 to 7 are already on the database, 3 and 4 sort before them and
+`supabase db push` stops with "Found local migration files to be inserted
+before the last migration on remote database". Run
+`supabase db push --include-all` to apply them.
+
+`20261008000003` was briefly the boot video's version on its branch. If
+`supabase migration list` shows it only on the remote, look up its name with
+`select name from supabase_migrations.schema_migrations where version = '20261008000003'`.
+If that is `boot_video` or `blob_limits`, run
+`supabase migration repair --status reverted 20261008000003`; the push then
+runs the renamed file, which is safe to run again. Anything else is a
+migration this branch does not have: merge it first.
 
 Then redeploy the `admin` and `pair-device` edge functions so the console can
 sign and delete media, revoke a display's auth user, and so pairing refuses

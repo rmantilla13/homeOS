@@ -13,7 +13,7 @@ and the iOS app. The contract it implements is `docs/PLATFORM_SPEC.md` §3.
 | `/families/[id]` | Members, displays, family invites and 30-day usage. Suspend (with a reason), reactivate, delete (type the name to confirm) |
 | `/users` | Search accounts by email or name. Make or remove admin, ban, unban, delete |
 | `/invites` | Create platform invites (optional email lock, note, max uses, expiry), optionally email them; copy, revoke, see status |
-| `/settings` | Invite-only sign-up, assistant on/off, requests per family per day |
+| `/settings` | Invite-only sign-up, assistant on/off, requests per family per day, and the display boot video |
 | `/audit` | Every admin action, newest first |
 
 ## How it works
@@ -163,7 +163,7 @@ with no Supabase values, never the production project.
    `BLOB_READ_WRITE_TOKEN` is present. Don't commit either value.
 5. Deploy. Every route is dynamic, and `proxy.ts` runs on the Node.js runtime.
 6. Make sure the backend side is in place: migrations pushed
-   (`supabase db push`, including `20261008000001_video_blob.sql`) and the
+   (`supabase db push`, including `20261009000002_video_blob.sql`) and the
    function deployed (`supabase functions deploy admin`). Supabase gives the
    function its service role key automatically.
 7. Point the iOS app at this deployment (`MEDIA_API_URL` in
@@ -262,7 +262,7 @@ hook, the assistant).
 |---|---|
 | Sign-in page says Supabase isn't configured | One of the two `NEXT_PUBLIC_SUPABASE_*` variables is missing or not a URL. They are read at request time, so restart (or redeploy) after setting them. |
 | "That account isn't an Ohana platform admin" | The account has no `platform_admins` row (see above). |
-| "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The server log has the database error. |
+| "This page couldn't load" | An RPC failed, usually because the platform migrations aren't applied. The page shows the database's sentence. A numeric reference means an unexpected crash; that text is in the server log. |
 | Ban, unban, delete (a user or a family) or email fail | The `admin` edge function isn't deployed or can't be reached. |
 | A family was deleted but the audit log shows `delete_family_files` with an error | The rows are gone; some of its photos are still in the `family-media` bucket under the family's id. Remove that folder in **Storage**. |
 | Delete family says photos and videos may still be in Blob storage | The rows are gone. In the Vercel Blob store, remove the folder named with that family's id. |

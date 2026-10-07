@@ -2,6 +2,7 @@ import "server-only";
 import type {
   Admin,
   AuditEntry,
+  BootVideo,
   Device,
   Family,
   FamilyInvite,
@@ -39,6 +40,7 @@ export type DemoState = {
   users: DemoUser[];
   invites: PlatformInvite[];
   settings: Settings;
+  bootVideo: BootVideo | null;
   audit: AuditEntry[];
   nextAuditId: number;
   bannedDevices: string[]; // device auth users that were banned
@@ -318,6 +320,12 @@ export function buildDemoState(now = Date.now()): DemoState {
     settings: {
       invite_only: true, assistant_enabled: true, assistant_daily_limit: 200,
       updated_at: hours(26), updated_by: users[1].id,
+    },
+    bootVideo: {
+      byte_size: 3285,
+      duration_ms: 2000,
+      updated_at: hours(2),
+      preview_url: "/demo-boot.mp4",
     },
     audit,
     nextAuditId: auditRaw.length + 41,
