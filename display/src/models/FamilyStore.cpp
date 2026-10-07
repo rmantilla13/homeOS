@@ -91,6 +91,18 @@ void FamilyStore::setMediaApiUrl(const QString &url)
         m_mediaApiUrl.chop(1);
 }
 
+QString FamilyStore::mediaApiUrlOrDefault(const QString &configured)
+{
+    const QString value = configured.trimmed();
+    const QUrl url(value);
+    const QString scheme = url.scheme().toLower();
+    const QString host = url.host().toLower();
+    if (!url.isValid() || (scheme != QLatin1String("https") && scheme != QLatin1String("http")) || host.isEmpty()
+        || host.contains(QLatin1String("your-admin")) || host.contains(QLatin1String("your-project")))
+        return QStringLiteral("https://ohanaos.co");
+    return value;
+}
+
 void FamilyStore::setUrlRefreshAfterMs(qint64 ms)
 {
     m_urlRefreshMs = ms;

@@ -412,6 +412,22 @@ private slots:
         QVERIFY(item(rig->store, "p1").value("url").toString().endsWith("?sig=1"));
     }
 
+    // A Pi with no HOMEOS_MEDIA_URL still signs what the phones upload
+    // through https://ohanaos.co, their own default.
+    void mediaUrlDefaultsToOhana()
+    {
+        const QString ohana = QStringLiteral("https://ohanaos.co");
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QString()), ohana);
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QStringLiteral("  ")), ohana);
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QStringLiteral("https://YOUR-ADMIN.vercel.app")), ohana);
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QStringLiteral("ohanaos.co")), ohana);
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QStringLiteral("ftp://media.example.com")), ohana);
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QStringLiteral(" https://admin.example.com/ ")),
+                 QStringLiteral("https://admin.example.com/"));
+        QCOMPARE(FamilyStore::mediaApiUrlOrDefault(QStringLiteral("http://127.0.0.1:3000")),
+                 QStringLiteral("http://127.0.0.1:3000"));
+    }
+
     void unpairForgetsMedia()
     {
         auto rig = started();

@@ -887,8 +887,10 @@ and the admin console show it.
 app origin. Rows with `file_store = 'blob'` (new photos and videos) are
 signed with `POST /api/media/urls` and the device access token (6 hours,
 same as Storage), at most 200 paths per request. Rows still in
-`family-media` stay on `signUrls`. If the URL is unset, Blob files get an
-empty `url` and a warning; older Storage files still play.
+`family-media` stay on `signUrls`. When it is unset, not an http(s) URL
+with a host, or the `YOUR-ADMIN` placeholder, the display uses
+`https://ohanaos.co`, the iOS app's `Config.defaultMediaAPIURL`; the log
+says which (`media service:`).
 
 - Both `storage_path` and `thumbnail_path` are signed; each row gets `url`
   and `thumbUrl`. A signed URL is reused for 4 of its 6 hours, so a refresh

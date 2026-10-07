@@ -245,8 +245,9 @@ the project and company are OhanaOS. `xcodegen generate` replaces it.
 - Photos and videos are picked with `PhotosPicker` and uploaded to Vercel
   Blob through the admin app (`Config.mediaAPIURL`), with a size, a content
   type and a JPEG poster. Videos are made at most 1080p (mostly HEVC) for
-  the wall first. They appear on the wall frame within seconds once the
-  display has `HOMEOS_MEDIA_URL`. Profile photos stay in Supabase. Files
+  the wall first. They appear on the wall frame within a minute; the
+  display signs them through the same admin app (`HOMEOS_MEDIA_URL`, by
+  default `https://ohanaos.co`). Profile photos stay in Supabase. Files
   already in Storage keep playing from that bucket.
 - Parents approve chore completions and manage rewards.
 - **Pair a display**: the screen shows a 6-digit code and a QR code; the app

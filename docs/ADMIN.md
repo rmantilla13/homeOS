@@ -169,8 +169,8 @@ with no Supabase values, never the production project.
    function its service role key automatically.
 7. Point the iOS app at this deployment (`MEDIA_API_URL` in
    `ios/Config/*.xcconfig`, read as `Config.mediaAPIURL`) and the display at
-   it (`HOMEOS_MEDIA_URL`). The app uses `https://ohanaos.co` when
-   `MEDIA_API_URL` is empty or still the example placeholder. Both send the
+   it (`HOMEOS_MEDIA_URL`). Both use `https://ohanaos.co` when the value
+   is empty or still the example placeholder. Both send the
    family member's Supabase access token to `/api/media/*`.
 8. Check the route from anywhere. Without a sign-in it should answer a
    clean 401 in JSON, not a login page, a 404 or a 503:

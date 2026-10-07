@@ -203,9 +203,10 @@ Until the backend is set up, the display shows sample data. Once there's a
 Supabase project (see the main README):
 
 1. Run `sudo nano /etc/homeos/display.env` and set `HOMEOS_SUPABASE_URL` and
-   `HOMEOS_SUPABASE_ANON_KEY` (remove the `#` in front of each). Set
-   `HOMEOS_MEDIA_URL` to the admin app's origin so photos and videos stored
-   in Blob (everything new) can show; older files in Storage show without it.
+   `HOMEOS_SUPABASE_ANON_KEY` (remove the `#` in front of each). Photos and
+   videos from the iOS app are signed by `https://ohanaos.co`, the app's
+   own default. Set `HOMEOS_MEDIA_URL` only if your phones use another
+   admin deployment (`MEDIA_API_URL` in their build).
 2. Run `sudo systemctl restart homeos-display`. The screen shows a 6-digit
    code.
 3. In the iOS app, go to **Family → Pair a display** and enter the code.
@@ -357,6 +358,7 @@ journalctl -u homeos-display -b --no-pager
 | The boot video never appears, or stays up over Ohana | `journalctl -u homeos-bootscreen -b`. The app stops that service before it uses the screen. `sudo systemctl stop homeos-bootscreen` releases it if you need to. |
 | The admin's boot video does not play | `journalctl -u homeos-boot-video-sync` shows each check. `sudo systemctl start homeos-boot-video-sync` checks now; reboot after it says the video was downloaded. A file at `/etc/homeos/boot.mp4` wins over the admin video. |
 | Boot messages stay on the screen, and the log repeats `No modes available`, `Could not open DRM device` or a crash | The app can't find the screen and retries every second. Check that the cable is in **HDMI0** and the screen is on and set to HDMI. `cat /etc/homeos/kms.json` should name a device from `ls -l /dev/dri/by-path/`; re-run `./display/deploy/install-pi.sh` to detect it again. |
+| Photos and videos from the phone never show (older ones do), or show as colored tiles | `journalctl -u homeos-display -b -o cat \| grep -E 'media service\|signing blob media'`. `media service:` should name the admin app the phones upload through (`https://ohanaos.co` unless their build sets `MEDIA_API_URL`); fix `HOMEOS_MEDIA_URL` in `/etc/homeos/display.env` if not. `signing blob media failed: ... (HTTP 401)` means that admin app uses another Supabase project than the display. New items appear within a minute. |
 | The gear menu says it isn't allowed to change Wi-Fi | Re-run `./display/deploy/install-pi.sh`. It installs `/usr/local/libexec/homeos-system` and lets your user run that, and only that, without a password. |
 | `Permission denied` for `/dev/dri` or `/dev/input` in the log | Run `groups`: it should list `video render input audio tty`. Re-run the install script, then `sudo reboot`. |
 | Touch doesn't respond | Check the touch USB cable. `lsusb` should list the screen; then `sudo systemctl restart homeos-display`. |
