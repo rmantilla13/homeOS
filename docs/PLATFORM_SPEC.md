@@ -926,6 +926,10 @@ files still play.
 - Sign-up passes `data: ["invite_code": code, "display_name": name]`.
 - After auth, a family invite calls `accept_family_invite(code,
   display_name)`; a platform invite goes to Create Family with `invite_code`.
+- Signed in from an admin's email invite (no password yet) or a "Forgot
+  password?" link: "Choose a password" (`auth.update`) comes first.
+- Sign in has "Forgot password?" (`auth.resetPasswordForEmail`, redirect
+  `ohanaos://auth-callback`).
 - Signed-in users with no family and no pending code see "Enter an invite
   code".
 

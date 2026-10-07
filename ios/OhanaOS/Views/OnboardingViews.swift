@@ -121,7 +121,13 @@ struct WelcomeView: View {
     @State private var password = ""
     @State private var checking = false
     @State private var working = false
-    @State private var confirmationSentTo: String?
+    @State private var sentEmail: SentEmail?
+
+    /// What the "Check your email" alert is about.
+    private enum SentEmail {
+        case confirmation(String)
+        case passwordReset(String)
+    }
 
     private var invite: InvitePreview? { preview(for: code, in: store) }
     private var inviteReady: Bool { invite?.valid == true }
@@ -191,6 +197,11 @@ struct WelcomeView: View {
                     .autocorrectionDisabled()
                 SecureField("Password", text: $password)
                     .textContentType(mode == .create ? .newPassword : .password)
+                if mode == .signIn {
+                    Button("Forgot password?") { Task { await forgotPassword() } }
+                        .font(.subheadline)
+                        .disabled(working)
+                }
             } footer: {
                 Text(accountFooter)
             }
@@ -225,12 +236,24 @@ struct WelcomeView: View {
             if store.pendingPreview == nil && !checking { await check() }
         }
         .alert("Check your email", isPresented: Binding(
-            get: { confirmationSentTo != nil },
-            set: { if !$0 { confirmationSentTo = nil } }
+            get: { sentEmail != nil },
+            set: { if !$0 { sentEmail = nil } }
         )) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("We sent a link to \(confirmationSentTo ?? "your inbox"). Open it on this iPhone, then sign in here. Your invite code is saved.")
+            Text(sentEmailMessage)
+        }
+    }
+
+    private var sentEmailMessage: String {
+        switch sentEmail {
+        case .confirmation(let address)?:
+            return "We sent a link to \(address). Open it on this iPhone, then sign in here. Your invite code is saved."
+        case .passwordReset(let address)?:
+            // Auth doesn't say whether the address has an account.
+            return "If \(address) has an account, we sent it a link. Open it on this iPhone to choose a new password."
+        case nil:
+            return ""
         }
     }
 
@@ -247,7 +270,7 @@ struct WelcomeView: View {
         switch mode {
         case .create:
             if await store.signUp(email: address, password: password, name: name) == .confirmEmail {
-                confirmationSentTo = address
+                sentEmail = .confirmation(address)
                 password = ""
                 mode = .signIn
             }
@@ -256,6 +279,76 @@ struct WelcomeView: View {
             if !inviteReady { store.setPendingInvite(nil) }
             await store.signIn(email: address, password: password)
         }
+    }
+
+    private func forgotPassword() async {
+        let address = email.trimmingCharacters(in: .whitespaces)
+        guard address.contains("@") else {
+            store.errorMessage = "Enter your email first."
+            return
+        }
+        working = true
+        defer { working = false }
+        if await store.sendPasswordReset(email: address) {
+            password = ""
+            sentEmail = .passwordReset(address)
+        }
+    }
+}
+
+// MARK: - Choose a password (signed in from an email link)
+
+/// After an admin's email invite, whose login has no password yet, or a
+/// "Forgot password?" link. Comes before family setup and the tabs.
+struct SetPasswordView: View {
+    @Environment(FamilyStore.self) private var store
+    @State private var password = ""
+    @State private var working = false
+
+    var body: some View {
+        Form {
+            Section {
+                OnboardingHeader(title: "Choose a password",
+                                 subtitle: "You'll sign in to Ohana Display with your email and this password.")
+            }
+            Section {
+                SecureField("New password", text: $password)
+                    .textContentType(.newPassword)
+            } footer: {
+                Text("At least 8 characters.")
+            }
+            Section {
+                Button {
+                    Task {
+                        working = true
+                        _ = await store.setPassword(password)
+                        working = false
+                    }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if working { ProgressView().tint(.white) } else { Text("Save password") }
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.pill())
+                .disabled(password.count < 8 || working)
+                .listRowBackground(Color.clear)
+            }
+            Section {
+                Button("Sign out") { Task { await store.signOut() } }
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } footer: {
+                if let email = store.email {
+                    Text("Signed in as \(email)").frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .screenBackground()
+        .showsStoreErrors()
     }
 }
 

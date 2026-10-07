@@ -27,6 +27,9 @@ struct RootView: View {
                 LoadingView()
             case .signedOut:
                 WelcomeView()
+            case _ where store.needsNewPassword:
+                // Signed in from an invite email or a password-reset link.
+                SetPasswordView()
             case .needsFamily:
                 FamilySetupView()
             case .ready:
@@ -34,9 +37,10 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: store.phase)
+        .animation(.easeInOut(duration: 0.3), value: store.needsNewPassword)
         // An invite link opened while you're already in a family.
         .sheet(item: Binding(
-            get: { store.phase == .ready ? store.pendingInviteCode.map(InviteLink.init) : nil },
+            get: { store.phase == .ready && !store.needsNewPassword ? store.pendingInviteCode.map(InviteLink.init) : nil },
             set: { if $0 == nil { store.setPendingInvite(nil) } }
         )) { link in
             InviteLinkSheet(code: link.code)

@@ -6,6 +6,7 @@ import { AlertIcon } from "@/components/icons";
 import { useFormAction } from "@/components/useFormAction";
 import type { FormAction } from "@/lib/action-result";
 import { formatDate } from "@/lib/format";
+import { appInviteLink } from "@/lib/site";
 import styles from "./interactive.module.css";
 import ui from "./ui.module.css";
 
@@ -124,8 +125,8 @@ export function InviteForm({ action }: { action: FormAction }) {
             <CopyButton text={result.code} ariaLabel={`Copy invite code ${result.code}`} />
           </div>
           <div className={styles.resultMeta}>
-            App link: <code>homeos://invite/{result.code}</code>{" "}
-            <CopyButton text={`homeos://invite/${result.code}`} label="Copy link" ariaLabel="Copy app link" />
+            App link: <code>{appInviteLink(result.code)}</code>{" "}
+            <CopyButton text={appInviteLink(result.code)} label="Copy link" ariaLabel="Copy app link" />
             {result.expiresAt ? <> · expires {formatDate(result.expiresAt)}</> : null}
           </div>
         </div>

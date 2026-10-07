@@ -22,9 +22,10 @@ open ios/OhanaOS.xcodeproj
 2. Apply the migrations and deploy the `pair-device` and `assistant` edge
    functions (see the README).
 3. In Supabase → Authentication → URL Configuration, add
-   `ohanaos://auth-callback` to **Redirect URLs**. Email confirmations and admin
-   email invites then open the app and sign you in. Without it, those links
-   land on the Site URL and you sign in in the app by hand.
+   `ohanaos://auth-callback` to **Redirect URLs**. Email confirmations, admin
+   email invites and password resets then open the app and sign you in.
+   Without it, those links land on the Site URL, and invite and reset links
+   can't sign anyone in to the app.
 4. Pick an iPhone simulator or a device and run. Build with Xcode 16 or newer:
    the code relies on its SDK treating every SwiftUI `View` as `@MainActor`.
 
@@ -62,8 +63,8 @@ ios/OhanaOS/
 ├── Theme/Theme.swift         tokens, Mood, GlowView, card/pill/tag styles, MemberAvatar/AvatarCircle, SegmentedPill
 └── Views/
     ├── Components/           floating tab bar, activity/approval cards, shared bits
-    ├── OnboardingViews.swift welcome (invite code, create account, sign in), enter an invite code,
-    │                         create family, invite-link sheet
+    ├── OnboardingViews.swift welcome (invite code, create account, sign in, forgot password), choose a password,
+    │                         enter an invite code, create family, invite-link sheet
     ├── ProfileView.swift     name, photo, email, family switcher, Siri tip, privacy and support links,
     │                         sign out, delete account
     ├── InviteViews.swift     create invite, code card with share/copy, pending and accepted rows
@@ -113,7 +114,17 @@ Ohana is invite-only, so the first screen starts with the invite code.
 4. If email confirmation is on, sign-up ends with "Check your email". The code
    is saved on the phone (and in the account's metadata), so after confirming
    and signing in, step 3 still happens, even on another iPhone.
-5. **Signed in with no family and no code** (a fresh account, or after leaving
+5. **Choose a password.** An admin's email invite creates a login with no
+   password, so signing in from its link (`type=invite`) asks for one before
+   anything else, with `auth.update(user: UserAttributes(password:))`. A
+   **Forgot password?** link does the same. The screen stays until a password
+   is saved (the flag survives relaunches); **Sign out** is the only way past it.
+6. **Forgot password?** (under the password on Sign in) emails a reset link
+   for the address typed above it, with `auth.resetPasswordForEmail(email,
+   redirectTo: ohanaos://auth-callback)`. Auth answers the same whether or not
+   the address has an account, so the alert says "If {email} has an
+   account…". The link has to be opened on the same iPhone (see Deep links).
+7. **Signed in with no family and no code** (a fresh account, or after leaving
    a family): "Enter an invite code". A family code shows **Join {family}**; a
    platform code moves on to Create family. Members of a family an admin has
    suspended also land here, because they can no longer see it. Sign out and
@@ -133,7 +144,7 @@ every URL to `FamilyStore.handleOpenURL`.
 | Link | What happens |
 |---|---|
 | `ohanaos://invite/<CODE>` | Saves the code as pending. Signed out: prefills Welcome and checks it. No family: prefills "Enter an invite code". In a family already: a sheet offers to join that family (the app switches to it) or start a new one. Dismissing it forgets the code. |
-| `ohanaos://auth-callback…` | Finishes an email link: implicit-grant tokens in the fragment (admin email invites) go to `auth.setSession`, a PKCE `code` (sign-up confirmations) to `auth.session(from:)`. A pending family invite is then accepted as in step 3. Any app or web page can open an `ohanaos://` link, so tokens are ignored while someone is already signed in ("Sign out first to use that link"); a PKCE code can't be replayed, because it only works with the verifier this iPhone stored at sign-up. |
+| `ohanaos://auth-callback…` | Finishes an email link: implicit-grant tokens in the fragment (admin email invites) go to `auth.setSession`, a PKCE `code` (sign-up confirmations and password resets) to `auth.session(from:)`. A pending family invite is then accepted as in step 3. **Choose a password** (step 5) comes first after tokens with `type=invite` or `type=recovery`, and after a code when this iPhone sent a reset: the code exchange doesn't say what a link was for, so the app keeps a flag from **Forgot password?** until the link is used, a sign-up replaces the verifier, or someone signs in or out. Any app or web page can open an `ohanaos://` link, so tokens are ignored while someone is already signed in ("Sign out first to use that link"); a PKCE code can't be replayed, because it only works with the verifier this iPhone stored when it sent the email. |
 
 The parent's share sheet text includes both the link and the code, so the code
 still works for someone who opens the message on another device.

@@ -75,7 +75,8 @@ family always needs a family invite.
 
 1. An admin creates a platform invite in the console, optionally for one email
    address. The "email invite" action also sends a Supabase invite email
-   carrying the code.
+   carrying the code. Its link opens the app signed in; the app asks for a
+   password, then goes straight to step 4.
 2. The person opens the app (or `ohanaos://invite/K7QM-3XWD`) and taps
    **Check invite**. `preview_invite(code)` answers, without signing in,
    `{"valid": true, "kind": "platform", ...}`.
