@@ -20,7 +20,8 @@ enum Theme {
 
     static let radius: CGFloat = 28
     static let radiusSm: CGFloat = 18
-    static let page: CGFloat = 20
+    /// Space between the screen edge and the content.
+    static let page: CGFloat = 24
 
     static let springy = Animation.spring(response: 0.38, dampingFraction: 0.75)
     static let bouncy = Animation.spring(response: 0.42, dampingFraction: 0.55)

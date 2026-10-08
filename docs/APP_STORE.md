@@ -385,7 +385,10 @@ resizing. Upload both.
 | `6.9-inch` | 1320 × 2868 | iPhone with Dynamic Island (large display), which takes 1260 × 2736, 1290 × 2796 or 1320 × 2868 | iPhone 17 Pro Max, or iPhone 16 Pro Max |
 
 App Store Connect scales these down for the older iPhone sizes. The
-foldable iPhone Duo has its own slot, which Apple doesn't mark as required.
+foldable iPhone Duo has its own slot, which Apple doesn't mark as required:
+2007 × 2853 for the inner screen and 1398 × 2034 for the outer one. The
+workflow doesn't make these yet, because it needs an iPhone Duo simulator,
+and that needs Xcode 27.1 on the runner. See [IOS.md](IOS.md) → iPhone Duo.
 
 **Limits.** 1 to 10 screenshots per size, `.png`, `.jpg` or `.jpeg`, with no
 alpha channel or transparency. The workflow flattens any alpha channel and

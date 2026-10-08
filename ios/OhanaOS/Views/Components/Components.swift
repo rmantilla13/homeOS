@@ -208,3 +208,44 @@ struct PointsText: View {
         .foregroundStyle(Theme.warning)
     }
 }
+
+/// A soft blur that eases content out where it meets a screen edge or a bar:
+/// a light material that fades from full to nothing, with a wash of the
+/// screen color over it. Sits on top of scrolling content and never takes taps.
+struct EdgeFade: View {
+    let edge: VerticalEdge
+
+    var body: some View {
+        let fade = LinearGradient(colors: [.black, .black.opacity(0.7), .clear],
+                                  startPoint: edge == .top ? .top : .bottom,
+                                  endPoint: edge == .top ? .bottom : .top)
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            Theme.background.opacity(0.55)
+        }
+        .mask(fade)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Blurs content out under the status bar and above the bottom bar.
+    /// `bottom` is how far the bottom fade reaches above the safe area.
+    func softEdges(top: CGFloat = 28, bottom: CGFloat = 0) -> some View {
+        overlay(alignment: .top) {
+            if top > 0 {
+                EdgeFade(edge: .top)
+                    .frame(height: top)
+                    .ignoresSafeArea(edges: .top)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if bottom > 0 {
+                EdgeFade(edge: .bottom)
+                    .frame(height: bottom)
+                    .ignoresSafeArea(edges: .bottom)
+            }
+        }
+    }
+}
