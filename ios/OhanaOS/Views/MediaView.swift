@@ -20,7 +20,9 @@ struct MediaView: View {
     @State private var selected: Set<UUID> = []
     @State private var confirmingDelete = false
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 3)
+    /// Three across on a regular iPhone and on the iPhone Duo's outer screen,
+    /// five on its inner one.
+    private let columns = [GridItem(.adaptive(minimum: 96), spacing: 3)]
 
     private var items: [MediaItem] {
         let sorted = store.media.sorted { $0.date > $1.date }
@@ -123,7 +125,7 @@ struct MediaView: View {
                                 }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, Theme.page)
                         }
                     }
                 }

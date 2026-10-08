@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0FB49588DAB74FACDDD4A8AF /* TabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB21D8983184DD5830F6779 /* TabBar.swift */; };
+		34D6FF960D8E44999860FF07 /* DualPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07FBF2AEEC014868A3FDD99C /* DualPaneView.swift */; };
 		100B3819C5625410AACB9ECF /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 3C0EA9B08CC8B9722662650C /* Supabase */; };
 		14A3FB69BB8E5833600893B6 /* MediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82BE1E835CE5824F86ADD45E /* MediaView.swift */; };
 		1A5EF9DC9BAEC1A8B32E7E99 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34BD42DB1A314E235B1B577B /* ProfileView.swift */; };
@@ -54,6 +55,7 @@
 		866CCE6D2C75E85CE576E03A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		888B35F1F21C16F3FE48909D /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		8DB21D8983184DD5830F6779 /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
+		07FBF2AEEC014868A3FDD99C /* DualPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualPaneView.swift; sourceTree = "<group>"; };
 		97FA5C72D74AE5FF374E80C7 /* FamilyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyView.swift; sourceTree = "<group>"; };
 		99126F8EEA0DF6914A1B3C19 /* RewardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardsView.swift; sourceTree = "<group>"; };
 		AF2ED37A2A544E94F2E8AC14 /* AskOhanaOSIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskOhanaOSIntent.swift; sourceTree = "<group>"; };
@@ -92,6 +94,7 @@
 			isa = PBXGroup;
 			children = (
 				3C7BC18C4A8415421468351C /* Components.swift */,
+				07FBF2AEEC014868A3FDD99C /* DualPaneView.swift */,
 				8DB21D8983184DD5830F6779 /* TabBar.swift */,
 			);
 			path = Components;
@@ -299,6 +302,7 @@
 				1A5EF9DC9BAEC1A8B32E7E99 /* ProfileView.swift in Sources */,
 				3C1E871AD8A1AC5A248EACD4 /* RewardsView.swift in Sources */,
 				0FB49588DAB74FACDDD4A8AF /* TabBar.swift in Sources */,
+				34D6FF960D8E44999860FF07 /* DualPaneView.swift in Sources */,
 				5C8AE8C00A7EECEF2BB1F88F /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -108,8 +108,11 @@ private struct LoadingView: View {
     }
 }
 
-/// Five screens behind a floating tab bar.
+/// Five screens behind a floating tab bar. On the iPhone Duo the tabs are a
+/// rail on the right edge instead, and with the phone open two screens show
+/// side by side.
 struct MainTabView: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
     #if DEBUG
     @State private var tab: AppTab = DemoMode.initialTab
     #else
@@ -117,6 +120,22 @@ struct MainTabView: View {
     #endif
 
     var body: some View {
+        GeometryReader { geo in
+            let insets = geo.safeAreaInsets
+            if sizeClass == .regular {
+                DualPaneView(insets: insets)
+            } else if insets.trailing > TabRail.stripMinWidth {
+                // The Duo's outer screen: status bar and camera in a strip on the right.
+                screen
+                    .softEdges(top: 0, bottom: 28)
+                    .tabRail([$tab], insets: insets)
+            } else {
+                screen.floatingTabBar(selection: $tab)
+            }
+        }
+    }
+
+    private var screen: some View {
         ZStack {
             switch tab {
             case .home: HomeView(selectedTab: $tab).transition(.opacity)
@@ -127,10 +146,7 @@ struct MainTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .softEdges(top: 10)
         .screenBackground()
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            FloatingTabBar(selection: $tab)
-                .padding(.bottom, 2)
-        }
     }
 }

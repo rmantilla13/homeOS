@@ -245,8 +245,13 @@ struct TimeGrid: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if compact { dayHeader }
-            allDayStrip
+            // Natural height only. On tall screens (iPhone Duo open) the
+            // header otherwise takes a share of the spare height.
+            Group {
+                if compact { dayHeader }
+                allDayStrip
+            }
+            .fixedSize(horizontal: false, vertical: true)
             ScrollViewReader { proxy in
                 ScrollView {
                     ZStack(alignment: .topLeading) {
@@ -271,7 +276,7 @@ struct TimeGrid: View {
             }
         }
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Theme.page)
     }
 
     private var scrollHour: Int {

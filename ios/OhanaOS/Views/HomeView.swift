@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(FamilyStore.self) private var store
     @Binding var selectedTab: AppTab
+    @Environment(\.calendarBeside) private var calendarBeside
     @State private var launch: AssistantLaunch?
     /// A suggestion waiting for the person to allow the AI assistant.
     @State private var consentLaunch: AssistantLaunch?
@@ -19,7 +20,7 @@ struct HomeView: View {
                     AssistantHeroCard(name: store.me?.displayName) { openAssistant($0) }
                     approvals
                     choreProgress
-                    upcoming
+                    if !calendarBeside { upcoming }
                     dinner
                 }
                 .padding(.horizontal, Theme.page)

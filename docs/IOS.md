@@ -42,6 +42,50 @@ replaces the checked-in project, so open the `.xcodeproj` instead.
 Siri needs no extra keys or entitlements: App Shortcuts are found by the App
 Intents metadata step of a normal build.
 
+### iPhone Duo
+
+The foldable iPhone Duo has two screens. The outer one is 466 × 678 points
+and has the usual compact iPhone width. The status bar and front camera sit
+in a strip down its right edge, which leaves about 360 points for the app. The inner one is 669 × 951 points and
+has a regular width and height. When you open or close the phone, the app
+resizes right away.
+
+- **Build with Xcode 27.1 or newer.** With iOS 27.1, the app draws edge to
+  edge on the Duo, and its simulator needs the 27.1 runtime. Xcode 27.0 can't
+  boot an iPhone Duo simulator ("Incompatible device"), and apps built with
+  it don't draw under the status bar or the cameras. Xcode 27.1 also needs
+  the iOS 27.1 Simulator runtime: `xcodebuild -downloadPlatform iOS`.
+- **Portrait lock.** `UISupportedInterfaceOrientations` is still portrait
+  only. The outer screen honors that. The inner screen ignores it, so the
+  layout has to follow the window size and never the orientation. Nothing in
+  the app reads `UIScreen.main.bounds`, the orientation or the device idiom.
+- **Tabs on the right.** On the Duo the tabs are a vertical rail on the
+  right edge (`TabRail`) instead of the bar at the bottom. On the outer
+  screen the rail sits in the empty lower part of the status strip (a
+  trailing safe area wider than 40 points), so the app keeps its full width.
+- **Two screens when open.** On a regular-width window (the inner screen),
+  `MainTabView` shows `DualPaneView`: two screens side by side, one each
+  side of the fold. The rail has two groups of tabs: the top one picks the
+  left screen and the bottom one the right screen. The defaults are
+  Calendar on the left and Home (the assistant, approvals, chores and
+  dinner) on the right. Picking on one side what the other side shows swaps
+  them. The choice is stored on the phone (`duo.leftPane`,
+  `duo.rightPane`). With the calendar beside it, Home leaves out upcoming
+  activities, and its "See all" opens that screen on the other side. When
+  the rail needs a column of its own, the two screens split what's left
+  evenly, so the divider sits a little left of the fold.
+- **Margins and soft edges.** Content keeps `Theme.page` (24 points) from
+  the screen edges. Content scrolling under the status bar, the bottom tab
+  bar or the bottom of the screen is eased out by `EdgeFade`: a light blur
+  that fades to nothing, with a wash of the screen color.
+- **Wide screens.** The media grid uses adaptive columns: 3 across on a
+  regular iPhone and on the outer screen, and about 6 on the inner one when
+  a single screen fills it.
+- **To check on a Duo:** open and close the phone on each tab, the media
+  viewer, the assistant and the calendar's week view. Look for clipped text
+  and lost state. The app shouldn't need the phone opened or closed to reach
+  anything.
+
 ## Code map
 
 ```
